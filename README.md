@@ -1,6 +1,12 @@
 # dotfiles
 
-These are my half-baked dotfiles. They might just need to be updated and cleaned up so they are more presentable to the general public.
+these are my half-baked dotfiles. they might just need to be updated and cleaned up so they are more presentable to the general public.
+
+## mac (new)
+
+currently works on mac set-up. havent tested on other distributions but wezterm should make it cross-platform compatible
+
+## windows (old)
 
 For personal use, just clone the repository and create symbolic links to your home directory for each folder.
 

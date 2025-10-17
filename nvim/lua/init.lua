@@ -17,19 +17,15 @@ vim.opt.rtp:prepend(lazypath)
 
 
 -- Setup lazy.nvim
-
 require("lazy").setup({
     spec = "plugins", change_detection = { notify = false },
 })
--- Setup lazy.nvim
---require("lazy").setup({
---  spec = {
---    -- import your plugins
---    { import = "plugins" },
---  },
---  -- Configure any other settings here. See the documentation for more details.
---  -- colorscheme that will be used when installing plugins.
---  install = { colorscheme = { "habamax" } },
---  -- automatically check for plugin updates
---  checker = { enabled = true },
---})
+
+-- config
+vim.diagnostic.config({
+    virtual_text = true, -- Show inline diagnostics
+    signs = true,        -- Show signs in the gutter
+    update_in_insert = false,
+    underline = true,
+    severity_sort = true,
+})

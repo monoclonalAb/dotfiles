@@ -40,10 +40,10 @@ vim.g.maplocalleader = "\\"
 -- set file format
 vim.opt.fileformat = "unix"
 vim.api.nvim_create_autocmd("BufWritePre", {
-	pattern = "*",
-	callback = function()
-		vim.opt.fileformat = "unix"
-	end,
+    pattern = "*",
+    callback = function()
+        vim.opt.fileformat = "unix"
+    end,
 })
 
 -- let ghregex='\(^\|\s\s\)\zs\.\S\+'

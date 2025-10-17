@@ -7,13 +7,13 @@ local keymap = vim.keymap.set
 ------------------
 -- Vim Keybinds --
 ------------------
-keymap("n", "<leader>e", ":Ex<CR>")
+keymap("n", "<leader>e", ":Oil --float<CR>")
 
 -----------------
 -- Vim Macroes --
 -----------------
 keymap("n", "<leader>gr", "gd[{V%::s/<C-R>///gc<left><left><left>", {}) -- locally change all variable names
-keymap("n", "<leader>gR", "gD:%s/<C-R>///gc<left><left><left>") -- globally change all variable names
+keymap("n", "<leader>gR", "gD:%s/<C-R>///gc<left><left><left>")         -- globally change all variable names
 
 ------------------------
 -- Telescope Keybinds --

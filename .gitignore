@@ -1,0 +1,16 @@
+# nvim files
+*/lazy-lock.json
+*/temp.tmp
+
+# mac-specific files
+.DS_Store
+
+# zsh files
+*/.zsh_sessions
+*/.zsh_history
+
+# remove raycast
+raycast
+
+# custom files
+*/access_tokens.md

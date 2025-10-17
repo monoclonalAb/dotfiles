@@ -23,7 +23,7 @@ return {
         workspaces = {
             {
                 name = "the holy grail",
-                path = "~/holy files/the holy grail",
+                path = "/Users/ericzheng/Documents/obsidian",
             },
         },
 

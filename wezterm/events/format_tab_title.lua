@@ -5,106 +5,109 @@ local Config = {}
 Config.cells = {}
 
 Config.set_process_name = function(s)
-	local a = string.gsub(s, "(.*[/\\])(.*)", "%2")
-	return a:gsub("%.exe$", "")
+    local a = string.gsub(s, "(.*[/\\])(.*)", "%2")
+    return a:gsub("%.exe$", "")
 end
 
 Config.find_base_name = function(path)
-	local trimmed_path = path:gsub("[/\\]*$", "")
-	local index = trimmed_path:find("[^/\\]*$")
-	return index and trimmed_path:sub(index) or trimmed_path
+    local trimmed_path = path:gsub("[/\\]*$", "")
+    local index = trimmed_path:find("[^/\\]*$")
+    return index and trimmed_path:sub(index) or trimmed_path
 end
 
 Config.check_if_admin = function(p)
-	if p:match("^Administrator: ") then
-		return true
-	end
-	return false
+    if p:match("^Administrator: ") then
+        return true
+    end
+    return false
 end
 
 Config.get_current_working_dir = function(tab)
-	local current_dir = tab.active_pane.current_working_dir
-	local HOME_DIR = string.format("file://%s", os.getenv("HOME"))
+    local current_dir = tab.active_pane.current_working_dir
+    local HOME_DIR = string.format("file://%s", os.getenv("HOME"))
 
-	return current_dir == HOME_DIR and "." or string.gsub(current_dir, "(.*[/\\])(.*)", "%2")
+    return current_dir == HOME_DIR and "." or string.gsub(current_dir, "(.*[/\\])(.*)", "%2")
 end
 
 Config.languages = {
-	["lua-language-server"] = "lua",
+    ["lua-language-server"] = "lua",
 }
 
 Config.set_title = function(process_name, base_title, max_width)
-	local title
-	local inset = 2
+    local title
+    local inset = 5
 
-	if Config.languages[process_name] then
-		process_name = Config.languages[process_name]
-	end
+    if Config.languages[process_name] then
+        process_name = Config.languages[process_name]
+    end
 
-	if process_name:len() > 0 then
-		title = " " .. process_name .. " ~ " .. base_title
-	else
-		title = " " .. base_title
-	end
+    if process_name:len() > 0 then
+        title = " " .. process_name .. " ~ " .. base_title
+    else
+        title = " " .. base_title
+    end
 
-	if title:len() > max_width - inset then
-		local diff = title:len() - max_width + inset
-		title = wezterm.truncate_right(title, title:len() - diff)
-	else
-		local padding = max_width - title:len() - inset
-		title = string.rep(" ", padding // 2) .. title .. string.rep(" ", padding // 2)
-	end
+    if title:len() > max_width - inset then
+        local diff = title:len() - max_width + inset
+        title = wezterm.truncate_right(title, title:len() - diff)
+    else
+        local padding = max_width - title:len() - inset
+        title = string.rep(" ", padding // 2) .. title .. string.rep(" ", padding // 2)
+    end
 
-	return title
+    return title
 end
 
 Config.push = function(bg, fg, attribute, text)
-	table.insert(Config.cells, { Background = { Color = bg } })
-	table.insert(Config.cells, { Foreground = { Color = fg } })
-	table.insert(Config.cells, { Attribute = attribute })
-	table.insert(Config.cells, { Text = text })
+    table.insert(Config.cells, { Background = { Color = bg } })
+    table.insert(Config.cells, { Foreground = { Color = fg } })
+    table.insert(Config.cells, { Attribute = attribute })
+    table.insert(Config.cells, { Text = text })
 end
 
 local current_scheme = wezterm.color.get_builtin_schemes()
 
 Config.setup = function()
-	wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
-		Config.cells = {}
+    wezterm.on("format-tab-title", function(tab, tabs, panes, config, hover, max_width)
+        Config.cells = {}
 
-		local bg
-		local fg
+        local bg
+        local fg
 
-		local process_name = Config.set_process_name(tab.active_pane.foreground_process_name)
+        local process_name = Config.set_process_name(tab.active_pane.foreground_process_name)
 
-		local directory
-		if tab.active_pane.current_working_dir then
-			directory = Config.find_base_name(tab.active_pane.current_working_dir.file_path)
-		else
-			directory = tab.active_pane.title
-		end
+        local directory
+        if tab.active_pane.current_working_dir then
+            directory = Config.find_base_name(tab.active_pane.current_working_dir.file_path)
+        else
+            directory = tab.active_pane.title
+        end
 
-		local title = Config.set_title(process_name, directory, max_width)
+        local title = Config.set_title(process_name, directory, max_width)
 
-		fg = current_scheme[config.color_scheme].background
-		if tab.is_active then
-			bg = current_scheme[config.color_scheme].ansi[5]
-		elseif hover then
-			bg = current_scheme[config.color_scheme].ansi[7]
-		else
-			bg = current_scheme[config.color_scheme].brights[1]
-		end
+        fg = current_scheme[config.color_scheme].background
+        if tab.is_active then
+            bg = current_scheme[config.color_scheme].ansi[5]
+        elseif hover then
+            bg = current_scheme[config.color_scheme].ansi[7]
+        else
+            bg = current_scheme[config.color_scheme].brights[1]
+        end
 
-		-- Title
-		Config.push(bg, fg, { Intensity = "Bold" }, title)
+        -- Before Semi-Circle
+        Config.push(fg, bg, { Intensity = "Bold" }, " ")
 
-		-- Right padding
-		Config.push(bg, fg, { Intensity = "Bold" }, " ")
+        -- Title
+        Config.push(bg, fg, { Intensity = "Bold" }, title)
 
-		-- Right padding after semi-circle
-		Config.push(fg, fg, { Intensity = "Bold" }, " ")
+        -- Right padding (after title since not centered)
+        Config.push(bg, fg, { Intensity = "Bold" }, " ")
 
-		return Config.cells
-	end)
+        -- After Semi-Circle
+        Config.push(fg, bg, { Intensity = "Bold" }, " ")
+
+        return Config.cells
+    end)
 end
 
 return Config

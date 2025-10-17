@@ -1,11 +1,26 @@
+local platform = require('utils.platform')
+
 local options = {
-	default_prog = { "pwsh", "-NoLogo" },
-	launch_menu = {
-		{ label = "PowerShell Core", args = { "pwsh", "-NoLogo" } },
-		{ label = "PowerShell Desktop", args = { "powershell" } },
-		{ label = "Command Prompt", args = { "cmd" } },
-		{ label = "Nushell", args = { "nu" } },
-	},
+	default_prog = {},
+	launch_menu = {},
 }
+
+if platform.is_win then
+  options.default_prog = { "powershell", "-NoLogo" }
+  options.launch_menu = {
+    { label = "PowerShell Core", args = { "pwsh", "-NoLogo" } },
+    { label = "PowerShell Desktop", args = { "powershell" } },
+    { label = "Command Prompt", args = { "cmd" } },
+    { label = "Nushell", args = { "nu" } },
+  }
+elseif platform.is_mac then
+  options.default_prog = { 'Zsh', '-l' }
+  options.launch_menu = {
+    { label = 'Bash', args = { 'bash', '-l' } },
+    { label = 'Fish', args = { '/opt/homebrew/bin/fish', '-l' } },
+    { label = 'Nushell', args = { '/opt/homebrew/bin/nu', '-l' } },
+    { label = 'Zsh', args = { 'zsh', '-l' } },
+  }
+end
 
 return options
