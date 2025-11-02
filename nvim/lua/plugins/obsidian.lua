@@ -26,7 +26,11 @@ return {
                 path = "/Users/ericzheng/Documents/obsidian",
             },
         },
-
-        -- see below for full list of options 👇
+        ui = {
+            enable = false,
+            checkboxes = {},
+            bullets = {},
+            external_link_icon = {},
+        },
     },
 }

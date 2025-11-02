@@ -20,12 +20,3 @@ vim.opt.rtp:prepend(lazypath)
 require("lazy").setup({
     spec = "plugins", change_detection = { notify = false },
 })
-
--- config
-vim.diagnostic.config({
-    virtual_text = true, -- Show inline diagnostics
-    signs = true,        -- Show signs in the gutter
-    update_in_insert = false,
-    underline = true,
-    severity_sort = true,
-})

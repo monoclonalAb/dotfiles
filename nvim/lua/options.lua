@@ -12,7 +12,7 @@ vim.opt.wrap = false
 -- tap spaces rules
 vim.opt.expandtab = true
 vim.opt.tabstop = 2
-vim.opt.shiftwidth = 4
+vim.opt.shiftwidth = 2
 
 -- cursor can be positioned where there are no characters - maybe try with "all" later
 vim.opt.virtualedit = "block"
@@ -40,10 +40,20 @@ vim.g.maplocalleader = "\\"
 -- set file format
 vim.opt.fileformat = "unix"
 vim.api.nvim_create_autocmd("BufWritePre", {
-    pattern = "*",
-    callback = function()
-        vim.opt.fileformat = "unix"
-    end,
+	pattern = "*",
+	callback = function()
+		vim.opt.fileformat = "unix"
+	end,
+})
+
+-- set up diagnostics
+vim.diagnostic.config({
+	virtual_text = true, -- Show inline diagnostics
+	-- virtual_lines = true,
+	signs = true, -- Show signs in the gutter
+	update_in_insert = false,
+	underline = true,
+	severity_sort = true,
 })
 
 -- let ghregex='\(^\|\s\s\)\zs\.\S\+'
