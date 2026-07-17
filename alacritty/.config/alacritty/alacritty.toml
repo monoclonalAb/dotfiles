@@ -1,0 +1,160 @@
+# Alacritty Configuration - All settings with default values
+# Reference: https://alacritty.org/config-alacritty.html
+
+[general]
+# Import additional configuration files (merged in order, later values override)
+import = ["~/.config/alacritty/themes/catppuccin/catppuccin-latte.toml"]
+# Working directory (set to "None" to use parent process's working directory)
+working_directory = "None"
+# Live config reload on file change
+live_config_reload = true
+# Allow IPC socket creation (Unix only)
+ipc_socket = true
+
+[env]
+# Environment variables set for the terminal child process
+# Example:
+# TERM = "xterm-256color"
+
+[window]
+# Window dimensions in columns and lines (0 = auto)
+dimensions = { columns = 0, lines = 0 }
+# Window startup position in pixels ("None" = window manager placement)
+position = "None"
+# Blank space around the terminal content in pixels
+padding = { x = 8, y = 8 }
+# Spread extra padding evenly around the terminal content
+dynamic_padding = false
+# Window decorations: "Full" | "None" | "Transparent" | "Buttonless"
+decorations = "Buttonless"
+# Background opacity (0.0 to 1.0)
+opacity = 0.6
+# Background blur (macOS/KDE Wayland only)
+blur = true
+# Startup mode: "Windowed" | "Maximized" | "Fullscreen" | "SimpleFullscreen"
+startup_mode = "Windowed"
+# Window title
+title = "Alacritty"
+# Allow terminal programs to change the window title
+dynamic_title = true
+# Window class (Linux/BSD only)
+class = { instance = "Alacritty", general = "Alacritty" }
+# Theme variant for window decorations: "None" | "Dark" | "Light"
+decorations_theme_variant = "Light"
+# Use terminal cell size for resize increments
+resize_increments = false
+# Make Option key behave as Alt (macOS only): "None" | "OnlyLeft" | "OnlyRight" | "Both"
+option_as_alt = "None"
+# Window level: "Normal" | "AlwaysOnTop" | "AlwaysOnBottom"
+level = "Normal"
+
+[scrolling]
+# Maximum lines in the scrollback buffer
+history = 10000
+# Scroll speed multiplier
+multiplier = 3
+
+[font]
+# Font size in points
+size = 9.5
+# Offset to tweak font display (in pixels)
+offset = { x = 0, y = 0 }
+# Offset for glyph rendering within cells (in pixels)
+glyph_offset = { x = 0, y = 0 }
+# Use built-in font for box drawing characters
+builtin_box_drawing = true
+
+[font.normal]
+# Default font family ("monospace" on Linux, "Menlo" on macOS, "Consolas" on Windows)
+family = "JetBrainsMono Nerd Font"
+style = "Regular"
+
+[font.bold]
+# Bold font (inherits family from normal if not set)
+family = "JetBrainsMono Nerd Font"
+style = "Bold"
+
+[font.italic]
+# Italic font (inherits family from normal if not set)
+family = "JetBrainsMono Nerd Font"
+style = "Italic"
+
+[font.bold_italic]
+# Bold italic font (inherits family from normal if not set)
+family = "JetBrainsMono Nerd Font"
+style = "Bold Italic"
+
+# Colors are provided by the imported Catppuccin Latte theme
+
+[bell]
+# Animation style: "Ease" | "EaseOut" | "EaseOutSine" | "EaseOutQuart" | "EaseOutCirc" | "EaseOutExpo" | "EaseOutCubic" | "Linear"
+animation = "Linear"
+# Visual bell duration in milliseconds (0 = disabled)
+duration = 0
+# Visual bell flash color
+color = "#ffffff"
+# Command to execute when bell is triggered ("None" = disabled)
+command = "None"
+
+[selection]
+# Characters for semantic word selection boundaries
+semantic_escape_chars = ",│`|:\"' ()[]{}<>\\t"
+# Copy selected text to clipboard automatically
+save_to_clipboard = false
+
+[cursor]
+# Cursor blink interval in milliseconds
+blink_interval = 750
+# Seconds of inactivity before stopping cursor blinking (0 = never stop)
+blink_timeout = 5
+# Show hollow cursor when window is unfocused
+unfocused_hollow = true
+# Cursor thickness for "Beam" and "Underline" shapes (0.0 to 1.0)
+thickness = 0.15
+
+[cursor.style]
+# Cursor shape: "Block" | "Underline" | "Beam"
+shape = "Block"
+# Cursor blinking: "Never" | "Off" | "On" | "Always"
+blinking = "Off"
+
+# [cursor.vi_mode_style]
+# Vi mode cursor style (omit to inherit from cursor.style)
+
+[terminal]
+# Shell program and args ("None" = user's default shell)
+shell = "None"
+# OSC 52 clipboard handling: "Disabled" | "OnlyCopy" | "OnlyPaste" | "CopyPaste"
+osc52 = "OnlyCopy"
+
+[mouse]
+# Hide cursor while typing
+hide_when_typing = false
+# Mouse bindings
+bindings = []
+
+[hints]
+# Characters for hint labels
+alphabet = "jfkdls;ahgurieowpq"
+# Hint rules (default includes URL detection with Ctrl+Shift+O)
+# enabled = []
+
+[keyboard]
+# Key bindings (see alacritty-bindings(5) for defaults)
+# bindings = []
+
+[debug]
+# Display render timer
+render_timer = false
+# Keep log file after quitting
+persistent_logging = false
+# Log level: "Off" | "Error" | "Warn" | "Info" | "Debug" | "Trace"
+log_level = "Warn"
+# Force renderer: "None" | "Glx" | "Vulkan" | "Software"
+renderer = "None"
+# Log all received window events
+print_events = false
+# Highlight damage information
+highlight_damage = false
+# Prefer EGL over other display APIs
+prefer_egl = false

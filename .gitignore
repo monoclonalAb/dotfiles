@@ -1,16 +1,17 @@
-# nvim files
-*/lazy-lock.json
-*/temp.tmp
+# macOS
+**/.DS_Store
 
-# mac-specific files
-.DS_Store
+# nvim (managed plugin lockfile / scratch)
+**/lazy-lock.json
+**/temp.tmp
 
-# zsh files
-*/.zsh_sessions
-*/.zsh_history
+# zsh runtime + secrets — now nested under zsh/.config/zsh/, so use ** globs
+**/.zsh_history
+**/.zsh_sessions/
+**/.zcompdump*
+**/access_tokens.md
 
-# remove raycast
-raycast
-
-# custom files
-*/access_tokens.md
+# tmux plugins — installed by tpm, not hand-edited.
+# Restore on a new machine: git clone https://github.com/tmux-plugins/tpm
+#   ~/.config/tmux/plugins/tpm  then start tmux and press <prefix> + I
+tmux/.config/tmux/plugins/
