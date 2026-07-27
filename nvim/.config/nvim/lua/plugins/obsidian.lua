@@ -23,11 +23,11 @@ return {
                 path = "/Users/ericzheng/Documents/obsidian",
             },
         },
+        -- UI disabled entirely (render-markdown.nvim handles rendering).
+        -- Keep this minimal: an empty `ui.checkboxes` still trips the fork's
+        -- deprecation warning, so don't list the sub-keys.
         ui = {
             enable = false,
-            checkboxes = {},
-            bullets = {},
-            external_link_icon = {},
         },
     },
 }
