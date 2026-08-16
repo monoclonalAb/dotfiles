@@ -44,7 +44,7 @@ decorations_theme_variant = "Light"
 # Use terminal cell size for resize increments
 resize_increments = false
 # Make Option key behave as Alt (macOS only): "None" | "OnlyLeft" | "OnlyRight" | "Both"
-option_as_alt = "None"
+option_as_alt = "Both"
 # Window level: "Normal" | "AlwaysOnTop" | "AlwaysOnBottom"
 level = "Normal"
 
