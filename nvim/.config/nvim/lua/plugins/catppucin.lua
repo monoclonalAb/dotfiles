@@ -3,9 +3,8 @@ return {
     name = "catppuccin",
     priority = 1000,
     config = function()
-        require("catppuccin").setup({
-            transparent_background = true,
-        })
-        vim.cmd.colorscheme("catppuccin-latte")
+        -- Flavour and transparency come from the shared theme state, so a
+        -- newly-started nvim matches whatever Alacritty and tmux are showing.
+        require("theme").setup()
     end,
 }

@@ -176,6 +176,16 @@ Git picks that up via XDG automatically — no `core.excludesfile` needed.)
 **Terminal** — Alacritty and WezTerm are both configured; pick one and make it your
 default. Both ask for `JetBrainsMono Nerd Font`, installed by the Brewfile.
 
+**Theme** — seed the shared Catppuccin state, which Alacritty, tmux and Neovim all read
+(see [Theme toggle](#theme-toggle)):
+
+```sh
+theme set latte 0.6
+```
+
+Until this runs, each app falls back to its own default and Alacritty logs a missing-import
+error to `$TMPDIR/Alacritty-*.log` — harmless, and this clears it.
+
 **AeroSpace** — launch it once and grant Accessibility in System Settings → Privacy &
 Security. `start-at-login = true` is already in the config.
 
@@ -244,7 +254,7 @@ This repo carries configs for **two** tiling WMs whose alt-bindings collide. Run
 
 | Managed (stow packages) | Left in `~/.config` (real dirs, untracked) |
 |---|---|
-| nvim, tmux, zsh (+`~/.zshenv`), fish, alacritty, wezterm, aerospace, yabai, skhd, yazi, neofetch, git | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh, github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
+| nvim, tmux, zsh (+`~/.zshenv`), fish, alacritty, wezterm, aerospace, yabai, skhd, yazi, neofetch, git, bin | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh, github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
 
 Two packages are kept but no longer load-bearing: **`neofetch/`** (fastfetch is what's
 actually installed now) and **`fish/`** (contains only a conda init block).
@@ -254,6 +264,35 @@ Secrets never enter this repo: token/history files (`access_tokens.md`, `.zsh_hi
 mechanism — because `~/.config/zsh` is a symlink *into* the repo, files zsh writes at
 runtime land physically inside the working tree. They're kept out of git by the `**` globs
 in `.gitignore`, not by living elsewhere. Check `git status` before committing.
+
+## Theme toggle
+
+Alacritty, tmux and Neovim share one Catppuccin flavour and one opacity, driven by
+`bin/.local/bin/theme` (on `PATH` via `~/.local/bin`).
+
+| Hotkey (in Alacritty) | Effect |
+|---|---|
+| `Ctrl+Shift+T` | next flavour — latte → frappe → macchiato → mocha → latte |
+| `Ctrl+Shift+B` | next opacity — 1.0 → 0.85 → 0.6 → 1.0 |
+
+`Ctrl+Shift+B` rather than the mnemonic `Ctrl+Shift+O`, which is Alacritty's built-in
+URL-hint binding.
+
+```sh
+theme status                # what's set right now
+theme set mocha 0.85        # set explicitly
+theme cycle                 # same as Ctrl+Shift+T
+theme opacity               # same as Ctrl+Shift+B
+```
+
+State lives in `~/.local/state/theme/` — deliberately outside this repo, so pressing the
+hotkey never dirties `git status`. The repo keeps latte/0.6 as its committed default; each
+app falls back to that when the state dir is missing. Changes reach Alacritty via
+`live_config_reload`, tmux via `source-file`, and every running Neovim over RPC (plus a
+`FocusGained` fallback). New windows read the state on startup.
+
+Below 1.0 opacity, Neovim also turns on `transparent_background` so the terminal shows
+through; at 1.0 it paints its own background.
 
 ## Common tasks
 
