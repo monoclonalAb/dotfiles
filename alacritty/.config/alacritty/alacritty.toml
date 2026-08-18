@@ -193,3 +193,8 @@ print_events = false
 highlight_damage = false
 # Prefer EGL over other display APIs
 prefer_egl = false
+
+[[keyboard.bindings]]
+key = "Return"
+mods = "Shift"
+chars = "\u001B\r"

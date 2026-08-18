@@ -23,11 +23,13 @@ brew "zsh-syntax-highlighting"
 brew "zsh-vi-mode"
 
 brew "neovim"                  # 0.11+ — lsp.lua uses vim.lsp.config()
+brew "herdr"                   # persistent terminal workspaces for coding agents
+brew "python@3.14"             # herdr-next-agent plugin runtime
 brew "tmux"
 brew "ripgrep"                 # telescope live_grep, todo-comments, trouble
 brew "fd"                      # telescope file finder
 brew "lazygit"                 # toggleterm, <leader>gg
-brew "tree-sitter"             # .zshrc puts /opt/homebrew/opt/tree-sitter/bin on PATH
+brew "tree-sitter-cli"         # required to generate and compile nvim-treesitter parsers
 brew "make"                    # telescope-fzf-native's `build = "make"`
 brew "cmake"
 brew "luarocks"

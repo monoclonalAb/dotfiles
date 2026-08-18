@@ -71,6 +71,7 @@ nushell, yabai, MacTeX) that's off by default.
 
 ```sh
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source "$HOME/.nvm/nvm.sh"
 nvm install --lts
 ```
 
@@ -124,7 +125,24 @@ Writes `~/.p10k.zsh`, which is deliberately **not** in this repo (it's 89 KB of 
 config). `.zshrc` sources it only if present, so the shell works — plainly — before you
 run this.
 
-**tmux**
+**Herdr**
+
+```sh
+herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
+herdr config check
+herdr
+```
+
+Herdr is the primary terminal workspace manager. Its config keeps the tmux `C-a`
+muscle memory: `h/j/k/l` moves between panes, `\` / `-` splits right / down, `c`
+closes a pane, `C-c` creates a tab, `r` renames it, `w` opens the workspace picker,
+and `z` zooms. `H` / `L` changes tabs, `x` swaps down, and `Space` enters resize mode.
+Press `C-a u` to jump to the next agent conversation needing attention, or `C-a ?`
+for the complete live keymap. Workspaces replace tmux sessions, tabs replace tmux
+windows, and Herdr persists them while the local next-agent plugin provides the
+attention queue.
+
+**tmux (legacy fallback)**
 
 ```sh
 git clone https://github.com/tmux-plugins/tpm ~/.config/tmux/plugins/tpm
@@ -141,13 +159,11 @@ are tpm's job, not this repo's.
 nvim
 ```
 
-First launch bootstraps lazy.nvim, then Mason pulls the LSPs and linters. Two things
-Mason will *not* do on its own:
-
-- **Formatters.** `conform.lua` calls `stylua`, `black`, `isort` and `prettierd`, but none
-  are in an `ensure_installed` list. Until you `:Mason` them, format-on-save quietly falls
-  back to the LSP formatter instead of erroring.
-- **Java.** `:Mason` install `jdtls`, `java-debug-adapter` and `java-test`.
+First launch bootstraps lazy.nvim, then Mason provisions the configured LSPs, linters,
+formatters, Java tooling, and debug adapters. Node/npm must be available first: it is required
+for the web-language servers, Prettier, ESLint, TypeScript Tools, and JavaScript debugging.
+Mason also supplies TypeScript Tools' `tsserver`, so no global TypeScript install is needed.
+The Tree-sitter parser installer likewise requires `tree-sitter-cli`, which the Brewfile installs.
 
 Note `lazy-lock.json` is gitignored, so a fresh install pulls the latest stable version of
 every plugin rather than the versions pinned on the old machine.
@@ -176,7 +192,7 @@ Git picks that up via XDG automatically — no `core.excludesfile` needed.)
 **Terminal** — Alacritty and WezTerm are both configured; pick one and make it your
 default. Both ask for `JetBrainsMono Nerd Font`, installed by the Brewfile.
 
-**Theme** — seed the shared Catppuccin state, which Alacritty, tmux and Neovim all read
+**Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux and Neovim share
 (see [Theme toggle](#theme-toggle)):
 
 ```sh
@@ -196,7 +212,8 @@ exec zsh                 # no errors printed
 ls                       # colourised, dirs first  => gls/coreutils works
 echo $ZDOTDIR            # /Users/you/.config/zsh   => .zshenv is linked
 nvim +checkhealth        # lazy/mason/treesitter all green
-tmux                     # statusline renders with icons, not tofu
+herdr config check       # config parses and every custom key is valid
+herdr                    # persistent workspace opens with the C-a prefix
 ```
 
 ## The rule (how to tell what's managed)
@@ -223,7 +240,7 @@ machine. Fix or delete as you go.
 | `zsh/.config/zsh/.zshrc:30` | `/Library/TeX/texbin`, `/usr/local/share/dotnet` | harmless if absent; they're just PATH entries |
 | `zsh/.config/zsh/.zshrc:36-49` | conda block at `/opt/anaconda3` | install Anaconda there, or delete the block |
 | `fish/.config/fish/config.fish` | the same conda block | ditto |
-| `nvim/.config/nvim/lua/plugins/obsidian.lua:23` | `/Users/ericzheng/Documents/obsidian` | point it at your vault |
+| `nvim/.config/nvim/lua/plugins/obsidian.lua` | Obsidian integration loads only when `~/Documents/obsidian` exists | create your vault there; ordinary Markdown works without one |
 
 ## Optional extras
 
@@ -254,7 +271,7 @@ This repo carries configs for **two** tiling WMs whose alt-bindings collide. Run
 
 | Managed (stow packages) | Left in `~/.config` (real dirs, untracked) |
 |---|---|
-| nvim, tmux, zsh (+`~/.zshenv`), fish, alacritty, wezterm, aerospace, yabai, skhd, yazi, neofetch, git, bin | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh, github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
+| nvim, herdr, tmux, zsh (+`~/.zshenv`), fish, alacritty, wezterm, aerospace, yabai, skhd, yazi, neofetch, git, bin | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh, github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
 
 Two packages are kept but no longer load-bearing: **`neofetch/`** (fastfetch is what's
 actually installed now) and **`fish/`** (contains only a conda init block).
@@ -267,7 +284,7 @@ in `.gitignore`, not by living elsewhere. Check `git status` before committing.
 
 ## Theme toggle
 
-Alacritty, tmux and Neovim share one Catppuccin flavour and one opacity, driven by
+Alacritty, Herdr, tmux and Neovim share Catppuccin and one terminal opacity, driven by
 `bin/.local/bin/theme` (on `PATH` via `~/.local/bin`).
 
 | Hotkey (in Alacritty) | Effect |
@@ -288,8 +305,10 @@ theme opacity               # same as Ctrl+Shift+B
 State lives in `~/.local/state/theme/` — deliberately outside this repo, so pressing the
 hotkey never dirties `git status`. The repo keeps latte/0.6 as its committed default; each
 app falls back to that when the state dir is missing. Changes reach Alacritty via
-`live_config_reload`, tmux via `source-file`, and every running Neovim over RPC (plus a
-`FocusGained` fallback). New windows read the state on startup.
+`live_config_reload`; Herdr follows Alacritty's light/dark appearance (Latte for light,
+its dark Catppuccin variant for frappe/macchiato/mocha); tmux uses `source-file`; and
+every running Neovim updates over RPC (plus a `FocusGained` fallback). New windows read
+the state on startup.
 
 **Alacritty's theme-driven keys must stay out of `alacritty.toml`.** Its `import` list is
 merged with the *importing* file last, so a key set in `alacritty.toml` itself overrides
@@ -341,6 +360,9 @@ stow -n -v -t "$HOME" nvim  # dry-run: preview link actions / conflicts
 | Boxes / tofu instead of icons | Nerd Font not installed, or not selected in the terminal |
 | `stow: WARNING! stowing X would cause conflicts` | a real file/dir occupies the target — `mv` it aside and re-run |
 | Telescope `live_grep` returns nothing, silently | `ripgrep` missing |
+| Tree-sitter errors on every startup | `tree-sitter-cli` missing — run `brew bundle` and restart Neovim |
+| Web LSPs or TypeScript fail to start | Node/npm missing — source `~/.nvm/nvm.sh`, run `nvm install --lts`, and restart Neovim |
+| Herdr ignores a config edit | Run `herdr server reload-config`, or press `C-a R` |
 | tmux statusline unstyled, plugins absent | tpm not cloned, or `C-a I` never pressed |
 | `prefix + Space` does nothing | `cycle-2x2.sh` needs `python3`, and only acts on exactly 5 or 7 panes |
 

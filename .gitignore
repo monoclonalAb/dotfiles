@@ -11,6 +11,10 @@
 **/.zcompdump*
 **/access_tokens.md
 
+# Machine-specific prompt configuration and generated Alacritty backup files.
+**/.p10k.zsh
+alacritty/.config/alacritty/*.toml.*.bak
+
 # tmux plugins — installed by tpm, not hand-edited.
 # Restore on a new machine: git clone https://github.com/tmux-plugins/tpm
 #   ~/.config/tmux/plugins/tpm  then start tmux and press <prefix> + I

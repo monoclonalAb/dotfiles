@@ -1,0 +1,122 @@
+# Herdr replacement for the tmux workflow in ~/.config/tmux/tmux.conf.
+# Herdr workspaces map to tmux sessions; tabs map to tmux windows.
+
+onboarding = false
+
+[theme]
+# Follow the terminal between Catppuccin Latte and Herdr's dark Catppuccin
+# variant. The shared `theme` script updates Alacritty's light/dark appearance.
+name = "catppuccin-latte"
+auto_switch = true
+light_name = "catppuccin-latte"
+dark_name = "catppuccin"
+
+[terminal]
+# Match tmux's `-c '#{pane_current_path}'` splits and new windows.
+shell_mode = "auto"
+new_cwd = "follow"
+
+[keys]
+# Keep the tmux prefix and make every Herdr action explicit.
+prefix = "ctrl+a"
+help = "prefix+?"
+settings = "prefix+shift+s"
+detach = "prefix+ctrl+d"
+reload_config = "prefix+shift+r"
+open_notification_target = "prefix+o"
+toggle_sidebar = "prefix+b"
+
+# tmux sessions -> Herdr workspaces.
+new_workspace = "prefix+s"
+rename_workspace = "prefix+shift+w"
+close_workspace = "prefix+shift+d"
+workspace_picker = "prefix+w"
+goto = "prefix+ctrl+w"
+previous_workspace = "prefix+shift+left"
+next_workspace = "prefix+shift+right"
+switch_workspace = "prefix+shift+1..9"
+navigate_workspace_up = "up"
+navigate_workspace_down = "down"
+
+# Git worktrees within a workspace.
+open_worktree = "prefix+g"
+new_worktree = "prefix+shift+g"
+remove_worktree = "prefix+ctrl+g"
+
+# Agent navigation. Image paste is direct because it is active only for
+# remote Herdr clients.
+previous_agent = "prefix+shift+up"
+next_agent = "prefix+shift+down"
+focus_agent = "prefix+alt+1..9"
+remote_image_paste = "ctrl+v"
+
+# tmux windows -> Herdr tabs.
+new_tab = "prefix+ctrl+c"
+rename_tab = "prefix+r"
+previous_tab = "prefix+shift+h"
+next_tab = "prefix+shift+l"
+switch_tab = "prefix+1..9"
+close_tab = "prefix+shift+x"
+
+# Pane metadata, scrollback, and copy mode.
+rename_pane = "prefix+shift+p"
+edit_scrollback = "prefix+e"
+copy_mode = "prefix+["
+
+# Panes. In TOML, `\\` encodes the literal backslash key.
+focus_pane_left = "prefix+h"
+focus_pane_down = "prefix+j"
+focus_pane_up = "prefix+k"
+focus_pane_right = "prefix+l"
+navigate_pane_left = "h"
+navigate_pane_down = "j"
+navigate_pane_up = "k"
+navigate_pane_right = "l"
+
+# Keep tmux's x for swap-down and add a complete directional swap family.
+swap_pane_left = "prefix+ctrl+h"
+swap_pane_down = ["prefix+x", "prefix+ctrl+j"]
+swap_pane_up = "prefix+ctrl+k"
+swap_pane_right = "prefix+ctrl+l"
+cycle_pane_next = "prefix+tab"
+cycle_pane_previous = "prefix+shift+tab"
+# Herdr reserves a doubled prefix for sending literal C-a to the pane, so use
+# backtick for its closest equivalent: return to the last focused pane.
+last_pane = "prefix+backtick"
+
+split_vertical = "prefix+\\"
+split_horizontal = "prefix+minus"
+close_pane = "prefix+c"
+zoom = "prefix+z"
+# C-a Space replaces tmux's rigid 5/7-pane layout script with Herdr's
+# repeatable h/j/k/l resize mode.
+resize_mode = "prefix+space"
+
+[[keys.command]]
+key = "prefix+u"
+type = "plugin_action"
+command = "martinro.next-agent.jump"
+description = "next agent needing attention"
+
+[ui]
+# Mirror the tmux top status/window row and compact shared pane borders.
+tab_bar_position = "top"
+mouse_capture = true
+copy_on_select = true
+pane_borders = true
+pane_scrollbars = false
+pane_gaps = false
+show_agent_labels_on_pane_borders = true
+
+# tmux creates a window immediately and lets automatic naming take over.
+prompt_new_tab_name = false
+prompt_new_workspace_name = false
+
+agent_panel_sort = "spaces"
+[session]
+# Herdr persists topology itself and can resume supported agent sessions.
+resume_agents_on_restore = true
+
+[experimental]
+# Closest equivalent to retaining tmux-resurrect's recent terminal output.
+pane_history = true

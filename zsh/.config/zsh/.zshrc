@@ -27,7 +27,7 @@ alias prosperity='python /Users/ericzheng/Desktop/prosperity/prosperity4/_submis
 # Path #
 ########
 
-export PATH="/Library/TeX/texbin:/opt/homebrew/opt/tree-sitter/bin:$HOME/.cargo/bin:/usr/local/share/dotnet:$PATH"
+export PATH="/Library/TeX/texbin:$HOME/.cargo/bin:/usr/local/share/dotnet:$PATH"
 
 #########
 # Conda #
@@ -101,3 +101,6 @@ function y() {
 	rm -f -- "$tmp"
 }
 export PATH="$HOME/.local/bin:$PATH"
+
+# To customize prompt, run `p10k configure` or edit ~/.config/zsh/.p10k.zsh.
+[[ ! -f ~/.config/zsh/.p10k.zsh ]] || source ~/.config/zsh/.p10k.zsh

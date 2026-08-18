@@ -123,7 +123,7 @@ automatically-unhide-macos-hidden-apps = false
     alt-8 = 'workspace 8'
     alt-9 = 'workspace 9'
 
-    alt-0 = 'workspace 0' # discord
+    alt-0 = 'workspace 0' # discord / slack
     alt-d = 'workspace D' # unity / dev
     alt-e = 'workspace E' # terminal
     alt-g = 'workspace G' # game
@@ -212,6 +212,10 @@ run = "move-node-to-workspace 4"
 
 [[on-window-detected]]
 if.app-id = 'com.hnc.Discord'
+run = "move-node-to-workspace 0"
+
+[[on-window-detected]]
+if.app-id = 'com.tinyspeck.slackmacgap'
 run = "move-node-to-workspace 0"
 
 [[on-window-detected]]

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # theme — cycle the Catppuccin flavour and the background opacity across
-# Alacritty, tmux and Neovim at once (bound to Ctrl+Shift+T / Ctrl+Shift+B in
+# Alacritty, Herdr, tmux and Neovim at once (bound to Ctrl+Shift+T / Ctrl+Shift+B in
 # alacritty.toml).
 #
 # Why a script instead of per-app config: the flavour used to be hardcoded in
@@ -59,8 +59,9 @@ Commands:
   apply              regenerate the overlays and push to running apps
   -h, --help         show this help
 
-Applies to Alacritty (live config reload), tmux (source-file) and every running
-Neovim (RPC). New windows pick up the current theme on startup.
+Applies to Alacritty (live config reload), Herdr (terminal light/dark appearance),
+tmux (source-file) and every running Neovim (RPC). New windows pick up the current
+theme on startup.
 
 The pushes are best-effort and never block, so cycle/opacity/set/apply also
 print what they reached to stderr — discarded under the hotkey, visible when run
