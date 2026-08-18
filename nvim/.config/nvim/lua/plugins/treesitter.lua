@@ -38,9 +38,21 @@ return {
         dependencies = { "nvim-treesitter/nvim-treesitter-context" },
         config = function()
             local TS = require("nvim-treesitter")
+            local can_install = vim.fn.executable("tree-sitter") == 1
 
-            -- Install the baseline parser set (async; no-op if already present).
-            TS.install(ensure_installed)
+            -- The main branch generates parsers through tree-sitter-cli.  Keep
+            -- existing parsers usable when the CLI is absent, but don't retry
+            -- every parser on every startup and flood :messages with ENOENT.
+            if can_install then
+                TS.install(ensure_installed)
+            else
+                vim.schedule(function()
+                    vim.notify_once(
+                        "nvim-treesitter needs tree-sitter-cli to install parsers. Run `brew bundle` or `brew install tree-sitter-cli`, then restart Neovim.",
+                        vim.log.levels.WARN
+                    )
+                end)
+            end
 
             local function installed(lang)
                 return vim.tbl_contains(TS.get_installed(), lang)
@@ -62,7 +74,7 @@ return {
                     end
                     if installed(lang) then
                         pcall(vim.treesitter.start, ev.buf, lang)
-                    elseif vim.tbl_contains(TS.get_available(), lang) then
+                    elseif can_install and vim.tbl_contains(TS.get_available(), lang) then
                         pcall(function()
                             TS.install({ lang }):await(function(err)
                                 if err or not vim.api.nvim_buf_is_valid(ev.buf) then

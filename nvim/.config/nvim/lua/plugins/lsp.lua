@@ -5,18 +5,37 @@ return {
 		{ "neovim/nvim-lspconfig" },
 	},
 	config = function()
+		local ensure_installed = {
+			"lua_ls",
+			"clangd",
+			"ruff",
+			"ty",
+		}
+		local node_servers = {
+			"html",
+			"cssls",
+			"tailwindcss",
+			"jsonls",
+			"yamlls",
+		}
+
+		if vim.fn.executable("npm") == 1 then
+			vim.list_extend(ensure_installed, node_servers)
+		else
+			vim.schedule(function()
+				vim.notify_once(
+					"Node/npm is required to install HTML, CSS, Tailwind, JSON, and YAML language servers. Install the nvm LTS, then restart Neovim.",
+					vim.log.levels.WARN
+				)
+			end)
+		end
+
 		require("mason-lspconfig").setup({
-			ensure_installed = {
-				"html",
-				"cssls",
-				"tailwindcss",
-				"lua_ls",
-				"clangd",
-				"ruff",
-				"ty",
-				"jsonls",
-				"yamlls",
-			},
+			ensure_installed = ensure_installed,
+			-- typescript-tools.nvim uses Mason's typescript-language-server package
+			-- as a tsserver provider. Keep mason-lspconfig from starting a second,
+			-- competing ts_ls client for the same JavaScript/TypeScript buffer.
+			automatic_enable = { exclude = { "ts_ls" } },
 		})
 
 		vim.lsp.config("clangd", {

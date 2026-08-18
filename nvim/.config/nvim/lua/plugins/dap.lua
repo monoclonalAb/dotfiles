@@ -34,9 +34,14 @@ return {
 		config = function()
 			local dap = require("dap")
 			local dapui = require("dapui")
+			local adapters = { "codelldb", "python" }
+			local has_node = vim.fn.executable("node") == 1
+			if has_node then
+				table.insert(adapters, "js")
+			end
 
 			require("mason-nvim-dap").setup({
-				ensure_installed = { "codelldb", "python", "js" },
+				ensure_installed = adapters,
 				automatic_installation = true,
 				handlers = {},
 			})
@@ -83,38 +88,40 @@ return {
 			dap.configurations.cpp = cpp
 			dap.configurations.c = cpp
 
-			-- JS/TS/React: vscode-js-debug (js-debug-adapter installed by mason-nvim-dap).
-			dap.adapters["pwa-node"] = {
-				type = "server",
-				host = "localhost",
-				port = "${port}",
-				executable = {
-					command = "node",
-					args = {
-						vim.fn.stdpath("data") .. "/mason/packages/js-debug-adapter/js-debug/src/dapDebugServer.js",
-						"${port}",
-					},
-				},
-			}
-			for _, lang in ipairs({ "javascript", "typescript", "javascriptreact", "typescriptreact" }) do
-				dap.configurations[lang] = {
-					{
-						type = "pwa-node",
-						request = "launch",
-						name = "Launch file",
-						program = "${file}",
-						cwd = "${workspaceFolder}",
-						sourceMaps = true,
-					},
-					{
-						type = "pwa-node",
-						request = "attach",
-						name = "Attach to process",
-						processId = require("dap.utils").pick_process,
-						cwd = "${workspaceFolder}",
-						sourceMaps = true,
+			-- JS/TS/React requires Node to launch vscode-js-debug.
+			if has_node then
+				dap.adapters["pwa-node"] = {
+					type = "server",
+					host = "localhost",
+					port = "${port}",
+					executable = {
+						command = "node",
+						args = {
+							vim.fn.stdpath("data") .. "/mason/packages/js-debug-adapter/js-debug/src/dapDebugServer.js",
+							"${port}",
+						},
 					},
 				}
+				for _, lang in ipairs({ "javascript", "typescript", "javascriptreact", "typescriptreact" }) do
+					dap.configurations[lang] = {
+						{
+							type = "pwa-node",
+							request = "launch",
+							name = "Launch file",
+							program = "${file}",
+							cwd = "${workspaceFolder}",
+							sourceMaps = true,
+						},
+						{
+							type = "pwa-node",
+							request = "attach",
+							name = "Attach to process",
+							processId = require("dap.utils").pick_process,
+							cwd = "${workspaceFolder}",
+							sourceMaps = true,
+						},
+					}
+				end
 			end
 			-- Java debug configs are registered by nvim-jdtls (see ftplugin/java.lua).
 		end,

@@ -1,4 +1,12 @@
 -- Maintained community fork of obsidian.nvim (epwalsh/obsidian.nvim is superseded).
+local vault_path = vim.fn.expand("~/Documents/obsidian")
+
+-- obsidian.nvim requires at least one existing workspace.  Leave ordinary
+-- Markdown editing alone until this machine has a vault at the documented path.
+if vim.fn.isdirectory(vault_path) == 0 then
+    return {}
+end
+
 return {
     "obsidian-nvim/obsidian.nvim",
     version = "*", -- recommended, use latest release instead of latest commit
@@ -20,7 +28,7 @@ return {
         workspaces = {
             {
                 name = "the holy grail",
-                path = "/Users/ericzheng/Documents/obsidian",
+                path = vault_path,
             },
         },
         -- UI disabled entirely (render-markdown.nvim handles rendering).
