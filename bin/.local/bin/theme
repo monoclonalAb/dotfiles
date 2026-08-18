@@ -24,6 +24,16 @@
 # Written for bash 3.2 (the macOS system bash), same as cycle-2x2.sh.
 set -euo pipefail
 
+# Alacritty's hotkey spawns us via `/bin/sh -c`, which sources no profile, so we
+# inherit launchd's minimal PATH — /usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin.
+# Homebrew is not on it, so `command -v nvim` and `command -v tmux` both failed
+# and their push steps were skipped in silence, while the Alacritty overlay (only
+# printf/cat/mv/touch, all present) still updated — the hotkey recoloured the
+# terminal and nothing else. Prepend the usual prefixes so the script behaves the
+# same from the hotkey as from an interactive shell. Absent dirs are ignored.
+PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
 FLAVOURS=(latte frappe macchiato mocha)
 OPACITIES=(1.0 0.85 0.6)
 
@@ -44,12 +54,17 @@ Commands:
   set <flavour> [opacity]
                      set explicitly, e.g. `theme set mocha 0.85`
                      (also the bootstrap step on a fresh machine)
-  status             print the current flavour and opacity
+  status             print the current flavour and opacity, and whether each
+                     app is reachable right now
   apply              regenerate the overlays and push to running apps
   -h, --help         show this help
 
 Applies to Alacritty (live config reload), tmux (source-file) and every running
 Neovim (RPC). New windows pick up the current theme on startup.
+
+The pushes are best-effort and never block, so cycle/opacity/set/apply also
+print what they reached to stderr — discarded under the hotkey, visible when run
+by hand. `theme status` probes the same three without changing anything.
 EOF
 }
 
@@ -89,6 +104,87 @@ read_state() {
   if ! in_list "$OPACITY" "${OPACITIES[@]}"; then OPACITY=$DEFAULT_OPACITY; fi
 }
 
+# --- reachability reporting --------------------------------------------------
+# Every push below is deliberately best-effort so a dead tmux server or an editor
+# sitting in a modal prompt can never hang the hotkey. That silence is also what
+# hid the PATH bug fixed above: a target skipped entirely looked exactly like one
+# that succeeded. These record what actually happened, so it can be printed.
+R_ALACRITTY=
+R_TMUX=
+R_NVIM=
+
+report() {
+  printf 'alacritty  %s\ntmux       %s\nneovim     %s\n' \
+    "${R_ALACRITTY:-unknown}" "${R_TMUX:-unknown}" "${R_NVIM:-unknown}"
+}
+
+# nvim_summary <verb> <live> <stale>
+nvim_summary() {
+  local verb=$1 live=$2 stale=$3 msg
+  if [ "$live" -eq 0 ]; then
+    msg='no running instances'
+  else
+    msg="$verb $live instance(s)"
+  fi
+  if [ "$stale" -gt 0 ]; then
+    msg="$msg, $stale stale socket(s) skipped"
+  fi
+  printf '%s\n' "$msg"
+}
+
+# scan_nvim_sockets <push|count> — populate NVIM_LIVE / NVIM_STALE; with `push`,
+# also fire the reload at each live instance.
+NVIM_LIVE=0
+NVIM_STALE=0
+scan_nvim_sockets() {
+  local mode=$1 sock pid
+  NVIM_LIVE=0
+  NVIM_STALE=0
+  for sock in "${TMPDIR:-/tmp}"/nvim."$USER"/*/nvim.*.0 \
+    /tmp/nvim."$USER"/*/nvim.*.0; do
+    [ -S "$sock" ] || continue
+    # Neovim leaves its socket file behind when it exits, so -S alone still
+    # matches editors that died weeks ago — and the hotkey would then spawn a
+    # doomed client per corpse. The pid is right there in the socket name.
+    pid=${sock##*/nvim.}
+    pid=${pid%.0}
+    if ! kill -0 "$pid" 2>/dev/null; then
+      NVIM_STALE=$((NVIM_STALE + 1))
+      continue
+    fi
+    NVIM_LIVE=$((NVIM_LIVE + 1))
+    if [ "$mode" = push ]; then
+      (nvim --server "$sock" --remote-expr "v:lua.require'theme'.reload()" \
+        >/dev/null 2>&1 || true) &
+    fi
+  done
+}
+
+# What `status` shows: the same three lines as apply(), but probing rather than
+# pushing, so `theme status` answers "why didn't X change?" without changing it.
+probe() {
+  if [ -r "$STATE_DIR/alacritty.toml" ]; then
+    R_ALACRITTY='overlay present'
+  else
+    R_ALACRITTY='no overlay yet (run `theme set`)'
+  fi
+
+  if ! command -v tmux >/dev/null 2>&1; then
+    R_TMUX='UNREACHABLE (tmux not on PATH)'
+  elif ! tmux has-session >/dev/null 2>&1; then
+    R_TMUX='no server running'
+  else
+    R_TMUX='server up'
+  fi
+
+  if ! command -v nvim >/dev/null 2>&1; then
+    R_NVIM='UNREACHABLE (nvim not on PATH)'
+  else
+    scan_nvim_sockets count
+    R_NVIM=$(nvim_summary found "$NVIM_LIVE" "$NVIM_STALE")
+  fi
+}
+
 # Regenerate both overlays and push the change to whatever is running right now.
 # Every step is best-effort: with no tmux server and no Neovim open this still
 # exits 0 after updating Alacritty.
@@ -120,6 +216,9 @@ apply() {
     if [ -e "$ALACRITTY_DIR/alacritty.toml" ]; then
       touch "$ALACRITTY_DIR/alacritty.toml"
     fi
+    R_ALACRITTY='overlay written'
+  else
+    R_ALACRITTY="SKIPPED (no theme file at $src)"
   fi
 
   # --- tmux ----------------------------------------------------------------
@@ -133,7 +232,11 @@ apply() {
   # idempotent: the @ct_status_installed / @ct_keys_installed guards in that file
   # stop conducterm from re-appending to status-right or rebinding M-a / M-n.
   # It re-runs tpm, which re-runs catppuccin.tmux, which re-reads the flavour.
-  if command -v tmux >/dev/null 2>&1 && tmux has-session >/dev/null 2>&1; then
+  if ! command -v tmux >/dev/null 2>&1; then
+    R_TMUX='SKIPPED (tmux not on PATH)'
+  elif ! tmux has-session >/dev/null 2>&1; then
+    R_TMUX='no server running'
+  else
     # ...but catppuccin's palette files assign with `set -ogq @thm_*`, and that
     # -o means "leave it alone if already set" (so users can override individual
     # colours). On a plain reload the OLD flavour's palette therefore survives and
@@ -145,20 +248,18 @@ apply() {
         tmux set-option -gu "$opt" >/dev/null 2>&1 || true
       done
     tmux source-file "$TMUX_CONF" >/dev/null 2>&1 || true
+    R_TMUX='reloaded'
   fi
 
   # --- Neovim --------------------------------------------------------------
   # Every running instance listens on its default socket. Each call is
-  # backgrounded and swallows its errors, so a stale socket or an editor busy in
-  # a modal prompt can never hang the hotkey.
-  if command -v nvim >/dev/null 2>&1; then
-    local sock
-    for sock in "${TMPDIR:-/tmp}"/nvim."$USER"/*/nvim.*.0 \
-      /tmp/nvim."$USER"/*/nvim.*.0; do
-      [ -S "$sock" ] || continue
-      (nvim --server "$sock" --remote-expr "v:lua.require'theme'.reload()" \
-        >/dev/null 2>&1 || true) &
-    done
+  # backgrounded and swallows its errors, so an editor busy in a modal prompt can
+  # never hang the hotkey.
+  if ! command -v nvim >/dev/null 2>&1; then
+    R_NVIM='SKIPPED (nvim not on PATH)'
+  else
+    scan_nvim_sockets push
+    R_NVIM=$(nvim_summary 'pushed to' "$NVIM_LIVE" "$NVIM_STALE")
   fi
 
   return 0
@@ -172,12 +273,17 @@ main() {
     FLAVOUR=$(next_in "$FLAVOUR" "${FLAVOURS[@]}")
     apply
     printf '%s %s\n' "$FLAVOUR" "$OPACITY"
+    # stdout stays the bare `<flavour> <opacity>` line; the reachability block
+    # goes to stderr, so it is invisible under the hotkey (Alacritty discards it)
+    # but shows up the moment you run `theme cycle` by hand.
+    report >&2
     ;;
   opacity)
     read_state
     OPACITY=$(next_in "$OPACITY" "${OPACITIES[@]}")
     apply
     printf '%s %s\n' "$FLAVOUR" "$OPACITY"
+    report >&2
     ;;
   set)
     [ $# -ge 2 ] || die "set needs a flavour: ${FLAVOURS[*]}"
@@ -190,14 +296,19 @@ main() {
     fi
     apply
     printf '%s %s\n' "$FLAVOUR" "$OPACITY"
+    report >&2
     ;;
   status)
     read_state
-    printf 'flavour  %s\nopacity  %s\nstate    %s\n' "$FLAVOUR" "$OPACITY" "$STATE_DIR"
+    printf 'flavour  %s\nopacity  %s\nstate    %s\n\n' \
+      "$FLAVOUR" "$OPACITY" "$STATE_DIR"
+    probe
+    report
     ;;
   apply)
     read_state
     apply
+    report >&2
     ;;
   -h | --help | help)
     usage

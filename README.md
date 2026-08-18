@@ -302,6 +302,26 @@ either key back into `alacritty.toml` silently pins it and makes `Ctrl+Shift+B` 
 Below 1.0 opacity, Neovim also turns on `transparent_background` so the terminal shows
 through; at 1.0 it paints its own background.
 
+**The hotkey runs with a minimal `PATH`.** Alacritty spawns it as `/bin/sh -c`, which
+sources no profile, so the script inherits launchd's
+`/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin` — no Homebrew, no `~/.local/bin`. `theme`
+therefore sets its own `PATH` at the top; don't add a bare `command -v <homebrew binary>`
+without it, or that step will be skipped in silence. This is why the pushes report what
+they reached — on stderr for `cycle`/`opacity`/`set`/`apply` (discarded under the hotkey,
+visible when run by hand), and via `theme status`, which probes all three without changing
+anything:
+
+```
+$ theme status
+flavour  frappe
+opacity  0.6
+state    /Users/you/.local/state/theme
+
+alacritty  overlay present
+tmux       server up
+neovim     found 3 instance(s)
+```
+
 ## Common tasks
 
 ```sh
