@@ -291,6 +291,14 @@ app falls back to that when the state dir is missing. Changes reach Alacritty vi
 `live_config_reload`, tmux via `source-file`, and every running Neovim over RPC (plus a
 `FocusGained` fallback). New windows read the state on startup.
 
+**Alacritty's theme-driven keys must stay out of `alacritty.toml`.** Its `import` list is
+merged with the *importing* file last, so a key set in `alacritty.toml` itself overrides
+the generated overlay rather than being overridden by it. `window.opacity` and
+`window.decorations_theme_variant` therefore live in
+`alacritty/.config/alacritty/window-theme-defaults.toml` (imported before the state file),
+and the `[window]` table in `alacritty.toml` leaves both unset — colours likewise. Putting
+either key back into `alacritty.toml` silently pins it and makes `Ctrl+Shift+B` a no-op.
+
 Below 1.0 opacity, Neovim also turns on `transparent_background` so the terminal shows
 through; at 1.0 it paints its own background.
 

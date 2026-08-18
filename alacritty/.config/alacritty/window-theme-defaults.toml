@@ -1,0 +1,16 @@
+# Committed fallback for the two [window] keys the `theme` script drives.
+#
+# alacritty.toml imports this file *before* ~/.local/state/theme/alacritty.toml,
+# so the generated overlay overrides both keys once `theme set` has run once.
+# Until then (fresh clone, no state dir) these are what Alacritty uses, which
+# keeps the repo's committed default at latte/0.6.
+#
+# Do NOT copy these keys back into alacritty.toml: the importing file is loaded
+# last, so a value there would win over the overlay and pin opacity forever.
+# See the comment above `import` in alacritty.toml.
+
+[window]
+# Background opacity (0.0 to 1.0)
+opacity = 0.6
+# Theme variant for window decorations: "None" | "Dark" | "Light"
+decorations_theme_variant = "Light"
