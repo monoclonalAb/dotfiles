@@ -1,0 +1,21 @@
+{
+  "adapters": {
+    "debugpy": {
+      "command": "/Users/eric/.local/share/nvim/mason/packages/debugpy/venv/bin/python",
+      "args": ["-m", "debugpy.adapter"],
+      "languages": ["python"],
+      "fileTypes": [".py"],
+      "rootMarkers": ["pyproject.toml", "setup.py", "requirements.txt", ".git"],
+      "connectMode": "stdio",
+      "launchDefaults": { "request": "launch", "console": "integratedTerminal" }
+    },
+    "codelldb": {
+      "command": "/Users/eric/.local/share/nvim/mason/bin/codelldb",
+      "args": ["--port", "${port}"],
+      "languages": ["c", "cpp", "rust"],
+      "fileTypes": [".c", ".cc", ".cpp", ".h", ".hpp", ".rs"],
+      "rootMarkers": ["CMakeLists.txt", "Makefile", "Cargo.toml", "compile_commands.json", ".git"],
+      "connectMode": "tcp"
+    }
+  }
+}

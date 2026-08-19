@@ -15,3 +15,20 @@ theme:
   dark: light-catppuccin
 dev:
   autoqaConsent: granted
+github:
+  enabled: true
+astGrep:
+  enabled: true
+security:
+  enabled: true
+memory:
+  backend: mnemopi
+mnemopi:
+  scoping: per-project-tagged
+autolearn:
+  enabled: true
+skills:
+  enabled: true
+  enableSkillCommands: true
+lsp:
+  diagnosticsOnEdit: true

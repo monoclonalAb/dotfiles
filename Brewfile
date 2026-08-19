@@ -35,6 +35,16 @@ brew "cmake"
 brew "luarocks"
 brew "git-lfs"                 # ~/.gitconfig declares the lfs filter
 
+brew "uv"                    # uvx runs Python-packaged MCP servers
+brew "bun"                   # OMP plugin installation runtime
+brew "typescript-language-server" # omp lsp: TS/JS
+brew "basedpyright"          # omp lsp: Python type intelligence
+brew "ruff"                  # omp lsp linter + formatter for Python
+brew "lua-language-server"   # omp lsp: Lua
+brew "jdtls"                 # omp lsp: Java; temurin@21 is required below
+brew "yaml-language-server"  # omp lsp: YAML/CI files
+brew "biome"                 # omp lsp linter/formatter for TS/JS/JSON
+
 cask "alacritty"
 cask "wezterm"
 cask "aerospace"
@@ -62,6 +72,29 @@ brew "imagemagick"
 brew "ffmpeg"
 brew "sevenzip"
 brew "llvm"
+brew "node"                    # npx: required by every stdio MCP server and Mason's node-based LSPs
+brew "marksman"                # markdown LSP; omp auto-detects the `marksman` binary
+brew "texlab"                  # LaTeX LSP; omp auto-detects the `texlab` binary
+brew "difftastic"              # `difft`: structural diffs the agent can read instead of line noise
+brew "hyperfine"               # benchmark claims instead of asserting them
+brew "tokei"                   # cheap repo/language sizing before a broad refactor
+brew "ast-grep"                # structural search/rewrite rules
+brew "git-delta"               # readable patch and log rendering
+brew "watchexec"               # re-run tests on change during an agent loop
+brew "just"                    # stable, discoverable per-project task names
+brew "gitleaks"                # secret scan before commit
+brew "semgrep"                 # SAST rules and semgrep MCP backing CLI
+brew "trivy"                   # container, IaC, and SBOM scanning
+brew "osv-scanner"             # dependency advisories across ecosystems
+brew "shellcheck"              # shell correctness before running scripts
+brew "shfmt"                   # shell formatting
+brew "typos-cli"               # typo sweep across prose and code
+brew "sd"                      # safer literal find/replace than sed
+brew "yq"                      # structured YAML/JSON edits
+brew "sqlite-utils"            # query and inspect SQLite from the shell
+brew "lefthook"                # deterministic pre-commit gates
+brew "terminal-notifier"       # desktop notifications from long agent runs
+
 
 cask "skim"                    # vimtex's viewer (vimtex_view_method = "skim")
 cask "obsidian"
@@ -86,3 +119,18 @@ cask "temurin@21"              # jdtls shells out to `java`
 # LaTeX, for vimtex. ~4 GB; `mactex-no-gui` skips the GUI apps since Skim is the
 # configured viewer anyway. .zshrc already puts /Library/TeX/texbin on PATH.
 # cask "mactex-no-gui"
+
+# brew "jj"          # Jujutsu; cheap checkpoints, but a second VCS workflow on top of git
+# brew "mise"        # runtime/env manager; overlaps nvm + conda already on PATH
+# brew "direnv"      # per-directory env; adds a shell hook to every prompt
+# brew "act"         # local GitHub Actions runner — needs Docker, which is not installed
+# brew "pre-commit"  # alternative to lefthook; pick one, not both
+# brew "trufflehog"  # deeper verified-secret scanning than gitleaks; network verification
+# brew "asciinema"   # record terminal evidence of an agent run; can capture secrets
+# brew "ollama"      # local model fallback; modelRoles point at hosted frontier models
+# brew "oxlint"      # faster JS lint than biome, with fewer rules
+# brew "entr"        # simpler watchexec alternative
+# brew "scc"         # tokei alternative with COCOMO estimates
+# brew "gum"         # interactive shell prompts; never use in unattended hooks
+# brew "hurl"        # plain-text HTTP request tests
+# cask "orbstack"    # lighter Docker Desktop; needed for container-use and Docker MCP servers

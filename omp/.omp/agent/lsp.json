@@ -1,0 +1,33 @@
+{
+  "servers": {
+    "typescript-language-server": {
+      "command": "/opt/homebrew/bin/typescript-language-server",
+      "args": ["--stdio"],
+      "fileTypes": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+      "rootMarkers": ["package.json", "tsconfig.json", "jsconfig.json", ".git"],
+      "initOptions": {
+        "tsserver": {
+          "fallbackPath": "/Users/eric/.nvm/versions/node/v24.19.0/lib/node_modules/typescript/lib"
+        }
+      }
+    },
+    "tailwindcss": {
+      "command": "/Users/eric/.local/share/nvim/mason/bin/tailwindcss-language-server",
+      "args": ["--stdio"],
+      "fileTypes": [".html", ".css", ".jsx", ".tsx", ".vue", ".svelte"],
+      "rootMarkers": ["tailwind.config.js", "tailwind.config.ts", "postcss.config.js", "package.json"]
+    },
+    "vscode-json-language-server": {
+      "command": "/Users/eric/.local/share/nvim/mason/bin/vscode-json-language-server",
+      "args": ["--stdio"],
+      "fileTypes": [".json", ".jsonc"],
+      "rootMarkers": ["package.json", ".git"]
+    },
+    "ty": {
+      "command": "ty",
+      "args": ["server"],
+      "fileTypes": [".py", ".pyi"],
+      "rootMarkers": ["pyproject.toml", "setup.py", "setup.cfg", ".git"]
+    }
+  }
+}

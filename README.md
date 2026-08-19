@@ -361,6 +361,81 @@ tmux       server up
 neovim     found 3 instance(s)
 ```
 
+## omp agent tooling
+
+`omp/.omp/agent/mcp.json` contains the enabled tier plus a disabled catalogue. Set an
+entry's `enabled` field to `true`, then restart omp, rather than adding an unreviewed
+server ad hoc. The enabled Semgrep server uses `semgrep mcp`: install its scanner once
+with `uv tool install semgrep`. The deprecated `uvx semgrep-mcp` server no longer runs
+scans.
+
+| Capability | omp built-in | Alternatives | Enabled here |
+| --- | --- | --- | --- |
+| Library/API docs | `web_search` | Context7 · Ref.tools · GitMCP · AWS Knowledge/Docs · MS Learn · Cloudflare docs · Terraform registry | context7 |
+| Repo Q&A | — | DeepWiki · GitMCP · Octocode | deepwiki |
+| Public code search | `grep` (local only) | grep.app · Octocode · `gh search` via the `github` tool | grep |
+| Browser drive + inspect | `browser` (Puppeteer, CDP, relay) | Playwright MCP · Chrome DevTools MCP | built-in |
+| Semantic code intel | `lsp` (50+ servers) | Serena | built-in |
+| Structural search/rewrite | `ast_grep` · `ast_edit` | ast-grep CLI · Comby | built-in |
+| Static security | `security_scan` (model-driven, OAuth) | Semgrep · Snyk · Socket.dev | semgrep |
+| Repo/issue/PR | `github` tool · `issue://` · `pr://` | GitHub MCP hosted · GitHub MCP Docker | built-in |
+| Web research | `web_search` (DuckDuckGo/Startpage keyless; Brave/Exa/Jina/Kagi/Perplexity/Tavily/SearXNG with keys) | Exa · Tavily · Firecrawl · Jina · Perplexity · Kagi | built-in |
+| Memory | `mnemopi` (local SQLite) · `hindsight` (HTTP service) | Basic Memory · mem0 · Chroma · Qdrant · Obsidian | mnemopi |
+| Second opinion | `task` subagents + `modelRoles` + `advisor` | PAL (ex-Zen) MCP | built-in |
+| Context packing | `read` summaries · `task` scouts | Repomix | built-in |
+| Debugging | `debug` (DAP: codelldb, debugpy, dlv, lldb-dap, rdbg, js-debug, …) | — | built-in |
+| Databases | `read` handles SQLite directly | Postgres MCP Pro · Supabase | — |
+| Notebooks | `eval` (persistent py/js kernels) | Jupyter MCP (Datalayer) | built-in |
+| Observability | — | Sentry · Grafana · Datadog | — |
+| Issue tracker / docs | — | Linear · Atlassian Rovo · Notion | — |
+| Deploy / infra | — | Vercel · Netlify · Railway · Fly · Cloudflare · Terraform · Kubernetes | — |
+| Design / payments | — | Figma Dev Mode · Stripe | — |
+| LLM-app evals & tracing | — | Promptfoo (CLI) · Langfuse · Braintrust · LangSmith · Arize Phoenix · Opik | — |
+
+For evals and tracing, use Promptfoo as a CLI by default:
+`npx promptfoo@latest eval` takes YAML, runs locally, and gates CI without an MCP
+server. Choose Langfuse when self-hosted tracing is needed; its MIT core has
+cloud/self-host parity. The disabled `langfuse` entry is only for conversational trace
+lookup.
+
+### MCP authentication and prerequisites
+
+- Hosted OAuth: use `/mcp reauth <name>` rather than pasting a key for `github-mcp`,
+  `sentry`, `linear`, `atlassian`, `notion`, `supabase`, `vercel`, `stripe`, `datadog`,
+  `cloudflare-bindings`, and `socket`.
+- Slack is deliberately absent. Its hosted server requires registering a Slack app and
+  OAuth client; add it only with the `oauth`/`auth` blocks from omp's MCP config guide.
+- CLI-authenticated: `railway` requires `railway login`; `flyio` requires `fly auth
+  login`; `snyk` requires Snyk CLI 1.1296.2 or newer.
+- Local prerequisites: Figma needs its desktop app with Dev Mode MCP enabled; Obsidian
+  needs the Local REST API community plugin and generated key; Qdrant needs a running
+  Qdrant; Kubernetes needs Docker.
+- Archived and deliberately omitted: `@modelcontextprotocol/server-postgres`,
+  `@modelcontextprotocol/server-brave-search`, `@modelcontextprotocol/server-memory`,
+  `@modelcontextprotocol/server-github`, and the reference `puppeteer`/`sqlite`
+  servers. `@railway/mcp-server` is superseded by `railway mcp`.
+
+### Native extension surfaces
+
+- **Skills:** `~/.omp/agent/skills/<name>/SKILL.md` (native, highest precedence),
+  `~/.claude/skills/`, `~/.agents/skills/`, project `<cwd>/.omp/skills/`, and project
+  `<cwd>/.github/skills/`. Roots are non-recursive, one level below `skills/`; the
+  native provider requires `name` and `description` frontmatter. Add roots with
+  `skills.customDirectories`.
+- **Custom subagents:** `~/.omp/agent/agents/*.md` and `<cwd>/.omp/agents/*.md`.
+  Required frontmatter: `name`, `description`; optional: `tools`, `spawns`, `model`,
+  `thinking-level`, `autoloadSkills`, `prewalk`, `advisor`. Bundled agents are `scout`,
+  `designer`, `reviewer`, `security-reviewer`, `librarian`, `task`, and `sonic`.
+  `.claude/agents` is deliberately not scanned.
+- **Extensions and hooks:** `~/.omp/agent/extensions/` (including `pi-rewind`) and
+  `<cwd>/.omp/hooks/{pre,post}/`; both use TypeScript/JavaScript default-export
+  factories.
+- **Plugins:** `omp plugin install <spec>` or `omp plugin link <path>`; state lives
+  under `~/.omp/plugins/`.
+- **Marketplaces:** `/marketplace add <owner/repo>`, then `/marketplace discover`.
+  Catalogues live at `.omp-plugin/marketplace.json` or `.claude-plugin/marketplace.json`;
+  the Claude Code plugin format is compatible.
+
 ## Common tasks
 
 ```sh

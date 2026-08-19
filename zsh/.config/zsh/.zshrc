@@ -104,3 +104,14 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # To customize prompt, run `p10k configure` or edit ~/.config/zsh/.p10k.zsh.
 [[ ! -f ~/.config/zsh/.p10k.zsh ]] || source ~/.config/zsh/.p10k.zsh
+
+# Route Python commands through the version selected by pyenv.
+export PYENV_ROOT="$HOME/.pyenv"
+[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init - zsh)"
+
+# The next line updates PATH for the Google Cloud SDK.
+if [ -f '/Users/eric/Downloads/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/eric/Downloads/google-cloud-sdk/path.zsh.inc'; fi
+
+# The next line enables shell command completion for gcloud.
+if [ -f '/Users/eric/Downloads/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/eric/Downloads/google-cloud-sdk/completion.zsh.inc'; fi
