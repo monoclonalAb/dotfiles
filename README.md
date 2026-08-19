@@ -129,6 +129,7 @@ run this.
 
 ```sh
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
+herdr integration install omp
 herdr config check
 herdr
 ```
@@ -139,8 +140,12 @@ closes a pane, `C-c` creates a tab, `r` renames it, `w` opens the workspace pick
 and `z` zooms. `H` / `L` changes tabs, `x` swaps down, and `Space` enters resize mode.
 Press `C-a u` to jump to the next agent conversation needing attention, or `C-a ?`
 for the complete live keymap. Workspaces replace tmux sessions, tabs replace tmux
-windows, and Herdr persists them while the local next-agent plugin provides the
-attention queue.
+windows, and Herdr persists them. The official OMP integration supplies lifecycle state;
+native Herdr toasts cover background tabs and workspaces; the local next-agent hook fills
+the otherwise-suppressed active-tab, different-pane case. A prompt already visible in the
+focused OMP pane makes the request sound without a redundant popup. New OMP sessions load
+the integration automatically; use OMP's `/reload` (or restart) for an already-running
+session.
 
 **tmux (legacy fallback)**
 

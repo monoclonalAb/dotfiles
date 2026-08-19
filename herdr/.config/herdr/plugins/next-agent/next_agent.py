@@ -6,11 +6,13 @@ import os
 import shutil
 import subprocess
 import tomllib
+import time
 from pathlib import Path
 
 # `blocked` needs an answer now; `done` is a completed conversation that has
 # not yet been reviewed. Idle agents are intentionally excluded.
 DEFAULT_PRIORITY = ["blocked", "done"]
+TOAST_DELAY_SECONDS = 1
 
 
 def herdr_bin():
@@ -47,6 +49,69 @@ def run(*args):
     return result.stdout
 
 
+def notification_context(snapshot, target):
+    workspace = next(
+        (item for item in snapshot.get("workspaces", []) if item.get("workspace_id") == target["workspace_id"]),
+        None,
+    )
+    workspace_id = target["workspace_id"]
+    workspace_label = workspace.get("label", workspace_id) if workspace else workspace_id
+    workspace_number = workspace.get("number", workspace_id) if workspace else workspace_id
+    context = f"{workspace_label} · {workspace_number}"
+
+    if workspace and workspace.get("tab_count", 0) > 1:
+        tab_id = target["tab_id"]
+        tab = next((item for item in snapshot.get("tabs", []) if item.get("tab_id") == tab_id), None)
+        context += f" · {tab.get('label', tab_id) if tab else tab_id}"
+
+    return context
+
+
+def notify_hidden_omp_blocker():
+    try:
+        event = json.loads(os.environ["HERDR_PLUGIN_EVENT_JSON"])
+        data = event["data"]
+        pane_id = data["pane_id"]
+        if not isinstance(data, dict):
+            return
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return
+
+    if data.get("agent") != "omp" or data.get("agent_status") != "blocked":
+        return
+
+    time.sleep(TOAST_DELAY_SECONDS)
+    snapshot = json.loads(run("api", "snapshot"))["result"]["snapshot"]
+    target = next((item for item in snapshot.get("agents", []) if item.get("pane_id") == pane_id), None)
+    if (
+        not target
+        or target.get("agent") != "omp"
+        or target.get("agent_status") != "blocked"
+        or target.get("tab_id") != snapshot.get("focused_tab_id")
+        or target.get("pane_id") == snapshot.get("focused_pane_id")
+    ):
+        return
+
+    response = json.loads(
+        run(
+            "notification",
+            "show",
+            "omp needs attention",
+            "--body",
+            notification_context(snapshot, target),
+            "--position",
+            "bottom-right",
+            "--sound",
+            "none",
+        )
+    )
+    result = response.get("result", {})
+    if result.get("shown") is True:
+        print(f"notified {pane_id}")
+        return
+    raise SystemExit(f"notification not shown: {result.get('reason', 'unknown')}")
+
+
 def main():
     priority, scope = plugin_config()
     agents = json.loads(run("agent", "list"))["result"]["agents"]
@@ -76,4 +141,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    event = os.environ.get("HERDR_PLUGIN_EVENT")
+    if event == "pane.agent_status_changed":
+        notify_hidden_omp_blocker()
+    elif event is None:
+        main()

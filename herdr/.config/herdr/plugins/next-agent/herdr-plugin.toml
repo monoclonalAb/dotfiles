@@ -1,11 +1,15 @@
 id = "martinro.next-agent"
 name = "Next Agent"
-version = "0.1.0-local"
-min_herdr_version = "0.7.0"
+version = "0.2.0-local"
+min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 
 [[actions]]
 id = "jump"
 title = "Jump to next agent needing attention"
 contexts = ["global", "workspace"]
+command = ["python3.14", "next_agent.py"]
+
+[[events]]
+on = "pane.agent_status_changed"
 command = ["python3.14", "next_agent.py"]

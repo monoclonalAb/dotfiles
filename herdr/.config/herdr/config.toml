@@ -113,6 +113,16 @@ prompt_new_tab_name = false
 prompt_new_workspace_name = false
 
 agent_panel_sort = "spaces"
+
+[ui.toast]
+delivery = "herdr"
+delay_seconds = 1
+
+[ui.toast.herdr]
+position = "bottom-right"
+
+[ui.sound]
+enabled = true
 [session]
 # Herdr persists topology itself and can resume supported agent sessions.
 resume_agents_on_restore = true
