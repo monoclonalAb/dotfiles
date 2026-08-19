@@ -39,7 +39,7 @@ cask "alacritty"
 cask "wezterm"
 cask "aerospace"
 
-# alacritty.toml and wezterm/config/fonts.lua both ask for "JetBrainsMono Nerd Font"
+# alacritty.toml and archived .archive/wezterm/.config/wezterm/config/fonts.lua both ask for "JetBrainsMono Nerd Font"
 # by that exact name. The plain `font-jetbrains-mono` cask is NOT a substitute —
 # it has no glyphs, and every icon in lualine/telescope/blink renders as tofu.
 cask "font-jetbrains-mono-nerd-font"
@@ -71,8 +71,8 @@ cask "temurin@21"              # jdtls shells out to `java`
 # Optional — deliberately not installed                                       #
 ###############################################################################
 
-# WezTerm's launch menu (config/launch.lua) has entries pointing at
-# /opt/homebrew/bin/fish and /opt/homebrew/bin/nu. Without these the entries are
+# The archived .archive/wezterm/.config/wezterm/config/launch.lua has entries pointing at
+# /opt/homebrew/bin/fish and /opt/homebrew/bin/nu. Without these the archived entries are
 # dead, but nothing else breaks.
 # brew "fish"
 # brew "nushell"

@@ -2,9 +2,9 @@
 
 My macOS dotfiles, managed with [GNU Stow](https://www.gnu.org/software/stow/).
 
-Each top-level folder is a **stow package** that mirrors its real path under `$HOME`.
-Stowing a package symlinks it into place, so the files here *are* the live config —
-no more copy-drift.
+Each active top-level folder is a **Stow package** that mirrors its real path under
+`$HOME`. Stowing a package symlinks it into place, so the files here *are* the live
+config — no more copy-drift.
 
 ```
 dotfiles/nvim/.config/nvim/…   --stow-->   ~/.config/nvim   (symlink)
@@ -102,7 +102,8 @@ Then link for real:
 stow -t "$HOME" */
 ```
 
-`*/` only matches directories, so `README.md` and `Brewfile` are skipped automatically.
+`*/` only matches non-hidden directories, so `README.md`, `Brewfile`, and the archived
+`.archive/` packages are skipped automatically.
 Because the targets don't exist yet, stow *folds* each package into a single symlink —
 you get `~/.config/nvim -> ../dotfiles/nvim/.config/nvim`, not one link per file.
 
@@ -194,8 +195,8 @@ every plugin rather than the versions pinned on the old machine.
 (The `git/` stow package only carries a global ignore file, at `~/.config/git/ignore`.
 Git picks that up via XDG automatically — no `core.excludesfile` needed.)
 
-**Terminal** — Alacritty and WezTerm are both configured; pick one and make it your
-default. Both ask for `JetBrainsMono Nerd Font`, installed by the Brewfile.
+**Terminal** — Alacritty is configured and asks for `JetBrainsMono Nerd Font`, installed
+by the Brewfile.
 
 **Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux and Neovim share
 (see [Theme toggle](#theme-toggle)):
@@ -244,7 +245,7 @@ machine. Fix or delete as you go.
 | `zsh/.config/zsh/.zshrc:24` | `/Users/ericzheng/Desktop/prosperity/…` | drop it — absolute path, old project |
 | `zsh/.config/zsh/.zshrc:30` | `/Library/TeX/texbin`, `/usr/local/share/dotnet` | harmless if absent; they're just PATH entries |
 | `zsh/.config/zsh/.zshrc:36-49` | conda block at `/opt/anaconda3` | install Anaconda there, or delete the block |
-| `fish/.config/fish/config.fish` | the same conda block | ditto |
+| `.archive/fish/.config/fish/config.fish` | the same conda block | ditto |
 | `nvim/.config/nvim/lua/plugins/obsidian.lua` | Obsidian integration loads only when `~/Documents/obsidian` exists | create your vault there; ordinary Markdown works without one |
 
 ## Optional extras
@@ -253,7 +254,8 @@ Not installed by the Brewfile; add them only if you want the feature.
 
 - **MacTeX + Skim** — `brew install --cask mactex-no-gui` (Skim is already in the Brewfile).
   Needed for `vimtex`; the viewer config is macOS-only.
-- **Anaconda** at `/opt/anaconda3` — for the conda blocks in `.zshrc` / `config.fish`.
+- **Anaconda** at `/opt/anaconda3` — for the conda blocks in `.zshrc` and archived
+  `.archive/fish/.config/fish/config.fish`.
 - **PMD 7.16.0** — unzip into `~/pmd-bin-7.16.0` for the `pmd` alias.
 - **.NET SDK** — `.zshrc` puts `/usr/local/share/dotnet` on PATH.
 - **Claude Code CLI** — `.zshrc` aliases `claude` with `--dangerously-skip-permissions`.
@@ -264,22 +266,35 @@ Not installed by the Brewfile; add them only if you want the feature.
 
 ### Window managers
 
-This repo carries configs for **two** tiling WMs whose alt-bindings collide. Run one:
+This repo actively uses one tiling WM:
 
 - **AeroSpace** — the current one. Installed by the Brewfile, config at
   `~/.config/aerospace/aerospace.toml`, starts at login.
-- **yabai + skhd** — legacy, kept for reference; neither binary is installed. Before going
-  back: yabai's scripting addition (`yabai --load-sa`, which `yabairc` calls) requires
-  **partially disabling SIP** plus a passwordless sudoers entry. That's the cost of entry.
+
+## Archived configurations
+
+The complete `fish`, `neofetch`, `yabai`, `skhd`, `wezterm`, and `yazi` Stow packages
+are kept under `.archive/`; they are not active configurations. Because `.archive/` is
+hidden, the default `*/` workflow omits it.
+
+Restore or remove exactly one archived package without moving it:
+
+```sh
+stow -d .archive -t "$HOME" <package>
+stow -D -d .archive -t "$HOME" <package>
+```
+
+`fish` contains only a conda init block, and fastfetch replaces `neofetch`. The archived
+`yabai` and `skhd` configs are legacy; before restoring `yabai`, its scripting addition
+(`yabai --load-sa`, called by `yabairc`) requires partially disabling SIP and a
+passwordless sudoers entry.
 
 ## What's managed vs. left alone
 
 | Managed (stow packages) | Left in `~/.config` (real dirs, untracked) |
 |---|---|
-| nvim, herdr, tmux, zsh (+`~/.zshenv`), fish, alacritty, wezterm, aerospace, yabai, skhd, yazi, neofetch, git, bin | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh, github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
+| nvim, herdr, tmux, zsh (+`~/.zshenv`), alacritty, aerospace, git, bin | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh, github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
 
-Two packages are kept but no longer load-bearing: **`neofetch/`** (fastfetch is what's
-actually installed now) and **`fish/`** (contains only a conda init block).
 
 Secrets never enter this repo: token/history files (`access_tokens.md`, `.zsh_history`,
 `hosts.yml`, `token.json`, `auth.db`, …) are gitignored or live in untracked dirs. Note the
