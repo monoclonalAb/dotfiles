@@ -126,10 +126,26 @@ Writes `~/.p10k.zsh`, which is deliberately **not** in this repo (it's 89 KB of 
 config). `.zshrc` sources it only if present, so the shell works — plainly — before you
 run this.
 
+**Terminal** — Alacritty is configured and asks for `JetBrainsMono Nerd Font`, installed
+by the Brewfile.
+
+**Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux and Neovim share
+(see [Theme toggle](#theme-toggle)):
+
+```sh
+theme set latte 0.6
+```
+
+Until this runs, each app falls back to its own default and Alacritty logs a missing-import
+error to `$TMPDIR/Alacritty-*.log` — harmless, and this clears it.
+
 **Herdr**
+Herdr's runtime `config.toml` is generated from `config.base.toml` by `theme`, so
+run the Theme step above before starting it.
 
 ```sh
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
+herdr plugin install persiyanov/herdr-reviewr -y
 herdr integration install omp
 herdr config check
 herdr
@@ -147,6 +163,9 @@ the otherwise-suppressed active-tab, different-pane case. A prompt already visib
 focused OMP pane makes the request sound without a redundant popup. New OMP sessions load
 the integration automatically; use OMP's `/reload` (or restart) for an already-running
 session.
+The reviewr plugin adds a review pane on `C-a v`: it shows the agent's diff beside the chat,
+takes line comments, and sends them back to the agent; its own config lives at
+`~/.config/herdr/plugins/config/persiyanov.reviewr/config.toml` (untracked, like next-agent's).
 
 **tmux (legacy fallback)**
 
@@ -195,18 +214,6 @@ every plugin rather than the versions pinned on the old machine.
 (The `git/` stow package only carries a global ignore file, at `~/.config/git/ignore`.
 Git picks that up via XDG automatically — no `core.excludesfile` needed.)
 
-**Terminal** — Alacritty is configured and asks for `JetBrainsMono Nerd Font`, installed
-by the Brewfile.
-
-**Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux and Neovim share
-(see [Theme toggle](#theme-toggle)):
-
-```sh
-theme set latte 0.6
-```
-
-Until this runs, each app falls back to its own default and Alacritty logs a missing-import
-error to `$TMPDIR/Alacritty-*.log` — harmless, and this clears it.
 
 **AeroSpace** — launch it once and grant Accessibility in System Settings → Privacy &
 Security. `start-at-login = true` is already in the config.
@@ -363,21 +370,25 @@ neovim     found 3 instance(s)
 
 ## omp agent tooling
 
-`omp/.omp/agent/mcp.json` contains the enabled tier plus a disabled catalogue. Set an
-entry's `enabled` field to `true`, then restart omp, rather than adding an unreviewed
-server ad hoc. The enabled Semgrep server uses `semgrep mcp`: install its scanner once
-with `uv tool install semgrep`. The deprecated `uvx semgrep-mcp` server no longer runs
-scans.
+`omp/.omp/agent/mcp.json` is a catalogue: every entry has `enabled: false`, so no MCP server is
+activated globally. Enable reviewed servers per repository in `<repo>/.omp/mcp.json`; each file
+must include the complete server definition because project files cannot use `enabledServers`, and
+it must sit in the directory omp is launched from because MCP project config is not searched up
+the tree. Keep `disabledServers: ["node_repl"]` to suppress the Codex-provided server; never add
+there a name a project needs, because the denylist outranks project files. Hosted OAuth credentials
+are keyed by profile and URL, so they work in a project file without re-authentication. Semgrep is
+CLI-only: install it with `uv tool install semgrep`, then run `semgrep scan --config auto` per the
+`secret-sast-sweep` skill; its MCP catalogue entry stays disabled everywhere.
 
-| Capability | omp built-in | Alternatives | Enabled here |
+| Capability | omp built-in | Alternatives | Enabled where |
 | --- | --- | --- | --- |
-| Library/API docs | `web_search` | Context7 · Ref.tools · GitMCP · AWS Knowledge/Docs · MS Learn · Cloudflare docs · Terraform registry | context7 |
-| Repo Q&A | — | DeepWiki · GitMCP · Octocode | deepwiki |
-| Public code search | `grep` (local only) | grep.app · Octocode · `gh search` via the `github` tool | grep |
+| Library/API docs | `web_search` | Context7 · Ref.tools · GitMCP · AWS Knowledge/Docs · MS Learn · Cloudflare docs · Terraform registry | context7 (all repos) · ms-learn (habithealth-de01/02, rock-rubble-ai) |
+| Repo Q&A | — | DeepWiki · GitMCP · Octocode | deepwiki (dotfiles, de-dashboard) |
+| Public code search | `grep` (local only) | grep.app · Octocode · `gh search` via the `github` tool | grep (dotfiles, de-dashboard) |
 | Browser drive + inspect | `browser` (Puppeteer, CDP, relay) | Playwright MCP · Chrome DevTools MCP | built-in |
 | Semantic code intel | `lsp` (50+ servers) | Serena | built-in |
 | Structural search/rewrite | `ast_grep` · `ast_edit` | ast-grep CLI · Comby | built-in |
-| Static security | `security_scan` (model-driven, OAuth) | Semgrep · Snyk · Socket.dev | semgrep |
+| Static security | `security_scan` (model-driven, OAuth) | Semgrep · Snyk · Socket.dev | built-in + semgrep CLI |
 | Repo/issue/PR | `github` tool · `issue://` · `pr://` | GitHub MCP hosted · GitHub MCP Docker | built-in |
 | Web research | `web_search` (DuckDuckGo/Startpage keyless; Brave/Exa/Jina/Kagi/Perplexity/Tavily/SearXNG with keys) | Exa · Tavily · Firecrawl · Jina · Perplexity · Kagi | built-in |
 | Memory | `mnemopi` (local SQLite) · `hindsight` (HTTP service) | Basic Memory · mem0 · Chroma · Qdrant · Obsidian | mnemopi |
@@ -387,7 +398,7 @@ scans.
 | Databases | `read` handles SQLite directly | Postgres MCP Pro · Supabase | — |
 | Notebooks | `eval` (persistent py/js kernels) | Jupyter MCP (Datalayer) | built-in |
 | Observability | — | Sentry · Grafana · Datadog | — |
-| Issue tracker / docs | — | Linear · Atlassian Rovo · Notion | — |
+| Issue tracker / docs | — | Linear · Atlassian Rovo · Notion | linear (habithealth-de01) |
 | Deploy / infra | — | Vercel · Netlify · Railway · Fly · Cloudflare · Terraform · Kubernetes | — |
 | Design / payments | — | Figma Dev Mode · Stripe | — |
 | LLM-app evals & tracing | — | Promptfoo (CLI) · Langfuse · Braintrust · LangSmith · Arize Phoenix · Opik | — |

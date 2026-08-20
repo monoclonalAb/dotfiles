@@ -3,13 +3,9 @@
 
 onboarding = false
 
-[theme]
-# Follow the terminal between Catppuccin Latte and Herdr's dark Catppuccin
-# variant. The shared `theme` script updates Alacritty's light/dark appearance.
-name = "catppuccin-latte"
-auto_switch = true
-light_name = "catppuccin-latte"
-dark_name = "catppuccin"
+# [theme] is intentionally absent: `theme` (bin/.local/bin/theme) appends the
+# [theme] and [theme.custom] tables for the current Catppuccin flavour and
+# opacity when it generates ~/.config/herdr/config.toml from this file.
 
 [terminal]
 # Match tmux's `-c '#{pane_current_path}'` splits and new windows.
@@ -98,6 +94,18 @@ type = "plugin_action"
 command = "martinro.next-agent.jump"
 description = "next agent needing attention"
 
+[[keys.command]]
+key = "prefix+shift+u"
+type = "plugin_action"
+command = "martinro.next-agent.back"
+description = "back to the pane before the agent jumps"
+
+
+[[keys.command]]
+key = "prefix+v"
+type = "plugin_action"
+command = "persiyanov.reviewr.toggle"
+description = "toggle reviewr review pane"
 [ui]
 # Mirror the tmux top status/window row and compact shared pane borders.
 tab_bar_position = "top"
