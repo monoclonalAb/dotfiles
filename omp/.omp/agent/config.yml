@@ -32,3 +32,5 @@ skills:
   enableSkillCommands: true
 lsp:
   diagnosticsOnEdit: true
+browser:
+  relay: true
