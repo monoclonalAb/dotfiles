@@ -52,7 +52,96 @@ def run(*args):
     return result.stdout
 
 STATE_FILE = "focus-origin.json"
-STATUS_FILE = "agent-status.json"
+ATTENTION_FILE = "attention.json"
+# One token per state, so each can carry its own colour in the sidebar config. Exactly one is ever
+# set for a pane; Herdr drops missing tokens and their separators, so exactly one dot renders.
+DOT_TOKENS = {
+    "blocked": ("dot_blocked", "◆"),
+    "review": ("dot_review", "●"),
+    "working": ("dot_working", "◐"),
+    "idle": ("dot_idle", "○"),
+}
+
+ATTENTION_BUCKETS = ("blocked", "done")
+
+
+def blank_entry(terminal_id=None):
+    return {
+        "terminal_id": terminal_id,
+        "status": None,
+        "unread": False,
+        "raised_as": None,
+        "worked": False,
+        "seen_seq": None,
+    }
+
+
+def normalise_entry(entry, terminal_id):
+    """Upgrade a pre-0.5 entry and reset it when this pane id was recycled onto a new terminal."""
+    if not isinstance(entry, dict):
+        return blank_entry(terminal_id)
+    known = entry.get("terminal_id")
+    if terminal_id and known and known != terminal_id:
+        return blank_entry(terminal_id)
+    status = entry.get("status") if isinstance(entry.get("status"), str) else None
+    unread = entry.get("unread") is True
+    raised = entry.get("raised_as")
+    seen = entry.get("seen_seq")
+    return {
+        "terminal_id": terminal_id or known,
+        "status": status,
+        "unread": unread,
+        "raised_as": raised if raised in ATTENTION_BUCKETS else ("done" if unread else None),
+        "worked": entry.get("worked") is True or status == "working",
+        "seen_seq": seen if isinstance(seen, int) else None,
+    }
+
+
+def apply_observation(entry, status, focused, seq, terminal_id):
+    """Fold one observation of a pane's agent into its ledger entry and return the entry.
+
+    Only the focused pane is ever cleared, so seeing one pane can never clear a sibling; Herdr's
+    own `seen` flag is per tab, which is what this ledger exists to survive.
+    """
+    entry = normalise_entry(entry, terminal_id)
+    if focused:
+        entry.update(
+            status=status,
+            unread=False,
+            raised_as=None,
+            worked=status == "working",
+            seen_seq=seq if isinstance(seq, int) else entry["seen_seq"],
+        )
+        return entry
+    if status == "working":
+        entry.update(status=status, unread=False, raised_as=None, worked=True)
+        return entry
+    if status in ("done", "blocked"):
+        entry.update(
+            status=status,
+            unread=True,
+            raised_as="blocked" if status == "blocked" else "done",
+        )
+        return entry
+    # idle/unknown: Herdr downgrades an unseen completion to `idle` as soon as any pane in the
+    # tab is focused, so fall back to work observed since this pane was last focused.
+    if not entry["unread"] and entry["worked"]:
+        moved = entry["seen_seq"] is None or (isinstance(seq, int) and seq > entry["seen_seq"])
+        if moved:
+            entry.update(unread=True, raised_as="done")
+    entry["status"] = status
+    return entry
+
+
+def attention_bucket(status, entry):
+    """Priority bucket for a live agent, or None when it needs no attention."""
+    if status == "blocked":
+        return "blocked"
+    if status == "done":
+        return "done"
+    if status in ("idle", "unknown") and entry.get("unread") is True:
+        return entry.get("raised_as") or "done"
+    return None
 
 
 def state_dir():
@@ -81,28 +170,36 @@ def save_state(origin_pane_id, last_jump_pane_id):
     )
     temporary.replace(directory / STATE_FILE)
 
-def swap_last_status(pane_id, status):
-    """Record `status` for `pane_id`; return the status recorded before this event."""
+def plugin_source():
+    return os.environ.get("HERDR_PLUGIN_ID", "martinro.next-agent")
+
+
+def load_attention():
+    try:
+        entries = json.loads((state_dir() / ATTENTION_FILE).read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(entries, dict):
+        return {}
+    return {pane: entry for pane, entry in entries.items() if isinstance(entry, dict)}
+
+
+def mutate_attention(update):
+    """Apply `update` to the attention ledger under an exclusive lock; return its result."""
     directory = state_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / STATUS_FILE
-    with open(directory / f"{STATUS_FILE}.lock", "a+") as lock:
+    path = directory / ATTENTION_FILE
+    with open(directory / f"{ATTENTION_FILE}.lock", "a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            try:
-                statuses = json.loads(path.read_text())
-            except (OSError, json.JSONDecodeError):
-                statuses = {}
-            if not isinstance(statuses, dict):
-                statuses = {}
-            previous = statuses.get(pane_id)
-            statuses[pane_id] = status
-            temporary = directory / f"{STATUS_FILE}.tmp"
-            temporary.write_text(json.dumps(statuses))
+            entries = load_attention()
+            result = update(entries)
+            temporary = directory / f"{ATTENTION_FILE}.tmp"
+            temporary.write_text(json.dumps(entries))
             temporary.replace(path)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
-    return previous if isinstance(previous, str) else None
+    return result
 
 
 def socket_path():
@@ -131,6 +228,56 @@ def api(method, params):
         error = response["error"]
         raise SystemExit(f"{method}: {error.get('message') or error.get('code', 'failed')}")
     return response["result"]
+
+def dot_kind(status, bucket):
+    """Sidebar dot for a pane, from this ledger rather than Herdr's per-tab `seen` flag."""
+    if bucket == "blocked":
+        return "blocked"
+    if bucket:
+        return "review"
+    if status == "working":
+        return "working"
+    return "idle"
+
+
+def wanted_tokens(status, bucket):
+    name, glyph = DOT_TOKENS[dot_kind(status, bucket)]
+    return {name: glyph}
+
+
+def current_dots(tokens):
+    names = {name for name, _ in DOT_TOKENS.values()}
+    return {key: value for key, value in (tokens or {}).items() if key in names and value is not None}
+
+
+def report_dot(pane_id, status, bucket):
+    """Stamp the sidebar dot. Display-only: a failure must never abort a jump."""
+    kind = dot_kind(status, bucket)
+    tokens = {name: (glyph if key == kind else None) for key, (name, glyph) in DOT_TOKENS.items()}
+    try:
+        api(
+            "pane.report_metadata",
+            {"pane_id": pane_id, "source": plugin_source(), "tokens": tokens},
+        )
+    except (SystemExit, OSError, json.JSONDecodeError) as error:
+        print(f"dot not updated for {pane_id}: {error}")
+    return kind
+
+def probe_agent(pane_id):
+    """(status, focused, seq, terminal_id) for a pane; status None when it has no agent.
+
+    A probe failure must keep a queued completion queued, so focused defaults to False.
+    """
+    try:
+        agent = api("agent.get", {"target": pane_id}).get("agent", {})
+    except (SystemExit, OSError, json.JSONDecodeError):
+        return None, False, None, None
+    return (
+        agent.get("agent_status"),
+        agent.get("focused") is True,
+        agent.get("state_change_seq"),
+        agent.get("terminal_id"),
+    )
 
 
 def snapshot():
@@ -210,7 +357,17 @@ def handle_agent_status_change():
     status = data.get("agent_status")
     if not isinstance(pane_id, str) or not isinstance(status, str):
         return
-    previous = swap_last_status(pane_id, status)
+    _, focused, seq, terminal_id = probe_agent(pane_id)
+
+    def observe(entries):
+        previous = (entries.get(pane_id) or {}).get("status")
+        entry = apply_observation(entries.get(pane_id), status, focused, seq, terminal_id)
+        entries[pane_id] = entry
+        return previous if isinstance(previous, str) else None, attention_bucket(status, entry)
+
+    previous, bucket = mutate_attention(observe)
+    kind = report_dot(pane_id, status, bucket)
+    print(f"status {pane_id} {previous}->{status} focused={focused} seq={seq} bucket={bucket} dot={kind}")
     if data.get("agent") != "omp":
         return
     if status == "blocked":
@@ -220,28 +377,128 @@ def handle_agent_status_change():
         notify_hidden_omp(pane_id, "idle", "omp finished", "done")
 
 
+def handle_agent_detected():
+    """Stamp a dot as soon as a pane gains an agent, before its first status change."""
+    try:
+        data = json.loads(os.environ["HERDR_PLUGIN_EVENT_JSON"])["data"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return
+    pane_id = data.get("pane_id") if isinstance(data, dict) else None
+    if not isinstance(pane_id, str):
+        return
+    status, focused, seq, terminal_id = probe_agent(pane_id)
+    if not isinstance(status, str):
+        return
+
+    def observe(entries):
+        entry = apply_observation(entries.get(pane_id), status, focused, seq, terminal_id)
+        entries[pane_id] = entry
+        return attention_bucket(status, entry)
+
+    bucket = mutate_attention(observe)
+    print(f"detected {pane_id} status={status} dot={report_dot(pane_id, status, bucket)}")
+
+
+def handle_pane_focused():
+    try:
+        data = json.loads(os.environ["HERDR_PLUGIN_EVENT_JSON"])["data"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return
+    pane_id = data.get("pane_id") if isinstance(data, dict) else None
+    if not isinstance(pane_id, str):
+        return
+    status, _, seq, terminal_id = probe_agent(pane_id)
+    if not isinstance(status, str):
+        # A plain shell pane: never in the Agent panel, so never stamp one.
+        print(f"focus {pane_id} status=None")
+        return
+
+    def seen(entries):
+        entry = entries.get(pane_id)
+        before = (
+            dot_kind(status, attention_bucket(status, normalise_entry(entry, terminal_id)))
+            if entry
+            else None
+        )
+        updated = apply_observation(entry, status, True, seq, terminal_id)
+        entries[pane_id] = updated
+        return before, attention_bucket(status, updated)
+
+    before, bucket = mutate_attention(seen)
+    if before != dot_kind(status, bucket):
+        report_dot(pane_id, status, bucket)
+    print(f"focus {pane_id} status={status} seq={seq} bucket={bucket}")
+
+
+
+
+def reconcile(live):
+    """Fold every live agent into the ledger, stamp its dot, and return (agents, attention buckets)."""
+    focused = live.get("focused_pane_id")
+    panes = live.get("panes", [])
+    live_ids = {pane.get("pane_id") for pane in panes}
+    agents = {
+        agent.get("pane_id"): agent
+        for agent in live.get("agents", [])
+        if isinstance(agent.get("pane_id"), str)
+    }
+
+    def fold(entries):
+        for pane_id in list(entries):
+            if pane_id not in live_ids:
+                del entries[pane_id]
+        buckets = {}
+        for pane_id, agent in agents.items():
+            status = agent.get("agent_status")
+            entry = apply_observation(
+                entries.get(pane_id),
+                status,
+                pane_id == focused,
+                agent.get("state_change_seq"),
+                agent.get("terminal_id"),
+            )
+            entries[pane_id] = entry
+            buckets[pane_id] = attention_bucket(status, entry)
+        return buckets
+
+    buckets = mutate_attention(fold)
+    tokens_by_pane = {pane.get("pane_id"): pane.get("tokens") for pane in panes}
+    for pane_id, agent in agents.items():
+        status = agent.get("agent_status")
+        bucket = buckets.get(pane_id)
+        if current_dots(tokens_by_pane.get(pane_id)) != wanted_tokens(status, bucket):
+            report_dot(pane_id, status, bucket)
+    return agents, {pane_id: bucket for pane_id, bucket in buckets.items() if bucket}
+
+
 def main():
     priority, scope = plugin_config()
     live = snapshot()
-    agents = live.get("agents", [])
+    focused = live.get("focused_pane_id")
+    agents, buckets = reconcile(live)
+    candidates = list(agents.values())
     if scope == "workspace":
         workspace = live.get("focused_workspace_id")
         if workspace:
-            agents = [agent for agent in agents if agent.get("workspace_id") == workspace]
+            candidates = [a for a in candidates if a.get("workspace_id") == workspace]
 
     ranked = sorted(
-        (agent for agent in agents if agent.get("agent_status") in priority),
-        key=lambda agent: (priority.index(agent["agent_status"]), agent.get("pane_id", "")),
+        (
+            (agent, buckets[agent["pane_id"]])
+            for agent in candidates
+            if buckets.get(agent["pane_id"]) in priority
+        ),
+        key=lambda pair: (priority.index(pair[1]), pair[0].get("pane_id", "")),
     )
+    print(f"candidates {[(a['pane_id'], b) for a, b in ranked]} focused={focused}")
     if not ranked:
         toast("No agent needs attention")
         return
 
-    focused = live.get("focused_pane_id")
-    target = ranked[0]
-    for index, agent in enumerate(ranked):
+    target = ranked[0][0]
+    for index, (agent, _) in enumerate(ranked):
         if agent.get("pane_id") == focused:
-            target = ranked[(index + 1) % len(ranked)]
+            target = ranked[(index + 1) % len(ranked)][0]
             break
 
     if focused and target["pane_id"] != focused:
@@ -285,6 +542,12 @@ if __name__ == "__main__":
     event = os.environ.get("HERDR_PLUGIN_EVENT")
     if event == "pane.agent_status_changed":
         handle_agent_status_change()
+    elif event == "pane.focused":
+        handle_pane_focused()
+    elif event == "pane.agent_detected":
+        handle_agent_detected()
+    elif event == "startup":
+        reconcile(snapshot())
     elif event is None:
         subcommand = sys.argv[1] if len(sys.argv) > 1 else "jump"
         if subcommand == "jump":

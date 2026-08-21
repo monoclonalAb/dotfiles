@@ -1,6 +1,6 @@
 id = "martinro.next-agent"
 name = "Next Agent"
-version = "0.3.0-local"
+version = "0.6.0-local"
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 
@@ -18,4 +18,15 @@ command = ["python3.14", "next_agent.py", "back"]
 
 [[events]]
 on = "pane.agent_status_changed"
+command = ["python3.14", "next_agent.py"]
+
+[[events]]
+on = "pane.focused"
+command = ["python3.14", "next_agent.py"]
+
+[[startup]]
+command = ["python3.14", "next_agent.py"]
+
+[[events]]
+on = "pane.agent_detected"
 command = ["python3.14", "next_agent.py"]
