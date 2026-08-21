@@ -10,9 +10,10 @@ modelRoles:
   task: google-antigravity/gemini-3.7-flash:medium
   advisor: anthropic/claude-sonnet-5:high
 symbolPreset: nerd
-setupVersion: 1
+setupVersion: 2
 theme:
   dark: light-catppuccin
+  light: light
 dev:
   autoqaConsent: granted
 github:
@@ -34,3 +35,5 @@ lsp:
   diagnosticsOnEdit: true
 browser:
   relay: true
+composer:
+  shape: claude
