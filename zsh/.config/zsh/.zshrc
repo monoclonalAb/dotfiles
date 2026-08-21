@@ -27,6 +27,8 @@ alias prosperity='python /Users/ericzheng/Desktop/prosperity/prosperity4/_submis
 # Path #
 ########
 
+export PATH="$HOME/.bun/bin:$PATH"
+
 export PATH="/Library/TeX/texbin:$HOME/.cargo/bin:/usr/local/share/dotnet:$PATH"
 
 #########
