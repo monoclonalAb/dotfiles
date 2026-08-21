@@ -16,6 +16,16 @@
 
 Do not install these duplicate plugins: `pi-mcp-adapter` and `pi-mcp-extension` (native MCP); `pi-subagents`, `@tintinweb/pi-subagents`, `@narumitw/pi-subagents`, and `@quintinshaw/pi-dynamic-workflows` (native `task`/`hub`/`/vibe`); `@juicesharp/rpiv-todo`, `pi-ask-user`, and `@juicesharp/rpiv-ask-user-question` (native `todo`/`ask`); `@narumitw/pi-plan-mode` (native plan mode); `@narumitw/pi-lsp`, `pi-readseek`, and `pi-hashline-edit-pro` (native `lsp`/hashline `edit`); `pi-memory`, `pi-hermes-memory`, and `@remnic/plugin-pi` (native mnemopi); `omp-bark-notify` and `@llblab/pi-telegram` (herdr notifies); and `@narumitw/pi-sync` (this dotfiles repository syncs config).
 
+## Google Cloud
+
+- Read-only MCP servers: `gcloud` (`@google-cloud/gcloud-mcp@0.5.3`) and `gcp-observability` (`@google-cloud/observability-mcp@0.2.3`). The gcloud server is constrained by `~/dotfiles/omp/.omp/agent/gcloud-mcp-allowlist.json`.
+- To widen the gcloud scope, obtain the canonical command path with `gcloud meta lint-gcloud-commands --command-string "gcloud …"`, add that exact path to `allow`, then run `/mcp reload`. Prefix matching is release-track-specific: `beta run services describe` needs its own allowlist entry.
+- Project map: `habithealth-de01`, `habithealth-de02`, and `habithealth-de03` use `habithealth`; `de-dashboard` uses `eai-internal`; `raywhite-ai` uses `raywhite-417614`; `rock-rubble-ai` uses `rockandrubble`; `base-DE-template` uses the placeholder in `.everyday.json`. All Cloud Run services use `us-central1`.
+- KPI telemetry—Pub/Sub `kpi-events` and BigQuery `eai-internal.kpi.kpi_events`—always lives in `eai-internal`, regardless of the DE's own project. Pass `--project` explicitly on every gcloud call: the default is `eai-internal` and otherwise can silently return another project's resources.
+- BigQuery is intentionally outside the MCP; use `bq --project_id=<project> …` from bash.
+- Reauthenticate with `gcloud auth login` for gcloud CLI credentials and `gcloud auth application-default login` for observability ADC. The organisation's reauthentication policy expires both sets together.
+- The SDK lives at `~/google-cloud-sdk`, exposed through symlinks in `~/.local/bin`.
+
 ## Alternatives
 
 **Docs / code grounding** — `context7` (HTTP 200 anon, 2 tools) · `deepwiki` (HTTP 200 anon, 3 tools) · `gitmcp` per-repo `https://gitmcp.io/{owner}/{repo}` (HTTP 200 anon, 4 tools, free, no signup — project-scoped so add per project, not user-level) · `ref-tools-mcp` npm 3.0.3 (2025-11-04), `https://api.ref.tools/mcp` 401, needs `REF_API_KEY` · `cloudflare-docs` `https://docs.mcp.cloudflare.com/mcp` (200 anon, 2 tools). Pick: context7 + deepwiki. Runner-up: gitmcp when you want retrieval pinned to one repo.

@@ -1,0 +1,80 @@
+{
+  "allow": [
+    "auth list",
+    "config list",
+    "projects list",
+    "projects describe",
+    "projects get-iam-policy",
+    "services list",
+
+    "run services list",
+    "run services describe",
+    "run services get-iam-policy",
+    "run revisions list",
+    "run revisions describe",
+
+    "firestore databases list",
+    "firestore databases describe",
+    "firestore indexes composite list",
+    "firestore indexes composite describe",
+    "firestore indexes fields list",
+    "firestore operations list",
+    "firestore operations describe",
+
+    "storage ls",
+    "storage cat",
+    "storage du",
+    "storage buckets list",
+    "storage buckets describe",
+    "storage objects describe",
+
+    "tasks locations list",
+    "tasks queues list",
+    "tasks queues describe",
+    "tasks list",
+    "tasks describe",
+
+    "scheduler locations list",
+    "scheduler jobs list",
+    "scheduler jobs describe",
+
+    "pubsub topics list",
+    "pubsub topics describe",
+    "pubsub topics list-subscriptions",
+    "pubsub subscriptions list",
+    "pubsub subscriptions describe",
+
+    "artifacts locations list",
+    "artifacts repositories list",
+    "artifacts repositories describe",
+    "artifacts docker images list",
+    "artifacts docker images describe",
+    "artifacts docker tags list",
+    "artifacts files list",
+    "container images list",
+    "container images list-tags",
+    "container images describe",
+
+    "sql instances list",
+    "sql instances describe",
+    "sql databases list",
+    "sql operations list",
+    "sql operations describe",
+
+    "iam service-accounts list",
+    "iam service-accounts describe",
+    "iam service-accounts get-iam-policy",
+    "iam service-accounts keys list",
+    "iam roles list",
+    "iam roles describe",
+    "iam workload-identity-pools list",
+    "iam workload-identity-pools describe",
+    "iam workload-identity-pools providers list",
+    "iam workload-identity-pools providers describe",
+
+    "secrets list",
+    "secrets describe",
+    "secrets versions list",
+    "secrets versions describe"
+  ]
+}
