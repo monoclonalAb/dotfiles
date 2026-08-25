@@ -19,3 +19,6 @@ alacritty/.config/alacritty/*.toml.*.bak
 # Restore on a new machine: git clone https://github.com/tmux-plugins/tpm
 #   ~/.config/tmux/plugins/tpm  then start tmux and press <prefix> + I
 tmux/.config/tmux/plugins/
+
+# OMP runtime lock next to the stowed user configuration.
+omp/.omp/agent/config.yml.lock

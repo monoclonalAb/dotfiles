@@ -139,6 +139,18 @@ theme set latte 0.6
 Until this runs, each app falls back to its own default and Alacritty logs a missing-import
 error to `$TMPDIR/Alacritty-*.log` — harmless, and this clears it.
 
+**Tailscale**
+
+Install the `tailscale-app` cask, sign in to the existing tailnet, and enable MagicDNS in
+the tailnet's DNS settings. The cask ships no `tailscale` command on `PATH`; use this wrapper
+instead of a symlink so the executable keeps its application-bundle identity:
+
+```sh
+printf '%s\n' '#!/bin/sh' 'exec /Applications/Tailscale.app/Contents/MacOS/Tailscale "$@"' \
+  > ~/.local/bin/tailscale
+chmod +x ~/.local/bin/tailscale
+```
+
 **Herdr**
 Herdr's runtime `config.toml` is generated from `config.base.toml` by `theme`, so
 run the Theme step above before starting it.
@@ -147,6 +159,8 @@ run the Theme step above before starting it.
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
 herdr plugin install persiyanov/herdr-reviewr -y
 herdr integration install omp
+herdr plugin install AltanS/collie -y
+bash "$(ls -d ~/.config/herdr/plugins/github/herdr.collie-*)"/scripts/collie-ctl.sh start
 herdr config check
 herdr
 ```
@@ -166,6 +180,14 @@ session.
 The reviewr plugin adds a review pane on `C-a v`: it shows the agent's diff beside the chat,
 takes line comments, and sends them back to the agent; its own config lives at
 `~/.config/herdr/plugins/config/persiyanov.reviewr/config.toml` (untracked, like next-agent's).
+
+Collie is the phone PWA for the Herdr herd. It binds its bridge to loopback and exposes it only
+through `tailscale serve`; its configuration stays untracked at
+`~/.config/herdr/plugins/config/herdr.collie/.env`, alongside next-agent's and reviewr's, with
+`COLLIE_TRUSTED_USER`, `COLLIE_PUBLIC_HOSTS`, and `COLLIE_MULTI_SESSION=off`. The
+`herdr.collie.plist` launchd agent restarts it at login; use `collie-ctl.sh status`, `url`,
+`logs`, or `update` to operate it. Collie provides remote shell access to this Mac, so never use
+`tailscale funnel` for it.
 
 **tmux (legacy fallback)**
 
@@ -227,6 +249,7 @@ echo $ZDOTDIR            # /Users/you/.config/zsh   => .zshenv is linked
 nvim +checkhealth        # lazy/mason/treesitter all green
 herdr config check       # config parses and every custom key is valid
 herdr                    # persistent workspace opens with the C-a prefix
+tailscale serve status   # :443 -> 127.0.0.1:8787, tailnet only
 ```
 
 ## The rule (how to tell what's managed)
@@ -433,6 +456,17 @@ lookup.
   `<cwd>/.github/skills/`. Roots are non-recursive, one level below `skills/`; the
   native provider requires `name` and `description` frontmatter. Add roots with
   `skills.customDirectories`.
+- **Skill scope:** keep only cross-repository skills in `~/.omp/agent/skills/`.
+  Repository-specific sources live in `~/.omp/agent/scoped-skills/`, which is not
+  auto-discovered, and are linked into each applicable repository at
+  `.omp/skills/<name>`. The global set is `llm-eval`, `repo-recon`,
+  `secret-sast-sweep`, and `visual-verify`. Scoped rules:
+  - `lintmax`: repositories with `pnpm-lock.yaml`
+  - `agent-test-author`: prompt-behemoth consumers
+  - `everyday-ai-frontend-styleguide`: `de-dashboard`
+  - `perform-dangerous-action`: DE service repositories
+  - `kpi-tracking`: Hono-based DE service repositories
+  - `policy-guide-setup` and `system-design-template`: established DE service repositories
 - **Custom subagents:** `~/.omp/agent/agents/*.md` and `<cwd>/.omp/agents/*.md`.
   Required frontmatter: `name`, `description`; optional: `tools`, `spawns`, `model`,
   `thinking-level`, `autoloadSkills`, `prewalk`, `advisor`. Bundled agents are `scout`,
