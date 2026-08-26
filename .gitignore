@@ -22,3 +22,8 @@ tmux/.config/tmux/plugins/
 
 # OMP runtime lock next to the stowed user configuration.
 omp/.omp/agent/config.yml.lock
+
+# OMP generated runtime state.
+omp/.omp/agent/*.db*
+omp/.omp/agent/memories/
+omp/.omp/agent/last-changelog-version
