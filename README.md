@@ -194,6 +194,21 @@ through `tailscale serve`; its configuration stays untracked at
 `logs`, or `update` to operate it. Collie provides remote shell access to this Mac, so never use
 `tailscale funnel` for it.
 
+**Orca**
+
+`~/.orca/keybindings.json` contains the tracked macOS overrides. Orca's `Mod`
+token resolves to `Cmd` on macOS.
+
+- `Mod+Shift+Backslash` / `Mod+Shift+Underscore` split right / down.
+- `Mod+Shift+C` closes a pane and `Mod+Shift+Z` expands or collapses it.
+- `Mod+Shift+W` opens Orca's **Jump to...** palette.
+- `Cmd+Ctrl+Shift+R` forces a reload.
+
+Orca currently has no assigned custom bindings here for directional pane focus,
+directional resize, pane swapping, pane synchronisation, breaking a pane into a tab,
+detach/lock/client-list operations, tmux copy mode, or the custom `Space` layout
+cycle.
+
 **tmux (legacy fallback)**
 
 ```sh
