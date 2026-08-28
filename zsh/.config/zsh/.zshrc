@@ -110,7 +110,9 @@ export PATH="$HOME/.local/bin:$PATH"
 # Route Python commands through the version selected by pyenv.
 export PYENV_ROOT="$HOME/.pyenv"
 [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init - zsh)"
+if command -v pyenv >/dev/null 2>&1; then
+  eval "$(pyenv init - zsh)"
+fi
 
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/Users/eric/Downloads/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/eric/Downloads/google-cloud-sdk/path.zsh.inc'; fi

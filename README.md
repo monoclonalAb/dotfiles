@@ -83,6 +83,10 @@ packages, and the `pwa-node` debug adapter shells out to `node`. `.zshrc` alread
 
 Dry-run first. On a Mac that has already been used, this *will* report conflicts:
 
+The repository `.stowrc` disables directory folding. Stow creates real parent
+directories and links only managed files, so app-written runtime state such as Pi
+credentials and generated extensions stays outside this repository.
+
 ```sh
 cd ~/dotfiles
 stow -n -v -t "$HOME" */
@@ -102,15 +106,16 @@ Then link for real:
 stow -t "$HOME" */
 ```
 
-`*/` only matches non-hidden directories, so `README.md`, `Brewfile`, and the archived
-`.archive/` packages are skipped automatically.
-Because the targets don't exist yet, stow *folds* each package into a single symlink —
-you get `~/.config/nvim -> ../dotfiles/nvim/.config/nvim`, not one link per file.
+`*/` only matches non-hidden directories, so `README.md`, `Brewfile`, `.stowrc`, and
+the archived `.archive/` packages are skipped automatically. The `.stowrc` ignore rules
+also keep runtime state local: Zsh history and sessions, Neovim's lockfile, tmux
+plugins, OMP's lockfile, and Pi credentials, model cache, and Orca-generated extensions.
+Tracked configuration remains as individual symlinks inside real directories.
 
 Check it landed:
 
 ```sh
-ls -la ~/.config    # the managed ones are symlinks -> ../dotfiles/...
+ls -la ~/.config    # managed files inside these real directories are symlinks
 ```
 
 ### 8. Set up each tool
