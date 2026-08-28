@@ -278,8 +278,9 @@ tailscale serve status   # :443 -> 127.0.0.1:8787, tailnet only
 
 ## The rule (how to tell what's managed)
 
-In `~/.config`, **a symlink = managed by this repo**; **a real directory = not managed**
-(games, app state, and secret-bearing tool configs, which are deliberately left in place).
+In `~/.config`, **a symlink = managed by this repo**; **a real directory is usually
+unmanaged**. Partially managed directories are the exception: `~/.config/gh` remains real,
+with `config.yml` linked from this repo and secret-bearing `hosts.yml` left local.
 
 ```sh
 ls -la ~/.config    # symlinks -> ../dotfiles/... are the managed dotfiles
@@ -347,7 +348,7 @@ passwordless sudoers entry.
 
 | Managed (stow packages) | Left in `~/.config` (real dirs, untracked) |
 |---|---|
-| nvim, herdr, tmux, zsh (+`~/.zshenv`), alacritty, aerospace, git, bin | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh, github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
+| nvim, herdr, tmux, zsh (+`~/.zshenv`), alacritty, aerospace, git, gh (`config.yml` only), bin | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh credentials (`hosts.yml`), github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
 
 
 Secrets never enter this repo: token/history files (`access_tokens.md`, `.zsh_history`,

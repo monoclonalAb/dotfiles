@@ -1,0 +1,35 @@
+# The current version of the config schema
+version: 1
+# What protocol to use when performing git operations.
+# Supported values: ssh, https
+git_protocol: https
+# What editor gh should run when creating issues and pull requests.
+# If blank, it refers to the environment.
+editor:
+# When to interactively prompt. This global setting cannot be overridden by
+# hostname. Supported values: enabled, disabled
+prompt: enabled
+# Preference for editor-based interactive prompting. This global setting cannot
+# be overridden by hostname. Supported values: enabled, disabled
+prefer_editor_prompt: disabled
+# A pager program for command output, such as "less". If blank, it refers to the
+# environment. Set it to "cat" to disable the pager.
+pager:
+# Aliases allow you to create nicknames for gh commands.
+aliases:
+    co: pr checkout
+# The Unix socket through which to send HTTP connections. If blank, traffic uses
+# net/http.DefaultTransport.
+http_unix_socket:
+# Browser used when opening URLs. If blank, it refers to the environment.
+browser:
+# Whether to display labels using RGB hex colours in truecolour terminals.
+# Supported values: enabled, disabled
+color_labels: disabled
+# Whether to use customisable, 4-bit accessible colours.
+# Supported values: enabled, disabled
+accessible_colors: disabled
+# Whether to use an accessible prompter. Supported values: enabled, disabled
+accessible_prompter: disabled
+# Whether to use an animated spinner. If disabled, textual progress is used.
+spinner: enabled
