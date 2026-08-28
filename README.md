@@ -134,6 +134,10 @@ run this.
 **Terminal** — Alacritty is configured and asks for `JetBrainsMono Nerd Font`, installed
 by the Brewfile.
 
+**Orca** — in Settings → Appearance, select **Import from Ghostty**. The stowed
+`~/.config/ghostty/config` sets both Option keys to Alt, so OMP's `Ctrl+Alt+P`
+binding works with macOS's ABC input source. Repeat the import after a fresh Orca install.
+
 **Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux and Neovim share
 (see [Theme toggle](#theme-toggle)):
 

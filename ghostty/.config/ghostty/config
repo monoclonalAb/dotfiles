@@ -1,0 +1,2 @@
+# Orca imports this setting from Ghostty during onboarding or from Settings > Appearance.
+macos-option-as-alt = true
