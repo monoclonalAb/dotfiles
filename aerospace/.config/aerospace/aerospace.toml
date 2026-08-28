@@ -1,6 +1,9 @@
 # Place a copy of this config to ~/.aerospace.toml
 # After that, you can edit ~/.aerospace.toml to your liking
 
+# Config version for compatibility and deprecations
+config-version = 2
+
 # You can use it to add commands that run after AeroSpace startup.
 # Available commands : https://nikitabobko.github.io/AeroSpace/commands
 after-startup-command = []
@@ -37,6 +40,9 @@ on-focus-changed = "move-mouse window-lazy-center"
 # Useful if you don't use this macOS feature, but accidentally hit cmd-h or cmd-alt-h key
 # Also see: https://nikitabobko.github.io/AeroSpace/goodies#disable-hide-app
 automatically-unhide-macos-hidden-apps = false
+
+# Preserve the v1 behaviour where workspace bindings kept empty workspaces alive
+persistent-workspaces = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'D', 'E', 'G', 'M', 'O', 'P', 'Q', 'R', 'S', 'T', 'W']
 
 # Possible values: (qwerty|dvorak|colemak)
 # See https://nikitabobko.github.io/AeroSpace/guide#key-mapping
@@ -115,25 +121,25 @@ automatically-unhide-macos-hidden-apps = false
     # See: https://nikitabobko.github.io/AeroSpace/commands#workspace
     alt-1 = 'workspace 1'
     alt-2 = 'workspace 2'
-    alt-3 = 'workspace 3'
-    alt-4 = 'workspace 4'
-    alt-5 = 'workspace 5'
+    alt-3 = 'workspace 3' # AI apps
+    alt-4 = 'workspace 4' # browsers
+    alt-5 = 'workspace 5' # design
     alt-6 = 'workspace 6'
     alt-7 = 'workspace 7'
     alt-8 = 'workspace 8'
     alt-9 = 'workspace 9'
 
     alt-0 = 'workspace 0' # discord / slack
-    alt-d = 'workspace D' # unity / dev
+    alt-d = 'workspace D' # development tools
     alt-e = 'workspace E' # terminal
     alt-g = 'workspace G' # game
-    alt-m = 'workspace M' # mail
-    alt-o = 'workspace O' # obsidian
-    alt-p = 'workspace P' # pomodoro timer / session
-    alt-q = 'workspace Q' # terminal
+    alt-m = 'workspace M' # mail / calendar
+    alt-o = 'workspace O' # notes / reading
+    alt-p = 'workspace P' # planning / focus
+    alt-q = 'workspace Q' # Orca
     alt-r = 'workspace R' # terminal
     alt-s = 'workspace S' # spotify
-    alt-t = 'workspace T' # terminal (new terminal windows land here)
+    alt-t = 'workspace T' # terminals
     alt-w = 'workspace W' # terminal
 
     # See: https://nikitabobko.github.io/AeroSpace/commands#move-node-to-workspace
@@ -249,3 +255,75 @@ run = "move-node-to-workspace T"
 [[on-window-detected]]
 if.app-id = 'org.alacritty'
 run = "move-node-to-workspace T"
+
+# Design
+[[on-window-detected]]
+if.app-id = 'com.figma.Desktop'
+run = "move-node-to-workspace 5"
+
+[[on-window-detected]]
+if.app-id = 'com.canva.CanvaDesktop'
+run = "move-node-to-workspace 5"
+
+# AI
+[[on-window-detected]]
+if.app-id = 'com.openai.codex'
+run = "move-node-to-workspace 3"
+
+[[on-window-detected]]
+if.app-id = 'com.conductor.app'
+run = "move-node-to-workspace 3"
+
+[[on-window-detected]]
+if.app-id = 'com.superset.desktop'
+run = "move-node-to-workspace 3"
+
+# Browsers
+[[on-window-detected]]
+if.app-id = 'com.apple.Safari'
+run = "move-node-to-workspace 4"
+
+# Development
+[[on-window-detected]]
+if.app-id = 'dev.kdrag0n.MacVirt'
+run = "move-node-to-workspace D"
+
+[[on-window-detected]]
+if.app-id = 'com.cmuxterm.app'
+run = "move-node-to-workspace T"
+
+# Mail and calendar
+[[on-window-detected]]
+if.app-id = 'com.apple.iCal'
+run = "move-node-to-workspace M"
+
+# Notes and reading
+[[on-window-detected]]
+if.app-id = 'com.apple.Notes'
+run = "move-node-to-workspace O"
+
+[[on-window-detected]]
+if.app-id = 'md.obsidian'
+run = "move-node-to-workspace O"
+
+[[on-window-detected]]
+if.app-id = 'net.kovidgoyal.calibre'
+run = "move-node-to-workspace O"
+
+[[on-window-detected]]
+if.app-id = 'net.sourceforge.skim-app.skim'
+run = "move-node-to-workspace O"
+
+# Planning and focus
+[[on-window-detected]]
+if.app-id = 'com.linear'
+run = "move-node-to-workspace P"
+
+[[on-window-detected]]
+if.app-id = 'sh.paseo.desktop'
+run = "move-node-to-workspace P"
+
+# Orca
+[[on-window-detected]]
+if.app-id = 'com.stablyai.orca'
+run = "move-node-to-workspace Q"
