@@ -1,0 +1,3 @@
+# reviewr has no light/dark autodetect, so pin the palette that matches the shared
+# Catppuccin state in ~/.local/state/theme/flavour (currently `latte`).
+theme = "catppuccin-latte"

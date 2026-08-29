@@ -187,12 +187,13 @@ focused OMP pane makes the request sound without a redundant popup. New OMP sess
 the integration automatically; use OMP's `/reload` (or restart) for an already-running
 session.
 The reviewr plugin adds a review pane on `C-a v`: it shows the agent's diff beside the chat,
-takes line comments, and sends them back to the agent; its own config lives at
-`~/.config/herdr/plugins/config/persiyanov.reviewr/config.toml` (untracked, like next-agent's).
+takes line comments, and sends them back to the agent. The next-agent priority/scope and
+reviewr palette settings are tracked under
+`~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
 
 Collie is the phone PWA for the Herdr herd. It binds its bridge to loopback and exposes it only
-through `tailscale serve`; its configuration stays untracked at
-`~/.config/herdr/plugins/config/herdr.collie/.env`, alongside next-agent's and reviewr's, with
+through `tailscale serve`; its `.env`, logs, and runtime files stay untracked under
+`~/.config/herdr/plugins/config/herdr.collie/`. The `.env` contains
 `COLLIE_TRUSTED_USER`, `COLLIE_PUBLIC_HOSTS`, and `COLLIE_MULTI_SESSION=off`. The
 `herdr.collie.plist` launchd agent restarts it at login; use `collie-ctl.sh status`, `url`,
 `logs`, or `update` to operate it. Collie provides remote shell access to this Mac, so never use
