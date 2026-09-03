@@ -521,6 +521,10 @@ lookup.
   sweep that creates or evolves `domain-first-operating-model.md`.
   Pi's `alt+shift+c` shortcut (`copy-prompt.ts`) copies the current prompt
   draft to the clipboard.
+  Pi's `omp-anthropic-route` extension aligns direct Anthropic OAuth traffic
+  with OMP's reviewed wire shape when the installed OMP version matches its
+  pinned target, falling back to Pi's native transport otherwise;
+  `/omp-anthropic-route` reports route, version, and credential state.
 - **Plugins:** `omp plugin install <spec>` or `omp plugin link <path>`; state lives
   under `~/.omp/plugins/`.
 - **Marketplaces:** `/marketplace add <owner/repo>`, then `/marketplace discover`.
