@@ -12,6 +12,7 @@ alias downloads="cd ~/Downloads/"
 alias pmd="$HOME/pmd-bin-7.16.0/bin/pmd"
 alias claude="claude --dangerously-skip-permissions"
 alias ls='gls -lAhsF --color --group-directories-first'
+alias c='clear'
 
 alias life="cd ~/Desktop/life/"
 alias todo="nvim ~/Desktop/life/todo.md"
