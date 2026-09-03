@@ -521,6 +521,8 @@ lookup.
   sweep that creates or evolves `domain-first-operating-model.md`.
   Pi's `alt+shift+c` shortcut (`copy-prompt.ts`) copies the current prompt
   draft to the clipboard.
+  Pi's global `harness-feedback.ts` extension starts disabled; use `/harness on`
+  to add correction-driven guidance and `/harness off` to remove it.
   Pi's `omp-anthropic-route` extension aligns direct Anthropic OAuth traffic
   with OMP's reviewed wire shape when the installed OMP version matches its
   pinned target, falling back to Pi's native transport otherwise;
