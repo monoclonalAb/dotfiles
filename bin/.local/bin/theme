@@ -243,8 +243,9 @@ peach = "$peach"
 
 # Herdr's own state_icon clears as soon as a pane's TAB is seen, even for panes that were never
 # focused, so the martinro.next-agent plugin owns this dot instead: it reports exactly one \$dot_*
-# token per pane from its per-pane ledger, the same state prefix+u jumps to. Missing tokens and
-# their separators disappear, so exactly one dot renders per row.
+# token per pane from its per-pane ledger, the same state prefix+u jumps to. The custom Herdr build
+# also uses \$dot_blocked/\$dot_review for palette-matched borders and intermediate opacity.
+# Missing tokens and their separators disappear, so exactly one dot renders per row.
 [ui.sidebar.agents]
 rows = [
   [

@@ -276,6 +276,21 @@ index 56dbb8d..4714ac4 100644
  # Hide the tab row when a workspace has exactly one tab.
  # New tabs can still be created with the configured keybinding.
  # hide_tab_bar_when_single_tab = false
+diff --git a/src/metadata_tokens.rs b/src/metadata_tokens.rs
+index f79e8ae..9af6285 100644
+--- a/src/metadata_tokens.rs
++++ b/src/metadata_tokens.rs
+@@ -88,6 +88,10 @@ impl MetadataTokens {
+             .collect()
+     }
+
++    pub(crate) fn get(&self, key: &str) -> Option<&str> {
++        self.entries.get(key).map(|token| token.value.as_str())
++    }
++
+     pub(crate) fn next_expiry(&self) -> Option<Instant> {
+         self.entries
+             .values()
 diff --git a/src/protocol/wire.rs b/src/protocol/wire.rs
 index 4a44536..86d310a 100644
 --- a/src/protocol/wire.rs
@@ -291,10 +306,10 @@ index 4a44536..86d310a 100644
          0x00 => match val & 0xFF {
              0x00 => ratatui::style::Color::Reset,
 diff --git a/src/server/headless.rs b/src/server/headless.rs
-index 9161cd3..daff435 100644
+index 9161cd3..78db377 100644
 --- a/src/server/headless.rs
 +++ b/src/server/headless.rs
-@@ -4300,12 +4300,19 @@ impl HeadlessServer {
+@@ -4300,12 +4300,21 @@ impl HeadlessServer {
                  crate::pane::TerminalDirtyPatchOutcome::Fallback => {
                      retained_fallback!("dirty_patch_fallback");
                  }
@@ -306,22 +321,25 @@ index 9161cd3..daff435 100644
                          retained_fallback!("hyperlink_intersection");
                      }
 +                    if self.app.state.dim_unfocused_panes && !info.is_focused {
++                        let opacity =
++                            crate::ui::pane_unfocused_opacity(&self.app.state, ws_idx, info.id);
 +                        for (_, cells) in &mut patch.rows {
 +                            for cell in cells {
-+                                crate::ui::fade_unfocused_cell_data(&self.app.state, cell);
++                                crate::ui::fade_unfocused_cell_data(&self.app.state, cell, opacity);
 +                            }
 +                        }
 +                    }
                      if !apply_terminal_dirty_patch(&mut frame, info.inner_rect, patch) {
                          retained_fallback!("patch_apply_failed");
                      }
-@@ -6036,6 +6043,37 @@ mod tests {
+@@ -6036,6 +6045,59 @@ mod tests {
          (server, client_rx, pane_id)
      }
  
 +    fn add_dimmed_unfocused_test_pane(
 +        server: &mut HeadlessServer,
 +        initial_screen: &[u8],
++        attention_token: Option<&str>,
 +    ) -> crate::layout::PaneId {
 +        let workspace = &mut server.app.state.workspaces[0];
 +        let focused_pane = workspace.focused_pane_id().expect("focused pane");
@@ -335,6 +353,27 @@ index 9161cd3..daff435 100644
 +            .expect("active tab")
 +            .layout
 +            .focus_pane(focused_pane);
++        let attention_terminal_id = workspace
++            .terminal_id(unfocused_pane)
++            .expect("attention terminal")
++            .clone();
++        if let Some(token) = attention_token {
++            let mut terminal =
++                crate::terminal::TerminalState::new(attention_terminal_id.clone(), "/tmp".into());
++            terminal.metadata_tokens.patch(
++                std::collections::HashMap::from([(
++                    token.to_string(),
++                    Some("attention".to_string()),
++                )]),
++                None,
++                std::time::Instant::now(),
++            );
++            server
++                .app
++                .state
++                .terminals
++                .insert(attention_terminal_id, terminal);
++        }
 +        server.app.state.dim_unfocused_panes = true;
 +        server.app.state.unfocused_pane_opacity = 0.25;
 +        server.app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme::default()
@@ -353,7 +392,7 @@ index 9161cd3..daff435 100644
      fn hidden_pty_visibility_test_server(
          client_sizes: &[(u16, u16)],
      ) -> (HeadlessServer, crate::layout::PaneId) {
-@@ -10193,6 +10231,62 @@ next_tab = ""
+@@ -10193,6 +10255,120 @@ next_tab = ""
          assert_frame_data_eq(&retained_frame, &full_frame);
      }
  
@@ -362,9 +401,9 @@ index 9161cd3..daff435 100644
 +        let initial = b"idle";
 +        let update = b"\r\x1b[38;2;220;120;60mZ\x1b[0m";
 +        let (mut retained_server, retained_rx, _) = retained_test_server(b"focused");
-+        let retained_pane = add_dimmed_unfocused_test_pane(&mut retained_server, initial);
++        let retained_pane = add_dimmed_unfocused_test_pane(&mut retained_server, initial, None);
 +        let (mut full_server, full_rx, _) = retained_test_server(b"focused");
-+        let full_pane = add_dimmed_unfocused_test_pane(&mut full_server, initial);
++        let full_pane = add_dimmed_unfocused_test_pane(&mut full_server, initial, None);
 +
 +        retained_server.render_and_stream();
 +        let _ = retained_rx
@@ -413,23 +452,84 @@ index 9161cd3..daff435 100644
 +        );
 +    }
 +
++    #[tokio::test]
++    async fn retained_pty_update_keeps_attention_pane_at_midpoint_opacity() {
++        let initial = b"idle";
++        let update = b"\r\x1b[38;2;220;120;60mZ\x1b[0m";
++        let (mut retained_server, retained_rx, _) = retained_test_server(b"focused");
++        let retained_pane =
++            add_dimmed_unfocused_test_pane(&mut retained_server, initial, Some("dot_review"));
++        let (mut full_server, full_rx, _) = retained_test_server(b"focused");
++        let full_pane =
++            add_dimmed_unfocused_test_pane(&mut full_server, initial, Some("dot_review"));
++
++        retained_server.render_and_stream();
++        let _ = retained_rx
++            .recv_timeout(Duration::from_millis(100))
++            .expect("initial retained baseline");
++        full_server.render_and_stream();
++        let _ = full_rx
++            .recv_timeout(Duration::from_millis(100))
++            .expect("initial full baseline");
++
++        retained_server
++            .app
++            .state
++            .runtime_for_pane_in_workspace(&retained_server.app.terminal_runtimes, 0, retained_pane)
++            .expect("retained runtime")
++            .test_process_pty_bytes(update);
++        full_server
++            .app
++            .state
++            .runtime_for_pane_in_workspace(&full_server.app.terminal_runtimes, 0, full_pane)
++            .expect("full runtime")
++            .test_process_pty_bytes(update);
++
++        assert!(retained_server.render_retained_pty_update_and_stream());
++        full_server.render_and_stream();
++
++        let retained_frame = read_server_frame(
++            retained_rx
++                .recv_timeout(Duration::from_millis(100))
++                .expect("retained frame"),
++        );
++        let full_frame = read_server_frame(
++            full_rx
++                .recv_timeout(Duration::from_millis(100))
++                .expect("full frame"),
++        );
++        assert_frame_data_eq(&retained_frame, &full_frame);
++        let updated = retained_frame
++            .cells
++            .iter()
++            .find(|cell| cell.symbol == "Z")
++            .expect("updated attention cell");
++        assert_eq!(
++            updated.fg,
++            crate::protocol::color_to_u32(ratatui::style::Color::Rgb(145, 90, 60))
++        );
++    }
++
      #[tokio::test]
      async fn retained_pty_update_streams_cursor_only_change() {
          let initial = b"abcd";
 diff --git a/src/ui.rs b/src/ui.rs
-index 8adc31e..ac8aef5 100644
+index 8adc31e..e3d4f58 100644
 --- a/src/ui.rs
 +++ b/src/ui.rs
-@@ -94,7 +94,7 @@ pub(crate) use self::{
+@@ -94,7 +94,10 @@ pub(crate) use self::{
          mobile_switcher_areas, mobile_switcher_max_scroll, mobile_switcher_target_at,
          mobile_switcher_workspace_doc_range, MobileSwitcherTarget,
      },
 -    panes::{apply_pane_chrome, pane_inner_rect, pane_is_scrolled_back},
-+    panes::{apply_pane_chrome, fade_unfocused_cell_data, pane_inner_rect, pane_is_scrolled_back},
++    panes::{
++        apply_pane_chrome, fade_unfocused_cell_data, pane_inner_rect, pane_is_scrolled_back,
++        pane_unfocused_opacity,
++    },
      tab_surface::{tab_surface_cursor, tab_surface_hyperlinks, TabSurfaceView},
      tabs::{compute_tab_bar_view, tab_bar_content_area},
      widgets::{centered_popup_rect, modal_stack_areas},
-@@ -1405,7 +1405,7 @@ mod tests {
+@@ -1405,7 +1408,7 @@ mod tests {
      }
  
      #[test]
@@ -438,7 +538,7 @@ index 8adc31e..ac8aef5 100644
          let mut app = crate::app::state::AppState::test_new();
          app.mode = Mode::Prefix;
          app.view.terminal_area = ratatui::layout::Rect::new(0, 0, 60, 4);
-@@ -1416,14 +1416,15 @@ mod tests {
+@@ -1416,14 +1419,15 @@ mod tests {
              .draw(|frame| render_prefix_overlay(&app, frame, app.view.terminal_area))
              .expect("draw prefix overlay");
  
@@ -507,7 +607,7 @@ index 763c0ea..d4b5525 100644
  }
  
 diff --git a/src/ui/panes.rs b/src/ui/panes.rs
-index f20b55b..8cf788a 100644
+index f20b55b..a93aeac 100644
 --- a/src/ui/panes.rs
 +++ b/src/ui/panes.rs
 @@ -81,19 +81,26 @@ fn pane_below<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo
@@ -579,7 +679,7 @@ index f20b55b..8cf788a 100644
      );
  
      for info in &mut pane_infos {
-@@ -338,6 +354,144 @@ pub(super) fn compute_pane_infos(
+@@ -338,6 +354,203 @@ pub(super) fn compute_pane_infos(
      pane_infos
  }
  
@@ -648,6 +748,62 @@ index f20b55b..8cf788a 100644
 +        .or_else(|| Some(indexed_color_to_rgb(index)))
 +}
 +
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum PaneAttention {
++    Review,
++    Blocked,
++}
++
++impl PaneAttention {
++    fn border_color(self, palette: &Palette) -> Color {
++        match self {
++            Self::Review => palette.peach,
++            Self::Blocked => palette.red,
++        }
++    }
++
++    fn priority(self) -> u8 {
++        match self {
++            Self::Review => 1,
++            Self::Blocked => 2,
++        }
++    }
++}
++
++fn pane_attention(
++    app: &AppState,
++    ws: &crate::workspace::Workspace,
++    pane_id: crate::layout::PaneId,
++) -> Option<PaneAttention> {
++    let terminal = ws
++        .pane_state(pane_id)
++        .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))?;
++    if terminal.metadata_tokens.get("dot_blocked").is_some() {
++        Some(PaneAttention::Blocked)
++    } else if terminal.metadata_tokens.get("dot_review").is_some() {
++        Some(PaneAttention::Review)
++    } else {
++        None
++    }
++}
++
++fn attention_pane_opacity(unfocused_opacity: f32) -> f32 {
++    unfocused_opacity + (1.0 - unfocused_opacity) / 2.0
++}
++
++pub(crate) fn pane_unfocused_opacity(
++    app: &AppState,
++    workspace_index: usize,
++    pane_id: crate::layout::PaneId,
++) -> f32 {
++    app.workspaces
++        .get(workspace_index)
++        .and_then(|ws| pane_attention(app, ws, pane_id))
++        .map_or(app.unfocused_pane_opacity, |_| {
++            attention_pane_opacity(app.unfocused_pane_opacity)
++        })
++}
++
 +fn blend_toward(source: Rgb, target: Rgb, opacity: f32) -> Rgb {
 +    let blend = |source: u8, target: u8| {
 +        (f32::from(source) * opacity + f32::from(target) * (1.0 - opacity)).round() as u8
@@ -659,8 +815,7 @@ index f20b55b..8cf788a 100644
 +    )
 +}
 +
-+fn faded_unfocused_style(style: Style, app: &AppState) -> Style {
-+    let opacity = app.unfocused_pane_opacity;
++fn faded_unfocused_style(style: Style, app: &AppState, opacity: f32) -> Style {
 +    let backdrop = app
 +        .host_terminal_theme
 +        .background
@@ -702,21 +857,25 @@ index f20b55b..8cf788a 100644
 +/// PTY dirty-row patches bypass the ratatui pane buffer, so they must be
 +/// transformed before replacing cells in the previous frame. Otherwise every
 +/// animated update in an unfocused pane briefly restores its undimmed colours.
-+pub(crate) fn fade_unfocused_cell_data(app: &AppState, cell: &mut crate::protocol::CellData) {
++pub(crate) fn fade_unfocused_cell_data(
++    app: &AppState,
++    cell: &mut crate::protocol::CellData,
++    opacity: f32,
++) {
 +    let style = Style::default()
 +        .fg(crate::protocol::u32_to_color(cell.fg))
 +        .bg(crate::protocol::u32_to_color(cell.bg));
-+    let faded = faded_unfocused_style(style, app);
++    let faded = faded_unfocused_style(style, app, opacity);
 +    cell.fg = crate::protocol::color_to_u32(faded.fg.unwrap_or(Color::Reset));
 +    cell.bg = crate::protocol::color_to_u32(faded.bg.unwrap_or(Color::Reset));
 +}
 +
-+fn fade_unfocused_pane(app: &AppState, frame: &mut Frame, area: Rect) {
++fn fade_unfocused_pane(app: &AppState, frame: &mut Frame, area: Rect, opacity: f32) {
 +    let buf = frame.buffer_mut();
 +    for y in area.y..area.y + area.height {
 +        for x in area.x..area.x + area.width {
 +            let cell = &mut buf[(x, y)];
-+            cell.set_style(faded_unfocused_style(cell.style(), app));
++            cell.set_style(faded_unfocused_style(cell.style(), app, opacity));
 +        }
 +    }
 +}
@@ -724,7 +883,7 @@ index f20b55b..8cf788a 100644
  pub(super) fn render_panes(
      app: &AppState,
      terminal_runtimes: &TerminalRuntimeRegistry,
-@@ -364,16 +518,10 @@ pub(super) fn render_panes(
+@@ -364,16 +577,15 @@ pub(super) fn render_panes(
              rt.render(frame, info.inner_rect, show_cursor);
              render_pane_scrollbar(app, frame, info, rt);
  
@@ -740,11 +899,27 @@ index f20b55b..8cf788a 100644
 -                        cell.set_style(cell.style().add_modifier(Modifier::DIM));
 -                    }
 -                }
-+                fade_unfocused_pane(app, frame, info.inner_rect);
++                fade_unfocused_pane(
++                    app,
++                    frame,
++                    info.inner_rect,
++                    pane_unfocused_opacity(app, ws_idx, info.id),
++                );
              }
  
              let (copy_search_top, copy_search_bottom, copy_search_matches) =
-@@ -511,7 +659,7 @@ fn render_pane_borders(
+@@ -497,6 +709,10 @@ fn render_pane_borders(
+         add_pane_border_cells(&mut cells, info);
+     }
+     add_split_border_cells(app.pane_gaps, split_borders, &mut cells);
++    let attention_by_pane = pane_infos
++        .iter()
++        .filter_map(|info| pane_attention(app, ws, info.id).map(|attention| (info.id, attention)))
++        .collect::<std::collections::HashMap<_, _>>();
+
+     let buf = frame.buffer_mut();
+     let area = buf.area;
+@@ -511,14 +727,21 @@ fn render_pane_borders(
          let focused = pane_infos
              .iter()
              .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
@@ -753,7 +928,30 @@ index f20b55b..8cf788a 100644
          if symbol.is_empty() {
              continue;
          }
-@@ -703,23 +851,38 @@ fn render_pane_border_titles(
+         let cell = &mut buf[(x, y)];
+         cell.set_symbol(symbol);
++        let attention = pane_infos
++            .iter()
++            .filter(|info| line_touches_pane(x, y, info, app.pane_gaps))
++            .filter_map(|info| attention_by_pane.get(&info.id).copied())
++            .max_by_key(|attention| attention.priority());
+         let color = if focused {
+             app.palette.accent
++        } else if let Some(attention) = attention {
++            attention.border_color(&app.palette)
+         } else {
+             app.palette.overlay0
+         };
+@@ -686,6 +909,8 @@ fn render_pane_border_titles(
+         }
+         let color = if info.is_focused {
+             app.palette.accent
++        } else if let Some(attention) = pane_attention(app, ws, info.id) {
++            attention.border_color(&app.palette)
+         } else {
+             app.palette.overlay0
+         };
+@@ -703,23 +928,38 @@ fn render_pane_border_titles(
      }
  }
  
@@ -809,7 +1007,7 @@ index f20b55b..8cf788a 100644
          _ => "",
      }
  }
-@@ -1082,6 +1245,13 @@ mod tests {
+@@ -1082,6 +1322,13 @@ mod tests {
          assert_eq!(buffer[(6, 0)].symbol(), "块");
      }
  
@@ -823,7 +1021,7 @@ index f20b55b..8cf788a 100644
      #[test]
      fn default_horizontal_split_uses_one_shared_divider_column() {
          let mut workspace = Workspace::test_new("test");
-@@ -1094,6 +1264,7 @@ mod tests {
+@@ -1094,6 +1341,7 @@ mod tests {
              true,
              false,
              true,
@@ -831,7 +1029,7 @@ index f20b55b..8cf788a 100644
          );
          let left = infos.iter().find(|info| info.id == root).unwrap();
          let right = infos.iter().find(|info| info.id == right).unwrap();
-@@ -1115,6 +1286,7 @@ mod tests {
+@@ -1115,6 +1363,7 @@ mod tests {
              true,
              false,
              true,
@@ -839,7 +1037,7 @@ index f20b55b..8cf788a 100644
          );
          let top = infos.iter().find(|info| info.id == root).unwrap();
          let bottom = infos.iter().find(|info| info.id == bottom).unwrap();
-@@ -1136,6 +1308,7 @@ mod tests {
+@@ -1136,6 +1385,7 @@ mod tests {
              true,
              false,
              false,
@@ -847,7 +1045,7 @@ index f20b55b..8cf788a 100644
          );
          let left = infos.iter().find(|info| info.id == root).unwrap();
          let right = infos.iter().find(|info| info.id == right).unwrap();
-@@ -1145,28 +1318,60 @@ mod tests {
+@@ -1145,28 +1395,60 @@ mod tests {
      }
  
      #[test]
@@ -919,7 +1117,7 @@ index f20b55b..8cf788a 100644
          let mut workspace = Workspace::test_new("test");
          let root = workspace.tabs[0].root_pane;
          let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
-@@ -1177,11 +1382,12 @@ mod tests {
+@@ -1177,11 +1459,12 @@ mod tests {
              false,
              true,
              true,
@@ -933,7 +1131,7 @@ index f20b55b..8cf788a 100644
          assert_eq!(right.rect, Rect::new(50, 0, 50, 20));
          assert!(left.borders.is_empty());
          assert!(right.borders.is_empty());
-@@ -1197,6 +1403,7 @@ mod tests {
+@@ -1197,6 +1480,7 @@ mod tests {
              false,
              false,
              true,
@@ -941,7 +1139,7 @@ index f20b55b..8cf788a 100644
          );
  
          for info in infos {
-@@ -1206,9 +1413,10 @@ mod tests {
+@@ -1206,9 +1490,10 @@ mod tests {
      }
  
      #[test]
@@ -953,7 +1151,7 @@ index f20b55b..8cf788a 100644
          app.view.terminal_area = Rect::new(0, 0, 4, 4);
          app.view.pane_infos = vec![
              PaneInfo {
-@@ -1269,12 +1477,33 @@ mod tests {
+@@ -1269,12 +1554,112 @@ mod tests {
              .unwrap();
  
          let buffer = terminal.backend().buffer();
@@ -965,6 +1163,85 @@ index f20b55b..8cf788a 100644
          assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.accent));
      }
  
++    #[test]
++    fn agent_attention_uses_theme_border_colours_and_midpoint_opacity() {
++        let mut app = AppState::test_new();
++        app.mode = Mode::Terminal;
++        app.pane_gaps = true;
++        app.unfocused_pane_opacity = 0.4;
++        let mut workspace = Workspace::test_new("test");
++        let focused_pane = workspace.tabs[0].root_pane;
++        let attention_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
++        workspace.tabs[0].layout.focus_pane(focused_pane);
++        app.view.pane_infos = apply_pane_chrome(
++            workspace.tabs[0].layout.panes(Rect::new(0, 0, 12, 4)),
++            true,
++            true,
++            true,
++            test_cell_size(),
++        );
++        let attention_rect = app
++            .view
++            .pane_infos
++            .iter()
++            .find(|info| info.id == attention_pane)
++            .expect("attention pane")
++            .rect;
++        let terminal_id = workspace
++            .terminal_id(attention_pane)
++            .expect("attention terminal")
++            .clone();
++        let mut terminal_state = TerminalState::new(terminal_id.clone(), "/tmp".into());
++        terminal_state.metadata_tokens.patch(
++            std::collections::HashMap::from([("dot_blocked".to_string(), Some("◆".to_string()))]),
++            None,
++            std::time::Instant::now(),
++        );
++        app.terminals.insert(terminal_id.clone(), terminal_state);
++        app.workspaces = vec![workspace];
++        app.active = Some(0);
++
++        let attention_opacity = pane_unfocused_opacity(&app, 0, attention_pane);
++        assert!(
++            (attention_opacity - 0.7).abs() < 0.000_001,
++            "attention should sit halfway between 0.4 and full opacity; got {attention_opacity}"
++        );
++
++        let mut terminal =
++            ratatui::Terminal::new(ratatui::backend::TestBackend::new(12, 4)).unwrap();
++        terminal
++            .draw(|frame| render_view_pane_borders(&app, &app.workspaces[0], frame))
++            .unwrap();
++        assert_eq!(
++            terminal.backend().buffer()[(attention_rect.x, attention_rect.y + 1)]
++                .style()
++                .fg,
++            Some(app.palette.red)
++        );
++
++        app.terminals
++            .get_mut(&terminal_id)
++            .expect("attention terminal")
++            .metadata_tokens
++            .patch(
++                std::collections::HashMap::from([
++                    ("dot_blocked".to_string(), None),
++                    ("dot_review".to_string(), Some("●".to_string())),
++                ]),
++                None,
++                std::time::Instant::now(),
++            );
++        terminal
++            .draw(|frame| render_view_pane_borders(&app, &app.workspaces[0], frame))
++            .unwrap();
++        assert_eq!(
++            terminal.backend().buffer()[(attention_rect.x, attention_rect.y + 1)]
++                .style()
++                .fg,
++            Some(app.palette.peach)
++        );
++    }
++
 +    #[test]
 +    fn unfocused_opacity_blends_all_cell_colours_toward_host_background() {
 +        let mut app = AppState::test_new();
@@ -979,7 +1256,7 @@ index f20b55b..8cf788a 100644
 +            .bg(Color::Rgb(100, 80, 60))
 +            .underline_color(Color::Rgb(20, 240, 160));
 +
-+        let faded = faded_unfocused_style(style, &app);
++        let faded = faded_unfocused_style(style, &app, app.unfocused_pane_opacity);
 +
 +        assert_eq!(faded.fg, Some(Color::Rgb(70, 60, 60)));
 +        assert_eq!(faded.bg, Some(Color::Rgb(40, 50, 60)));

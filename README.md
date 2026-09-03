@@ -161,10 +161,12 @@ Herdr's runtime `config.toml` is generated from `config.base.toml` by `theme`, s
 run the Theme step above before starting it. This repo builds an audited patch on
 upstream v0.8.2 commit `9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c` rather than
 binary-editing the `wkentaro/herdr` prerelease. The patch adds heavy focused-pane
-box drawing, and implements configurable
-inactive-pane fading by blending every foreground/background colour toward the
-queried host-terminal background (substantially stronger than SGR DIM at the tracked
-`ui.unfocused_pane_opacity = 0.5`). Retained PTY row updates receive the same blend,
+box drawing and theme-native agent-attention chrome: blocked panes use the active
+palette's red, completed conversations awaiting review use peach, and either keeps
+content at the midpoint between background and focused opacity (`0.75` with the
+tracked `ui.unfocused_pane_opacity = 0.5`). Ordinary inactive panes still blend every
+foreground/background colour toward the queried host-terminal background, which is
+substantially stronger than SGR DIM. Retained PTY row updates receive the same blend,
 so animated output in a background pane cannot flash at full opacity. Install it after
 `brew bundle`:
 
@@ -204,7 +206,9 @@ the otherwise-suppressed active-tab, different-pane case. A prompt already visib
 focused OMP pane makes the request sound without a redundant popup. New OMP sessions load
 the integration automatically; use OMP's `/reload` (or restart) for an already-running
 session.
-The next-agent priority/scope settings are tracked under
+The same per-pane next-agent ledger drives split-pane attention borders and midpoint
+opacity, so focusing one conversation cannot accidentally clear a sibling. The
+next-agent priority/scope settings are tracked under
 `~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
 
 The local spaces-env plugin organises Spaces into two fixed environments,

@@ -123,6 +123,8 @@ copy_on_select = true
 pane_borders = true
 # Custom-build options: use visibly heavier focus chrome and blend inactive
 # content toward the real terminal background instead of relying on SGR DIM.
+# Agent panes marked blocked/review by next-agent use theme-native borders and
+# derive an opacity halfway between unfocused_pane_opacity and full opacity.
 focused_pane_heavy_borders = true
 pane_scrollbars = false
 # Keep the slight gap; the custom build compensates for rectangular terminal

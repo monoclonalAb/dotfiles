@@ -96,9 +96,12 @@ There are three distinct owners:
 - [`herdr/.config/herdr/patches/`](../herdr/.config/herdr/patches/) plus
   [`install-herdr-focus`](../bin/.local/bin/install-herdr-focus) own the audited,
   pinned local binary variant. The installer fetches one commit, preflights the
-  patch, builds with explicit tool versions, and publishes atomically.
+  patch, builds with explicit tool versions, and publishes atomically. The patch
+  consumes next-agent's blocked/review metadata to render palette-native pane
+  borders and intermediate content opacity.
 - [`herdr/.config/herdr/plugins/next-agent/`](../herdr/.config/herdr/plugins/next-agent/)
-  owns pane-attention behaviour and its focused unit tests.
+  owns the per-pane attention ledger and metadata consumed by navigation, the
+  sidebar, and split-pane chrome, plus its focused unit tests.
 - [`herdr/.config/herdr/plugins/spaces-env/`](../herdr/.config/herdr/plugins/spaces-env/)
   owns the fixed Personal/Work Space environments and their focused unit tests.
   Its workspace assignments and MRU order are runtime state under

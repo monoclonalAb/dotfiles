@@ -9,7 +9,7 @@ usage() {
   cat <<'EOF'
 Usage: install-herdr-focus [--build-only OUTPUT]
 
-Build the pinned Herdr 0.8.2 focused-pane and compact-prefix patch and run
+Build the pinned Herdr 0.8.2 focused/attention-pane and compact-prefix patch and run
 the patch's focused tests. By default the resulting binary is atomically
 installed at ~/.local/bin/herdr. --build-only copies it to OUTPUT without
 touching the installed binary or any running Herdr server.
@@ -109,7 +109,9 @@ built_binary=$source_dir/target/release/herdr
     config::model::tests::unfocused_pane_opacity_rejects_values_outside_unit_interval \
     ui::tests::prefix_mode_renders_compact_prefix_indicator \
     ui::panes::tests \
-    server::headless::tests::retained_pty_update_keeps_unfocused_pane_faded
+    server::headless::tests::retained_pty_update_keeps_unfocused_pane_faded \
+    server::headless::tests::retained_pty_update_keeps_attention_pane_at_midpoint_opacity \
+    --test-threads=1
 )
 
 if [ -n "$build_only" ]; then
