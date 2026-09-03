@@ -158,7 +158,31 @@ chmod +x ~/.local/bin/tailscale
 
 **Herdr**
 Herdr's runtime `config.toml` is generated from `config.base.toml` by `theme`, so
-run the Theme step above before starting it.
+run the Theme step above before starting it. This repo builds an audited patch on
+upstream v0.8.2 commit `9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c` rather than
+binary-editing the `wkentaro/herdr` prerelease. The patch adds heavy focused-pane
+box drawing, and implements configurable
+inactive-pane fading by blending every foreground/background colour toward the
+queried host-terminal background (substantially stronger than SGR DIM at the tracked
+`ui.unfocused_pane_opacity = 0.5`). Retained PTY row updates receive the same blend,
+so animated output in a background pane cannot flash at full opacity. Install it after
+`brew bundle`:
+
+```sh
+install-herdr-focus
+```
+
+The script fetches the pinned source, applies
+`herdr/.config/herdr/patches/herdr-0.8.2-focused-pane.patch`, builds with pinned Rust 1.96.1 and
+Zig 0.15, runs the focused tests the patch adds, ad-hoc signs on macOS, and atomically
+installs `~/.local/bin/herdr`.
+It does not stop, restart, or hand off a server; the binary takes effect on the next
+natural server start. To audit/test without touching the installed executable, use
+`install-herdr-focus --build-only /tmp/herdr-focus`. When upgrading an already-running
+older server, wait for a natural stop, run `theme apply` while it is stopped to regenerate
+`config.toml` with the new keys, and then start Herdr normally.
+
+Then finish the normal setup:
 
 ```sh
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled

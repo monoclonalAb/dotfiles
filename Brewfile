@@ -23,7 +23,8 @@ brew "zsh-syntax-highlighting"
 brew "zsh-vi-mode"
 
 brew "neovim"                  # 0.11+ — lsp.lua uses vim.lsp.config()
-brew "herdr"                   # persistent terminal workspaces for coding agents
+brew "herdr"                   # base install only; ~/.local/bin/herdr (install-herdr-focus) shadows it and owns the running config
+brew "zig@0.15"                # builds Herdr's vendored libghostty-vt for install-herdr-focus; rustup comes from README step 3, not Homebrew
 brew "python@3.14"             # herdr-next-agent plugin runtime
 brew "tmux"
 brew "ripgrep"                 # telescope live_grep, todo-comments, trouble

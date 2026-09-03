@@ -101,14 +101,20 @@ command = "martinro.next-agent.back"
 description = "back to the pane before the agent jumps"
 
 [ui]
-# Mirror the tmux top status/window row and compact shared pane borders.
+# Mirror the tmux top status/window row with independent pane borders.
 tab_bar_position = "top"
 mouse_capture = true
 copy_on_select = true
 pane_borders = true
+# Custom-build options: use visibly heavier focus chrome and blend inactive
+# content toward the real terminal background instead of relying on SGR DIM.
+focused_pane_heavy_borders = true
 pane_scrollbars = false
-pane_gaps = false
-show_agent_labels_on_pane_borders = true
+# Independent borders keep focus colour contained within each pane's corners.
+pane_gaps = true
+show_agent_labels_on_pane_borders = false
+dim_unfocused_panes = true
+unfocused_pane_opacity = 0.5
 
 # tmux creates a window immediately and lets automatic naming take over.
 prompt_new_tab_name = false

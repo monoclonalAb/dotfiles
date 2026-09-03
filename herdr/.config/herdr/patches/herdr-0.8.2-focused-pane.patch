@@ -1,0 +1,991 @@
+diff --git a/docs/next/website/src/data/config-reference.json b/docs/next/website/src/data/config-reference.json
+index 1765c10..efdd71c 100644
+--- a/docs/next/website/src/data/config-reference.json
++++ b/docs/next/website/src/data/config-reference.json
+@@ -730,6 +730,12 @@
+           "default": "true",
+           "description": "Draw borders along the outside edge of the pane area. Disable with pane gaps disabled for tmux-style internal splitters without an outside frame."
+         },
++        {
++          "key": "ui.focused_pane_heavy_borders",
++          "type": "boolean",
++          "default": "false",
++          "description": "Use heavy box-drawing glyphs for the focused pane border."
++        },
+         {
+           "key": "ui.pane_scrollbars",
+           "type": "boolean",
+@@ -748,6 +754,18 @@
+           "default": "false",
+           "description": "Show agent labels in split pane borders when no manual pane label is set."
+         },
++        {
++          "key": "ui.dim_unfocused_panes",
++          "type": "boolean",
++          "default": "false",
++          "description": "Dim unfocused pane content in split layouts."
++        },
++        {
++          "key": "ui.unfocused_pane_opacity",
++          "type": "number",
++          "default": "0.5",
++          "description": "Fraction of unfocused pane colour retained when dimming, from 0.0 to 1.0."
++        },
+         {
+           "key": "ui.hide_tab_bar_when_single_tab",
+           "type": "boolean",
+diff --git a/src/app/agent_resume.rs b/src/app/agent_resume.rs
+index 29c2c31..95c11cc 100644
+--- a/src/app/agent_resume.rs
++++ b/src/app/agent_resume.rs
+@@ -131,6 +131,7 @@ impl App {
+             self.state.pane_borders,
+             self.state.pane_gaps,
+             self.state.pane_outer_borders,
++            self.state.host_cell_size,
+         );
+ 
+         if self.state.active == Some(ws_idx)
+@@ -292,12 +293,14 @@ fn derived_pending_agent_resume_pane_infos(
+     pane_borders: bool,
+     pane_gaps: bool,
+     pane_outer_borders: bool,
++    cell_size: crate::kitty_graphics::HostCellSize,
+ ) -> Vec<crate::layout::PaneInfo> {
+     crate::ui::apply_pane_chrome(
+         tab.layout.panes(terminal_area),
+         pane_borders,
+         pane_gaps,
+         pane_outer_borders,
++        cell_size,
+     )
+     .into_iter()
+     .map(|mut info| {
+diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
+index 6615fa0..9b2b96d 100644
+--- a/src/app/api/panes.rs
++++ b/src/app/api/panes.rs
+@@ -1715,6 +1715,7 @@ impl App {
+             self.state.pane_borders,
+             self.state.pane_gaps,
+             self.state.pane_outer_borders,
++            self.state.host_cell_size,
+         )
+         .into_iter()
+         .filter_map(|pane| {
+diff --git a/src/app/mod.rs b/src/app/mod.rs
+index 85ad4fa..9b4ab4c 100644
+--- a/src/app/mod.rs
++++ b/src/app/mod.rs
+@@ -650,9 +650,12 @@ impl App {
+             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
+             pane_borders: config.ui.pane_borders,
+             pane_outer_borders: config.ui.pane_outer_borders,
++            focused_pane_heavy_borders: config.ui.focused_pane_heavy_borders,
+             pane_scrollbars: config.ui.pane_scrollbars,
+             pane_gaps: config.ui.pane_gaps,
+             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
++            dim_unfocused_panes: config.ui.dim_unfocused_panes,
++            unfocused_pane_opacity: config.ui.unfocused_pane_opacity,
+             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
+             tab_bar_position: config.ui.tab_bar_position,
+             tab_bar_right: Vec::new(),
+@@ -1495,10 +1498,13 @@ impl App {
+                 self.state.prompt_new_workspace_name = config.ui.prompt_new_workspace_name;
+                 self.state.pane_borders = config.ui.pane_borders;
+                 self.state.pane_outer_borders = config.ui.pane_outer_borders;
++                self.state.focused_pane_heavy_borders = config.ui.focused_pane_heavy_borders;
+                 self.state.pane_scrollbars = config.ui.pane_scrollbars;
+                 self.state.pane_gaps = config.ui.pane_gaps;
+                 self.state.show_agent_labels_on_pane_borders =
+                     config.ui.show_agent_labels_on_pane_borders;
++                self.state.dim_unfocused_panes = config.ui.dim_unfocused_panes;
++                self.state.unfocused_pane_opacity = config.ui.unfocused_pane_opacity;
+                 self.state.hide_tab_bar_when_single_tab = config.ui.hide_tab_bar_when_single_tab;
+                 self.state.tab_bar_position = config.ui.tab_bar_position;
+                 self.configure_tab_bar_status(
+diff --git a/src/app/state.rs b/src/app/state.rs
+index d9dcfc9..1ac8978 100644
+--- a/src/app/state.rs
++++ b/src/app/state.rs
+@@ -1484,9 +1484,12 @@ pub struct AppState {
+     pub prompt_new_workspace_name: bool,
+     pub pane_borders: bool,
+     pub pane_outer_borders: bool,
++    pub focused_pane_heavy_borders: bool,
+     pub pane_scrollbars: bool,
+     pub pane_gaps: bool,
+     pub show_agent_labels_on_pane_borders: bool,
++    pub dim_unfocused_panes: bool,
++    pub unfocused_pane_opacity: f32,
+     pub hide_tab_bar_when_single_tab: bool,
+     pub tab_bar_position: TabBarPositionConfig,
+     pub tab_bar_right: Vec<TabBarStatusSegment>,
+@@ -1875,9 +1878,12 @@ impl AppState {
+             prompt_new_workspace_name: false,
+             pane_borders: true,
+             pane_outer_borders: true,
++            focused_pane_heavy_borders: false,
+             pane_scrollbars: true,
+             pane_gaps: false,
+             show_agent_labels_on_pane_borders: false,
++            dim_unfocused_panes: false,
++            unfocused_pane_opacity: 0.5,
+             hide_tab_bar_when_single_tab: false,
+             tab_bar_position: TabBarPositionConfig::Top,
+             tab_bar_right: Vec::new(),
+diff --git a/src/config/model.rs b/src/config/model.rs
+index c10cd73..4689592 100644
+--- a/src/config/model.rs
++++ b/src/config/model.rs
+@@ -11,6 +11,20 @@ use super::{
+ 
+ pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
+ 
++fn deserialize_pane_opacity<'de, D>(deserializer: D) -> Result<f32, D::Error>
++where
++    D: Deserializer<'de>,
++{
++    let value = f32::deserialize(deserializer)?;
++    if value.is_finite() && (0.0..=1.0).contains(&value) {
++        Ok(value)
++    } else {
++        Err(de::Error::custom(
++            "ui.unfocused_pane_opacity must be between 0.0 and 1.0",
++        ))
++    }
++}
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+ #[serde(rename_all = "lowercase")]
+ pub enum UpdateChannelConfig {
+@@ -881,12 +895,19 @@ pub struct UiConfig {
+     pub pane_borders: bool,
+     /// Draw borders along the outside edge of the pane area. Default: true.
+     pub pane_outer_borders: bool,
++    /// Use heavy box-drawing glyphs for the focused pane border. Default: false.
++    pub focused_pane_heavy_borders: bool,
+     /// Draw interactive scrollbars beside terminal panes. Default: true.
+     pub pane_scrollbars: bool,
+     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
+     pub pane_gaps: bool,
+     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
+     pub show_agent_labels_on_pane_borders: bool,
++    /// Dim unfocused pane content in split layouts. Default: false.
++    pub dim_unfocused_panes: bool,
++    /// Fraction of unfocused pane colour retained when dimming. Default: 0.5.
++    #[serde(deserialize_with = "deserialize_pane_opacity")]
++    pub unfocused_pane_opacity: f32,
+     /// Hide the tab row when the workspace has one tab. Default: false.
+     pub hide_tab_bar_when_single_tab: bool,
+     /// Desktop tab row placement. Default: top.
+@@ -1118,9 +1139,12 @@ impl Default for UiConfig {
+             prompt_new_workspace_name: false,
+             pane_borders: true,
+             pane_outer_borders: true,
++            focused_pane_heavy_borders: false,
+             pane_scrollbars: true,
+             pane_gaps: true,
+             show_agent_labels_on_pane_borders: false,
++            dim_unfocused_panes: false,
++            unfocused_pane_opacity: 0.5,
+             hide_tab_bar_when_single_tab: false,
+             tab_bar_position: TabBarPositionConfig::Top,
+             tab_bar_right: Vec::new(),
+@@ -1395,9 +1419,12 @@ status_indicators = "symbols"
+         let default_config = Config::default();
+         assert!(default_config.ui.pane_borders);
+         assert!(default_config.ui.pane_outer_borders);
++        assert!(!default_config.ui.focused_pane_heavy_borders);
+         assert!(default_config.ui.pane_scrollbars);
+         assert!(default_config.ui.pane_gaps);
+         assert!(!default_config.ui.show_agent_labels_on_pane_borders);
++        assert!(!default_config.ui.dim_unfocused_panes);
++        assert_eq!(default_config.ui.unfocused_pane_opacity, 0.5);
+         assert!(!default_config.ui.hide_tab_bar_when_single_tab);
+         assert_eq!(
+             default_config.ui.tab_bar_position,
+@@ -1410,9 +1437,12 @@ status_indicators = "symbols"
+ [ui]
+ pane_borders = false
+ pane_outer_borders = false
++focused_pane_heavy_borders = true
+ pane_scrollbars = false
+ pane_gaps = true
+ show_agent_labels_on_pane_borders = true
++dim_unfocused_panes = true
++unfocused_pane_opacity = 0.25
+ hide_tab_bar_when_single_tab = true
+ tab_bar_position = "bottom"
+ tab_bar_right = [
+@@ -1427,9 +1457,12 @@ tab_bar_right_separator = " · "
+         let config: Config = toml::from_str(toml).unwrap();
+         assert!(!config.ui.pane_borders);
+         assert!(!config.ui.pane_outer_borders);
++        assert!(config.ui.focused_pane_heavy_borders);
+         assert!(!config.ui.pane_scrollbars);
+         assert!(config.ui.pane_gaps);
+         assert!(config.ui.show_agent_labels_on_pane_borders);
++        assert!(config.ui.dim_unfocused_panes);
++        assert_eq!(config.ui.unfocused_pane_opacity, 0.25);
+         assert!(config.ui.hide_tab_bar_when_single_tab);
+         assert_eq!(config.ui.tab_bar_position, TabBarPositionConfig::Bottom);
+         assert_eq!(config.ui.tab_bar_right.len(), 5);
+@@ -1440,6 +1473,18 @@ tab_bar_right_separator = " · "
+         assert_eq!(config.ui.tab_bar_right_separator, " · ");
+     }
+ 
++    #[test]
++    fn unfocused_pane_opacity_rejects_values_outside_unit_interval() {
++        for value in ["-0.1", "1.1", "nan"] {
++            let toml = format!("[ui]\nunfocused_pane_opacity = {value}\n");
++            let error = toml::from_str::<Config>(&toml).unwrap_err().to_string();
++            assert!(
++                error.contains("ui.unfocused_pane_opacity must be between 0.0 and 1.0"),
++                "value {value}: {error}"
++            );
++        }
++    }
++
+     #[test]
+     fn worktrees_directory_defaults_and_parses() {
+         let default_config = Config::default();
+diff --git a/src/main.rs b/src/main.rs
+index 56dbb8d..4714ac4 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -325,6 +325,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+ # Disable for tmux-style internal splitters without an outside frame.
+ # pane_outer_borders = true
+ 
++# Use heavy box-drawing glyphs for the focused pane border.
++# focused_pane_heavy_borders = false
++
+ # Draw interactive scrollbars beside terminal panes.
+ # Set false to reclaim the scrollbar column and keep it out of terminal-native selections.
+ # pane_scrollbars = true
+@@ -335,6 +338,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+ # Show detected/reported agent labels in split pane borders when no manual pane name is set.
+ # show_agent_labels_on_pane_borders = false
+ 
++# Fade unfocused pane content toward the terminal background.
++# dim_unfocused_panes = false
++# Fraction of the original colour to retain (0.0 fully faded, 1.0 unchanged).
++# unfocused_pane_opacity = 0.5
++
+ # Hide the tab row when a workspace has exactly one tab.
+ # New tabs can still be created with the configured keybinding.
+ # hide_tab_bar_when_single_tab = false
+diff --git a/src/protocol/wire.rs b/src/protocol/wire.rs
+index 4a44536..86d310a 100644
+--- a/src/protocol/wire.rs
++++ b/src/protocol/wire.rs
+@@ -792,8 +792,7 @@ pub(crate) fn color_to_u32(color: ratatui::style::Color) -> u32 {
+ }
+ 
+ /// Converts a packed u32 back to a ratatui `Color`.
+-#[cfg(test)]
+-fn u32_to_color(val: u32) -> ratatui::style::Color {
++pub(crate) fn u32_to_color(val: u32) -> ratatui::style::Color {
+     match val >> 24 {
+         0x00 => match val & 0xFF {
+             0x00 => ratatui::style::Color::Reset,
+diff --git a/src/server/headless.rs b/src/server/headless.rs
+index 9161cd3..daff435 100644
+--- a/src/server/headless.rs
++++ b/src/server/headless.rs
+@@ -4300,12 +4300,19 @@ impl HeadlessServer {
+                 crate::pane::TerminalDirtyPatchOutcome::Fallback => {
+                     retained_fallback!("dirty_patch_fallback");
+                 }
+-                crate::pane::TerminalDirtyPatchOutcome::Patch(patch) => {
++                crate::pane::TerminalDirtyPatchOutcome::Patch(mut patch) => {
+                     crate::render_prof::event("retained.pane_patch");
+                     crate::render_prof::counter("retained.patch_rows", patch.rows.len() as u64);
+                     if dirty_patch_intersects_hyperlinks(&frame, info.inner_rect, &patch) {
+                         retained_fallback!("hyperlink_intersection");
+                     }
++                    if self.app.state.dim_unfocused_panes && !info.is_focused {
++                        for (_, cells) in &mut patch.rows {
++                            for cell in cells {
++                                crate::ui::fade_unfocused_cell_data(&self.app.state, cell);
++                            }
++                        }
++                    }
+                     if !apply_terminal_dirty_patch(&mut frame, info.inner_rect, patch) {
+                         retained_fallback!("patch_apply_failed");
+                     }
+@@ -6036,6 +6043,37 @@ mod tests {
+         (server, client_rx, pane_id)
+     }
+ 
++    fn add_dimmed_unfocused_test_pane(
++        server: &mut HeadlessServer,
++        initial_screen: &[u8],
++    ) -> crate::layout::PaneId {
++        let workspace = &mut server.app.state.workspaces[0];
++        let focused_pane = workspace.focused_pane_id().expect("focused pane");
++        let unfocused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
++        workspace.insert_test_runtime(
++            unfocused_pane,
++            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, initial_screen),
++        );
++        workspace
++            .active_tab_mut()
++            .expect("active tab")
++            .layout
++            .focus_pane(focused_pane);
++        server.app.state.dim_unfocused_panes = true;
++        server.app.state.unfocused_pane_opacity = 0.25;
++        server.app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme::default()
++            .with_color(
++                crate::terminal_theme::DefaultColorKind::Background,
++                crate::terminal_theme::RgbColor {
++                    r: 20,
++                    g: 40,
++                    b: 60,
++                },
++            );
++        server.resize_shared_runtime_to_effective_size();
++        unfocused_pane
++    }
++
+     fn hidden_pty_visibility_test_server(
+         client_sizes: &[(u16, u16)],
+     ) -> (HeadlessServer, crate::layout::PaneId) {
+@@ -10193,6 +10231,62 @@ next_tab = ""
+         assert_frame_data_eq(&retained_frame, &full_frame);
+     }
+ 
++    #[tokio::test]
++    async fn retained_pty_update_keeps_unfocused_pane_faded() {
++        let initial = b"idle";
++        let update = b"\r\x1b[38;2;220;120;60mZ\x1b[0m";
++        let (mut retained_server, retained_rx, _) = retained_test_server(b"focused");
++        let retained_pane = add_dimmed_unfocused_test_pane(&mut retained_server, initial);
++        let (mut full_server, full_rx, _) = retained_test_server(b"focused");
++        let full_pane = add_dimmed_unfocused_test_pane(&mut full_server, initial);
++
++        retained_server.render_and_stream();
++        let _ = retained_rx
++            .recv_timeout(Duration::from_millis(100))
++            .expect("initial retained baseline");
++        full_server.render_and_stream();
++        let _ = full_rx
++            .recv_timeout(Duration::from_millis(100))
++            .expect("initial full baseline");
++
++        retained_server
++            .app
++            .state
++            .runtime_for_pane_in_workspace(&retained_server.app.terminal_runtimes, 0, retained_pane)
++            .expect("retained runtime")
++            .test_process_pty_bytes(update);
++        full_server
++            .app
++            .state
++            .runtime_for_pane_in_workspace(&full_server.app.terminal_runtimes, 0, full_pane)
++            .expect("full runtime")
++            .test_process_pty_bytes(update);
++
++        assert!(retained_server.render_retained_pty_update_and_stream());
++        full_server.render_and_stream();
++
++        let retained_frame = read_server_frame(
++            retained_rx
++                .recv_timeout(Duration::from_millis(100))
++                .expect("retained frame"),
++        );
++        let full_frame = read_server_frame(
++            full_rx
++                .recv_timeout(Duration::from_millis(100))
++                .expect("full frame"),
++        );
++        assert_frame_data_eq(&retained_frame, &full_frame);
++        let updated = retained_frame
++            .cells
++            .iter()
++            .find(|cell| cell.symbol == "Z")
++            .expect("updated unfocused cell");
++        assert_eq!(
++            updated.fg,
++            crate::protocol::color_to_u32(ratatui::style::Color::Rgb(70, 60, 60))
++        );
++    }
++
+     #[tokio::test]
+     async fn retained_pty_update_streams_cursor_only_change() {
+         let initial = b"abcd";
+diff --git a/src/ui.rs b/src/ui.rs
+index 8adc31e..ac8aef5 100644
+--- a/src/ui.rs
++++ b/src/ui.rs
+@@ -94,7 +94,7 @@ pub(crate) use self::{
+         mobile_switcher_areas, mobile_switcher_max_scroll, mobile_switcher_target_at,
+         mobile_switcher_workspace_doc_range, MobileSwitcherTarget,
+     },
+-    panes::{apply_pane_chrome, pane_inner_rect, pane_is_scrolled_back},
++    panes::{apply_pane_chrome, fade_unfocused_cell_data, pane_inner_rect, pane_is_scrolled_back},
+     tab_surface::{tab_surface_cursor, tab_surface_hyperlinks, TabSurfaceView},
+     tabs::{compute_tab_bar_view, tab_bar_content_area},
+     widgets::{centered_popup_rect, modal_stack_areas},
+@@ -1405,7 +1405,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn prefix_mode_renders_prefix_indicator() {
++    fn prefix_mode_renders_compact_prefix_indicator() {
+         let mut app = crate::app::state::AppState::test_new();
+         app.mode = Mode::Prefix;
+         app.view.terminal_area = ratatui::layout::Rect::new(0, 0, 60, 4);
+@@ -1416,14 +1416,15 @@ mod tests {
+             .draw(|frame| render_prefix_overlay(&app, frame, app.view.terminal_area))
+             .expect("draw prefix overlay");
+ 
+-        let rendered = terminal
+-            .backend()
+-            .buffer()
+-            .content()
+-            .iter()
+-            .map(|cell| cell.symbol())
+-            .collect::<String>();
+-        assert!(rendered.contains("PREFIX"));
++        let buffer = terminal.backend().buffer();
++        let row = buffer_row_text(buffer, app.view.terminal_area, 3);
++        assert_eq!(row, " PREFIX");
++        assert_eq!(buffer[(0, 3)].style().fg, Some(app.palette.overlay0));
++        assert_eq!(buffer[(7, 3)].style().bg, Some(app.palette.panel_bg));
++        assert_eq!(
++            buffer[(8, 3)].style().bg,
++            Some(ratatui::style::Color::Reset)
++        );
+     }
+ 
+     #[test]
+diff --git a/src/ui/menus.rs b/src/ui/menus.rs
+index 763c0ea..d4b5525 100644
+--- a/src/ui/menus.rs
++++ b/src/ui/menus.rs
+@@ -29,34 +29,12 @@ fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui:
+ }
+ 
+ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
+-    let key = Style::default()
+-        .fg(app.palette.accent)
+-        .add_modifier(Modifier::BOLD);
+-    let dim = Style::default().fg(app.palette.overlay0);
+-    let mode_style = Style::default()
+-        .fg(panel_contrast_fg(&app.palette))
+-        .bg(app.palette.accent)
+-        .add_modifier(Modifier::BOLD);
+-
+-    let workspace_picker = prefix_rhs_label(&app.keybinds.workspace_picker);
+-    let help = prefix_rhs_label(&app.keybinds.help);
+-    let prefix = crate::config::format_key_combo((app.prefix_code, app.prefix_mods));
+-
+-    let line = Line::from(vec![
+-        Span::styled(" PREFIX ", mode_style),
+-        Span::raw(" "),
+-        Span::styled("esc", key),
+-        Span::styled(" cancel  ", dim),
+-        Span::styled(prefix, key),
+-        Span::styled(" send prefix  ", dim),
+-        Span::styled(workspace_picker, key),
+-        Span::styled(" workspace nav  ", dim),
+-        Span::styled(help, key),
+-        Span::styled(" keybinds", dim),
+-    ]);
+-
++    let line = Line::from(Span::styled(
++        " PREFIX ",
++        Style::default().fg(app.palette.overlay0),
++    ));
+     let overlay_y = area.y + area.height.saturating_sub(1);
+-    let overlay_area = Rect::new(area.x, overlay_y, area.width, 1);
++    let overlay_area = Rect::new(area.x, overlay_y, area.width.min(8), 1);
+     render_bottom_bar(frame, overlay_area, line, app.palette.panel_bg);
+ }
+ 
+diff --git a/src/ui/panes.rs b/src/ui/panes.rs
+index f20b55b..8cf788a 100644
+--- a/src/ui/panes.rs
++++ b/src/ui/panes.rs
+@@ -81,19 +81,26 @@ fn pane_below<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo
+     })
+ }
+ 
+-fn shrink_for_one_cell_gap(size: u16) -> u16 {
+-    if size > 1 {
+-        size - 1
++fn shrink_for_gap(size: u16, gap: u16) -> u16 {
++    if size > gap {
++        size - gap
+     } else {
+         size
+     }
+ }
+ 
++fn columns_per_row(cell_size: crate::kitty_graphics::HostCellSize) -> u16 {
++    let width = cell_size.width_px.max(1);
++    let rounded_ratio = cell_size.height_px.saturating_add(width / 2) / width;
++    rounded_ratio.clamp(1, u32::from(u16::MAX)) as u16
++}
++
+ pub(crate) fn apply_pane_chrome(
+     panes: Vec<PaneInfo>,
+     pane_borders: bool,
+     pane_gaps: bool,
+     pane_outer_borders: bool,
++    cell_size: crate::kitty_graphics::HostCellSize,
+ ) -> Vec<PaneInfo> {
+     let multi_pane = panes.len() > 1;
+     let outer_left = panes.iter().map(|info| info.rect.x).min().unwrap_or(0);
+@@ -115,12 +122,19 @@ pub(crate) fn apply_pane_chrome(
+             let right_neighbor = multi_pane.then(|| pane_to_right(&info, &panes)).flatten();
+             let below_neighbor = multi_pane.then(|| pane_below(&info, &panes)).flatten();
+ 
+-            if multi_pane && pane_gaps && !pane_borders {
++            if multi_pane && pane_gaps {
++                // A terminal row is usually about twice as tall as a column is
++                // wide. Compensate in columns so independently bordered panes
++                // retain a slight gap without horizontal splits looking much
++                // farther apart than vertical splits.
++                let horizontal_gap =
++                    columns_per_row(cell_size).saturating_sub(if pane_borders { 1 } else { 0 });
++                let vertical_gap = if pane_borders { 0 } else { 1 };
+                 if right_neighbor.is_some() {
+-                    info.rect.width = shrink_for_one_cell_gap(info.rect.width);
++                    info.rect.width = shrink_for_gap(info.rect.width, horizontal_gap);
+                 }
+                 if below_neighbor.is_some() {
+-                    info.rect.height = shrink_for_one_cell_gap(info.rect.height);
++                    info.rect.height = shrink_for_gap(info.rect.height, vertical_gap);
+                 }
+             }
+ 
+@@ -232,6 +246,7 @@ pub(super) fn resize_tab_panes(
+         app.pane_borders,
+         app.pane_gaps,
+         app.pane_outer_borders,
++        cell_size,
+     ) {
+         let pane_inner = pane_inner_rect(info.rect, info.borders);
+ 
+@@ -307,6 +322,7 @@ pub(super) fn compute_pane_infos(
+         app.pane_borders,
+         app.pane_gaps,
+         app.pane_outer_borders,
++        cell_size,
+     );
+ 
+     for info in &mut pane_infos {
+@@ -338,6 +354,144 @@ pub(super) fn compute_pane_infos(
+     pane_infos
+ }
+ 
++fn indexed_color_to_rgb(index: u8) -> Rgb {
++    const ANSI: [Rgb; 16] = [
++        (0, 0, 0),
++        (128, 0, 0),
++        (0, 128, 0),
++        (128, 128, 0),
++        (0, 0, 128),
++        (128, 0, 128),
++        (0, 128, 128),
++        (192, 192, 192),
++        (128, 128, 128),
++        (255, 0, 0),
++        (0, 255, 0),
++        (255, 255, 0),
++        (0, 0, 255),
++        (255, 0, 255),
++        (0, 255, 255),
++        (255, 255, 255),
++    ];
++    match index {
++        0..=15 => ANSI[index as usize],
++        16..=231 => {
++            const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
++            let offset = index - 16;
++            (
++                LEVELS[(offset / 36) as usize],
++                LEVELS[((offset % 36) / 6) as usize],
++                LEVELS[(offset % 6) as usize],
++            )
++        }
++        232..=255 => {
++            let level = 8 + (index - 232) * 10;
++            (level, level, level)
++        }
++    }
++}
++
++fn terminal_color_to_rgb(color: Color, app: &AppState) -> Option<Rgb> {
++    let palette_index = match color {
++        Color::Black => Some(0),
++        Color::Red => Some(1),
++        Color::Green => Some(2),
++        Color::Yellow => Some(3),
++        Color::Blue => Some(4),
++        Color::Magenta => Some(5),
++        Color::Cyan => Some(6),
++        Color::Gray => Some(7),
++        Color::DarkGray => Some(8),
++        Color::LightRed => Some(9),
++        Color::LightGreen => Some(10),
++        Color::LightYellow => Some(11),
++        Color::LightBlue => Some(12),
++        Color::LightMagenta => Some(13),
++        Color::LightCyan => Some(14),
++        Color::White => Some(15),
++        Color::Indexed(index) => Some(index),
++        Color::Rgb(r, g, b) => return Some((r, g, b)),
++        Color::Reset => return None,
++    };
++    let index = palette_index?;
++    app.host_terminal_theme.palette[index as usize]
++        .map(|color| (color.r, color.g, color.b))
++        .or_else(|| Some(indexed_color_to_rgb(index)))
++}
++
++fn blend_toward(source: Rgb, target: Rgb, opacity: f32) -> Rgb {
++    let blend = |source: u8, target: u8| {
++        (f32::from(source) * opacity + f32::from(target) * (1.0 - opacity)).round() as u8
++    };
++    (
++        blend(source.0, target.0),
++        blend(source.1, target.1),
++        blend(source.2, target.2),
++    )
++}
++
++fn faded_unfocused_style(style: Style, app: &AppState) -> Style {
++    let opacity = app.unfocused_pane_opacity;
++    let backdrop = app
++        .host_terminal_theme
++        .background
++        .map(|color| (color.r, color.g, color.b))
++        .or_else(|| terminal_color_to_rgb(app.palette.surface_dim, app))
++        .unwrap_or((0, 0, 0));
++    let default_fg = app
++        .host_terminal_theme
++        .foreground
++        .map(|color| (color.r, color.g, color.b))
++        .or_else(|| terminal_color_to_rgb(app.palette.text, app))
++        .unwrap_or((192, 192, 192));
++    let fg = style
++        .fg
++        .and_then(|color| terminal_color_to_rgb(color, app))
++        .unwrap_or(default_fg);
++    let bg = style
++        .bg
++        .and_then(|color| terminal_color_to_rgb(color, app))
++        .unwrap_or(backdrop);
++
++    let (fg_r, fg_g, fg_b) = blend_toward(fg, backdrop, opacity);
++    let (bg_r, bg_g, bg_b) = blend_toward(bg, backdrop, opacity);
++    let mut faded = style
++        .fg(Color::Rgb(fg_r, fg_g, fg_b))
++        .bg(Color::Rgb(bg_r, bg_g, bg_b));
++    if let Some(underline) = style
++        .underline_color
++        .and_then(|color| terminal_color_to_rgb(color, app))
++    {
++        let (r, g, b) = blend_toward(underline, backdrop, opacity);
++        faded = faded.underline_color(Color::Rgb(r, g, b));
++    }
++    faded
++}
++
++/// Apply the same fade as a full pane render to one retained-render cell.
++///
++/// PTY dirty-row patches bypass the ratatui pane buffer, so they must be
++/// transformed before replacing cells in the previous frame. Otherwise every
++/// animated update in an unfocused pane briefly restores its undimmed colours.
++pub(crate) fn fade_unfocused_cell_data(app: &AppState, cell: &mut crate::protocol::CellData) {
++    let style = Style::default()
++        .fg(crate::protocol::u32_to_color(cell.fg))
++        .bg(crate::protocol::u32_to_color(cell.bg));
++    let faded = faded_unfocused_style(style, app);
++    cell.fg = crate::protocol::color_to_u32(faded.fg.unwrap_or(Color::Reset));
++    cell.bg = crate::protocol::color_to_u32(faded.bg.unwrap_or(Color::Reset));
++}
++
++fn fade_unfocused_pane(app: &AppState, frame: &mut Frame, area: Rect) {
++    let buf = frame.buffer_mut();
++    for y in area.y..area.y + area.height {
++        for x in area.x..area.x + area.width {
++            let cell = &mut buf[(x, y)];
++            cell.set_style(faded_unfocused_style(cell.style(), app));
++        }
++    }
++}
++
+ pub(super) fn render_panes(
+     app: &AppState,
+     terminal_runtimes: &TerminalRuntimeRegistry,
+@@ -364,16 +518,10 @@ pub(super) fn render_panes(
+             rt.render(frame, info.inner_rect, show_cursor);
+             render_pane_scrollbar(app, frame, info, rt);
+ 
+-            let should_dim = !info.is_focused && multi_pane && !terminal_active;
++            let should_dim =
++                !info.is_focused && multi_pane && (!terminal_active || app.dim_unfocused_panes);
+             if should_dim {
+-                let inner = info.inner_rect;
+-                let buf = frame.buffer_mut();
+-                for y in inner.y..inner.y + inner.height {
+-                    for x in inner.x..inner.x + inner.width {
+-                        let cell = &mut buf[(x, y)];
+-                        cell.set_style(cell.style().add_modifier(Modifier::DIM));
+-                    }
+-                }
++                fade_unfocused_pane(app, frame, info.inner_rect);
+             }
+ 
+             let (copy_search_top, copy_search_bottom, copy_search_matches) =
+@@ -511,7 +659,7 @@ fn render_pane_borders(
+         let focused = pane_infos
+             .iter()
+             .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
+-        let symbol = line_cell_symbol(line);
++        let symbol = line_cell_symbol(line, focused && app.focused_pane_heavy_borders);
+         if symbol.is_empty() {
+             continue;
+         }
+@@ -703,23 +851,38 @@ fn render_pane_border_titles(
+     }
+ }
+ 
+-fn line_cell_symbol(line: LineCell) -> &'static str {
+-    match (line.up, line.down, line.left, line.right) {
+-        (true, true, true, true) => "┼",
+-        (true, true, true, false) => "┤",
+-        (true, true, false, true) => "├",
+-        (true, false, true, true) => "┴",
+-        (false, true, true, true) => "┬",
+-        (true, true, false, false) | (true, false, false, false) | (false, true, false, false) => {
+-            "│"
+-        }
+-        (false, false, true, true) | (false, false, true, false) | (false, false, false, true) => {
+-            "─"
+-        }
+-        (false, true, false, true) => "┌",
+-        (false, true, true, false) => "┐",
+-        (true, false, false, true) => "└",
+-        (true, false, true, false) => "┘",
++fn line_cell_symbol(line: LineCell, heavy: bool) -> &'static str {
++    match (line.up, line.down, line.left, line.right, heavy) {
++        (true, true, true, true, false) => "┼",
++        (true, true, true, true, true) => "╋",
++        (true, true, true, false, false) => "┤",
++        (true, true, true, false, true) => "┫",
++        (true, true, false, true, false) => "├",
++        (true, true, false, true, true) => "┣",
++        (true, false, true, true, false) => "┴",
++        (true, false, true, true, true) => "┻",
++        (false, true, true, true, false) => "┬",
++        (false, true, true, true, true) => "┳",
++        (true, true, false, false, false)
++        | (true, false, false, false, false)
++        | (false, true, false, false, false) => "│",
++        (true, true, false, false, true)
++        | (true, false, false, false, true)
++        | (false, true, false, false, true) => "┃",
++        (false, false, true, true, false)
++        | (false, false, true, false, false)
++        | (false, false, false, true, false) => "─",
++        (false, false, true, true, true)
++        | (false, false, true, false, true)
++        | (false, false, false, true, true) => "━",
++        (false, true, false, true, false) => "┌",
++        (false, true, false, true, true) => "┏",
++        (false, true, true, false, false) => "┐",
++        (false, true, true, false, true) => "┓",
++        (true, false, false, true, false) => "└",
++        (true, false, false, true, true) => "┗",
++        (true, false, true, false, false) => "┘",
++        (true, false, true, false, true) => "┛",
+         _ => "",
+     }
+ }
+@@ -1082,6 +1245,13 @@ mod tests {
+         assert_eq!(buffer[(6, 0)].symbol(), "块");
+     }
+ 
++    fn test_cell_size() -> crate::kitty_graphics::HostCellSize {
++        crate::kitty_graphics::HostCellSize {
++            width_px: 8,
++            height_px: 16,
++        }
++    }
++
+     #[test]
+     fn default_horizontal_split_uses_one_shared_divider_column() {
+         let mut workspace = Workspace::test_new("test");
+@@ -1094,6 +1264,7 @@ mod tests {
+             true,
+             false,
+             true,
++            test_cell_size(),
+         );
+         let left = infos.iter().find(|info| info.id == root).unwrap();
+         let right = infos.iter().find(|info| info.id == right).unwrap();
+@@ -1115,6 +1286,7 @@ mod tests {
+             true,
+             false,
+             true,
++            test_cell_size(),
+         );
+         let top = infos.iter().find(|info| info.id == root).unwrap();
+         let bottom = infos.iter().find(|info| info.id == bottom).unwrap();
+@@ -1136,6 +1308,7 @@ mod tests {
+             true,
+             false,
+             false,
++            test_cell_size(),
+         );
+         let left = infos.iter().find(|info| info.id == root).unwrap();
+         let right = infos.iter().find(|info| info.id == right).unwrap();
+@@ -1145,28 +1318,60 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn pane_gaps_keep_independent_bordered_panes() {
+-        let mut workspace = Workspace::test_new("test");
+-        let root = workspace.tabs[0].root_pane;
+-        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+-        workspace.tabs[0].layout.focus_pane(root);
++    fn pane_gaps_compensate_for_rectangular_terminal_cells() {
++        let mut horizontal = Workspace::test_new("horizontal");
++        let left_id = horizontal.tabs[0].root_pane;
++        let right_id = horizontal.test_split(ratatui::layout::Direction::Horizontal);
++        let horizontal_infos = apply_pane_chrome(
++            horizontal.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
++            true,
++            true,
++            true,
++            test_cell_size(),
++        );
++        let left = horizontal_infos
++            .iter()
++            .find(|info| info.id == left_id)
++            .unwrap();
++        let right = horizontal_infos
++            .iter()
++            .find(|info| info.id == right_id)
++            .unwrap();
+ 
+-        let infos = apply_pane_chrome(
+-            workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
++        let mut vertical = Workspace::test_new("vertical");
++        let top_id = vertical.tabs[0].root_pane;
++        let bottom_id = vertical.test_split(ratatui::layout::Direction::Vertical);
++        let vertical_infos = apply_pane_chrome(
++            vertical.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
+             true,
+             true,
+             true,
++            test_cell_size(),
+         );
+-        let left = infos.iter().find(|info| info.id == root).unwrap();
+-        let right = infos.iter().find(|info| info.id == right).unwrap();
++        let top = vertical_infos
++            .iter()
++            .find(|info| info.id == top_id)
++            .unwrap();
++        let bottom = vertical_infos
++            .iter()
++            .find(|info| info.id == bottom_id)
++            .unwrap();
+ 
+-        assert_eq!(left.rect.x + left.rect.width, right.rect.x);
++        let horizontal_border_distance_px =
++            u32::from(right.rect.x - (left.rect.x + left.rect.width.saturating_sub(1)))
++                * test_cell_size().width_px;
++        let vertical_border_distance_px =
++            u32::from(bottom.rect.y - (top.rect.y + top.rect.height.saturating_sub(1)))
++                * test_cell_size().height_px;
++        assert_eq!(horizontal_border_distance_px, vertical_border_distance_px);
+         assert_eq!(left.borders, Borders::ALL);
+         assert_eq!(right.borders, Borders::ALL);
++        assert_eq!(top.borders, Borders::ALL);
++        assert_eq!(bottom.borders, Borders::ALL);
+     }
+ 
+     #[test]
+-    fn borderless_pane_gaps_add_one_empty_cell_between_panes() {
++    fn borderless_pane_gaps_balance_pixel_spacing() {
+         let mut workspace = Workspace::test_new("test");
+         let root = workspace.tabs[0].root_pane;
+         let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+@@ -1177,11 +1382,12 @@ mod tests {
+             false,
+             true,
+             true,
++            test_cell_size(),
+         );
+         let left = infos.iter().find(|info| info.id == root).unwrap();
+         let right = infos.iter().find(|info| info.id == right).unwrap();
+ 
+-        assert_eq!(left.rect, Rect::new(0, 0, 49, 20));
++        assert_eq!(left.rect, Rect::new(0, 0, 48, 20));
+         assert_eq!(right.rect, Rect::new(50, 0, 50, 20));
+         assert!(left.borders.is_empty());
+         assert!(right.borders.is_empty());
+@@ -1197,6 +1403,7 @@ mod tests {
+             false,
+             false,
+             true,
++            test_cell_size(),
+         );
+ 
+         for info in infos {
+@@ -1206,9 +1413,10 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn global_pane_border_renderer_composes_junctions_and_focus_style() {
++    fn global_pane_border_renderer_composes_heavy_focused_junctions() {
+         let mut app = AppState::test_new();
+         app.mode = Mode::Terminal;
++        app.focused_pane_heavy_borders = true;
+         app.view.terminal_area = Rect::new(0, 0, 4, 4);
+         app.view.pane_infos = vec![
+             PaneInfo {
+@@ -1269,12 +1477,33 @@ mod tests {
+             .unwrap();
+ 
+         let buffer = terminal.backend().buffer();
+-        assert_eq!(buffer[(2, 2)].symbol(), "┼");
++        assert_eq!(buffer[(2, 2)].symbol(), "╋");
+         assert_eq!(buffer[(2, 2)].style().fg, Some(app.palette.accent));
+-        assert_eq!(buffer[(2, 1)].symbol(), "│");
++        assert_eq!(buffer[(2, 1)].symbol(), "┃");
+         assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.accent));
+     }
+ 
++    #[test]
++    fn unfocused_opacity_blends_all_cell_colours_toward_host_background() {
++        let mut app = AppState::test_new();
++        app.unfocused_pane_opacity = 0.25;
++        app.host_terminal_theme.background = Some(crate::terminal_theme::RgbColor {
++            r: 20,
++            g: 40,
++            b: 60,
++        });
++        let style = Style::default()
++            .fg(Color::Rgb(220, 120, 60))
++            .bg(Color::Rgb(100, 80, 60))
++            .underline_color(Color::Rgb(20, 240, 160));
++
++        let faded = faded_unfocused_style(style, &app);
++
++        assert_eq!(faded.fg, Some(Color::Rgb(70, 60, 60)));
++        assert_eq!(faded.bg, Some(Color::Rgb(40, 50, 60)));
++        assert_eq!(faded.underline_color, Some(Color::Rgb(20, 90, 85)));
++    }
++
+     #[test]
+     fn gapped_pane_focus_does_not_color_neighbor_border() {
+         let mut app = AppState::test_new();
