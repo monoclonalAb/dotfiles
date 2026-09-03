@@ -109,7 +109,7 @@ stow -t "$HOME" */
 `*/` only matches non-hidden directories, so `README.md`, `Brewfile`, `.stowrc`, and
 the archived `.archive/` packages are skipped automatically. The `.stowrc` ignore rules
 also keep runtime state local: Zsh history and sessions, Neovim's lockfile, tmux
-plugins, OMP's lockfile, and Pi credentials, model cache, and Orca-generated extensions.
+plugins, OMP's lockfile, and Pi credentials and model cache.
 Tracked configuration remains as individual symlinks inside real directories.
 
 Check it landed:
@@ -133,10 +133,6 @@ run this.
 
 **Terminal** — Alacritty is configured and asks for `JetBrainsMono Nerd Font`, installed
 by the Brewfile.
-
-**Orca** — in Settings → Appearance, select **Import from Ghostty**. The stowed
-`~/.config/ghostty/config` sets both Option keys to Alt, so OMP's `Ctrl+Alt+P`
-binding works with macOS's ABC input source. Repeat the import after a fresh Orca install.
 
 **Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux and Neovim share
 (see [Theme toggle](#theme-toggle)):
@@ -166,10 +162,7 @@ run the Theme step above before starting it.
 
 ```sh
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
-herdr plugin install persiyanov/herdr-reviewr -y
 herdr integration install omp
-herdr plugin install AltanS/collie -y
-bash "$(ls -d ~/.config/herdr/plugins/github/herdr.collie-*)"/scripts/collie-ctl.sh start
 herdr config check
 herdr
 ```
@@ -186,33 +179,8 @@ the otherwise-suppressed active-tab, different-pane case. A prompt already visib
 focused OMP pane makes the request sound without a redundant popup. New OMP sessions load
 the integration automatically; use OMP's `/reload` (or restart) for an already-running
 session.
-The reviewr plugin adds a review pane on `C-a v`: it shows the agent's diff beside the chat,
-takes line comments, and sends them back to the agent. The next-agent priority/scope and
-reviewr palette settings are tracked under
+The next-agent priority/scope settings are tracked under
 `~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
-
-Collie is the phone PWA for the Herdr herd. It binds its bridge to loopback and exposes it only
-through `tailscale serve`; its `.env`, logs, and runtime files stay untracked under
-`~/.config/herdr/plugins/config/herdr.collie/`. The `.env` contains
-`COLLIE_TRUSTED_USER`, `COLLIE_PUBLIC_HOSTS`, and `COLLIE_MULTI_SESSION=off`. The
-`herdr.collie.plist` launchd agent restarts it at login; use `collie-ctl.sh status`, `url`,
-`logs`, or `update` to operate it. Collie provides remote shell access to this Mac, so never use
-`tailscale funnel` for it.
-
-**Orca**
-
-`~/.orca/keybindings.json` contains the tracked macOS overrides. Orca's `Mod`
-token resolves to `Cmd` on macOS.
-
-- `Mod+Shift+Backslash` / `Mod+Shift+Underscore` split right / down.
-- `Mod+Shift+C` closes a pane and `Mod+Shift+Z` expands or collapses it.
-- `Mod+Shift+W` opens Orca's **Jump to...** palette.
-- `Cmd+Ctrl+Shift+R` forces a reload.
-
-Orca currently has no assigned custom bindings here for directional pane focus,
-directional resize, pane swapping, pane synchronisation, breaking a pane into a tab,
-detach/lock/client-list operations, tmux copy mode, or the custom `Space` layout
-cycle.
 
 **tmux (legacy fallback)**
 
@@ -274,7 +242,6 @@ echo $ZDOTDIR            # /Users/you/.config/zsh   => .zshenv is linked
 nvim +checkhealth        # lazy/mason/treesitter all green
 herdr config check       # config parses and every custom key is valid
 herdr                    # persistent workspace opens with the C-a prefix
-tailscale serve status   # :443 -> 127.0.0.1:8787, tailnet only
 ```
 
 ## The rule (how to tell what's managed)

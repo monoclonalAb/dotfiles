@@ -1,2 +1,2 @@
-# Orca imports this setting from Ghostty during onboarding or from Settings > Appearance.
+# Expose both Option keys as Alt for terminal keybindings.
 macos-option-as-alt = true

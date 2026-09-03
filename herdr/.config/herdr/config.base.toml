@@ -100,12 +100,6 @@ type = "plugin_action"
 command = "martinro.next-agent.back"
 description = "back to the pane before the agent jumps"
 
-
-[[keys.command]]
-key = "prefix+v"
-type = "plugin_action"
-command = "persiyanov.reviewr.toggle"
-description = "toggle reviewr review pane"
 [ui]
 # Mirror the tmux top status/window row and compact shared pane borders.
 tab_bar_position = "top"

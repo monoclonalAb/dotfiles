@@ -48,7 +48,7 @@ brew "biome"                 # omp lsp linter/formatter for TS/JS/JSON
 cask "alacritty"
 cask "wezterm"
 cask "aerospace"
-cask "tailscale-app"          # tailnet front door for the Collie Herdr plugin (`tailscale serve`); needs a Privacy & Security approval
+cask "tailscale-app"          # tailnet access; needs a Privacy & Security approval
 
 # alacritty.toml and archived .archive/wezterm/.config/wezterm/config/fonts.lua both ask for "JetBrainsMono Nerd Font"
 # by that exact name. The plain `font-jetbrains-mono` cask is NOT a substitute —

@@ -9,7 +9,6 @@
 --ignore='\.p10k\.zsh'
 --ignore='auth\.json'
 --ignore='models-store\.json'
---ignore='orca-.*\.ts'
 --ignore='\.config/tmux/plugins'
 --ignore='config\.yml\.lock'
 --ignore='.*\.toml\..*\.bak'
