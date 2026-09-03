@@ -36,7 +36,7 @@ normally application-owned state. `gh` is intentionally mixed: its public
 | Git clients | [`git/`](../git/), [`gh/`](../gh/) | Global ignore behaviour and non-secret GitHub CLI preferences |
 | Agent harnesses | [`omp/`](../omp/), [`pi/`](../pi/), [`.omp/`](../.omp/) | Global OMP configuration and skills, Pi extensions, and this repository's project-scoped tools |
 | Human operations | [`README.md`](../README.md) | New-machine setup, live operation, common tasks, and troubleshooting |
-| Agent knowledge | [`docs/`](./) | Architecture, engineering principles, and future repository knowledge |
+| Agent knowledge | [`AGENTS.md`](../AGENTS.md), [`docs/`](./) | Progressive task routing, architecture, principles, and plans |
 | Frozen history | [`.archive/`](../.archive/) | Inactive packages retained for explicit restoration only |
 
 All top-level non-hidden directories participate in the documented `stow */`
