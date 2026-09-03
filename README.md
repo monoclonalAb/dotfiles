@@ -491,7 +491,8 @@ lookup.
   `.claude/agents` is deliberately not scanned.
 - **Extensions and hooks:** `~/.omp/agent/extensions/` (including `pi-rewind`) and
   `<cwd>/.omp/hooks/{pre,post}/`; both use TypeScript/JavaScript default-export
-  factories.
+  factories. Pi's global `/skill` command (with the `~/.local/bin/pi` wrapper's
+  `--no-skills` default) makes skill loading opt-in and session-scoped.
 - **Plugins:** `omp plugin install <spec>` or `omp plugin link <path>`; state lives
   under `~/.omp/plugins/`.
 - **Marketplaces:** `/marketplace add <owner/repo>`, then `/marketplace discover`.

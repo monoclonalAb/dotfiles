@@ -1,0 +1,68 @@
+#!/bin/sh
+# Keep automatic skill discovery disabled; the /skill extension selectively
+# contributes only the skills enabled for the current session.
+set -eu
+
+# Reject --skill only where Pi would parse it as an option: before a literal
+# "--". Anything after "--" is message text and passes through untouched.
+seen_separator=false
+for argument do
+    if [ "$seen_separator" = false ]; then
+        case "$argument" in
+            --)
+                seen_separator=true
+                ;;
+            --skill|--skill=*)
+                printf '%s\n' 'pi: use /skill inside Pi to enable skills selectively' >&2
+                exit 2
+                ;;
+        esac
+    fi
+done
+
+# Management commands do not start an agent session, and they reject regular
+# session flags. Let them pass through unchanged.
+disable_skills=true
+case "${1-}" in
+    auth|config|install|remove|list|update) disable_skills=false ;;
+esac
+
+# Insert --no-skills where it remains an option: before a literal "--"
+# separator when one is present, otherwise after all arguments.
+if [ "$disable_skills" = true ]; then
+    if [ "$seen_separator" = true ]; then
+        remaining=$#
+        placed=false
+        while [ "$remaining" -gt 0 ]; do
+            argument=$1
+            shift
+            if [ "$placed" = false ] && [ "$argument" = '--' ]; then
+                set -- "$@" --no-skills "$argument"
+                placed=true
+            else
+                set -- "$@" "$argument"
+            fi
+            remaining=$((remaining - 1))
+        done
+    else
+        set -- "$@" --no-skills
+    fi
+fi
+
+# Find the next Pi executable in PATH, skipping this wrapper (including symlinks
+# to it), so this continues to work when nvm changes the active Node version.
+old_ifs=$IFS
+IFS=:
+for directory in $PATH; do
+    IFS=$old_ifs
+    [ -n "$directory" ] || directory=.
+    candidate=$directory/pi
+    if [ -x "$candidate" ] && ! [ "$candidate" -ef "$0" ]; then
+        exec "$candidate" "$@"
+    fi
+    IFS=:
+done
+IFS=$old_ifs
+
+printf '%s\n' 'pi: could not find the underlying Pi executable in PATH' >&2
+exit 127
