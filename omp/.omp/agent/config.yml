@@ -1,6 +1,6 @@
 modelRoles:
   default: openai-codex/gpt-5.6-sol:high
-  smol: openai-codex/gpt-5.6-luna:low
+  smol: openai-codex/gpt-5.6-luna:high
   slow: anthropic/claude-fable-5:max
   vision: google-antigravity/gemini-3.1-pro:high
   plan: anthropic/claude-fable-5:max
