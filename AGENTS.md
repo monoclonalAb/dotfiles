@@ -20,6 +20,7 @@ view.
 | --- | --- |
 | Repository boundaries and data flows | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Engineering invariants and agent guidance | [`docs/ENGINEERING_PRINCIPLES.md`](docs/ENGINEERING_PRINCIPLES.md) |
+| Current confidence and known gaps | [`docs/QUALITY.md`](docs/QUALITY.md) |
 | New-Mac setup, commands, and troubleshooting | [`README.md`](README.md) |
 | Pi extension constraints | [`pi/.pi/agent/extensions/README.md`](pi/.pi/agent/extensions/README.md) |
 | OMP tools and alternatives | [`omp/.omp/agent/TOOLING.md`](omp/.omp/agent/TOOLING.md) |

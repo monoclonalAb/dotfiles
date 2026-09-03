@@ -19,6 +19,7 @@ repository evidence or checks.
 | [`../AGENTS.md`](../AGENTS.md) | Short task router and hard boundaries | Normative | Links to this catalogue and canonical operational sources |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System boundaries, package map, and important flows | Current | Derived from `.stowrc`, package paths, and the named scripts/configuration |
 | [`ENGINEERING_PRINCIPLES.md`](ENGINEERING_PRINCIPLES.md) | Stable design and maintenance principles | Normative | Each principle names an enforceable repository consequence |
+| [`QUALITY.md`](QUALITY.md) | Evidence-based subsystem grades and technical debt | Snapshot | Each grade links to evidence and a concrete gap |
 | [`plans/README.md`](plans/README.md) | Versioned execution-plan lifecycle and template | Normative | New substantial plans must follow the documented lifecycle |
 
 `docs/.stow-local-ignore` matches every path in this directory. This is
@@ -31,6 +32,7 @@ must not appear as files in `$HOME`.
   [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - Deciding whether a local preference deserves a rule or check: read
   [`ENGINEERING_PRINCIPLES.md`](ENGINEERING_PRINCIPLES.md).
+- Choosing verification work or cleanup: read [`QUALITY.md`](QUALITY.md).
 - Making a change whose context must survive one session: create an execution
   plan using [`plans/README.md`](plans/README.md).
 - Installing or operating the workstation: go directly to

@@ -17,8 +17,9 @@ This convention adapts the plan-as-artefact practice described in OpenAI's
    look complete.
 4. On completion, record the outcome and move the file unchanged apart from its
    final status to `docs/plans/completed/`.
-5. Put durable system facts and unresolved cross-cutting gaps in their owning
-   architecture or operating document, not in an indefinitely active plan.
+5. Put durable system facts in the owning architecture or operating document.
+   Keep unresolved cross-cutting gaps in [`../QUALITY.md`](../QUALITY.md), not in
+   an indefinitely active plan.
 
 Create `active/` or `completed/` with the first plan that needs it; empty
 placeholder directories are unnecessary.
