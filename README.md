@@ -476,14 +476,16 @@ lookup.
 - **Skill scope:** keep only cross-repository skills in `~/.omp/agent/skills/`.
   Repository-specific sources live in `~/.omp/agent/scoped-skills/`, which is not
   auto-discovered, and are linked into each applicable repository at
-  `.omp/skills/<name>`. The global set is `llm-eval`, `repo-recon`,
-  `secret-sast-sweep`, and `visual-verify`. Scoped rules:
+  `.omp/skills/<name>`. The global set is `agent-handoff`, `llm-eval`,
+  `omp-repo-setup`, `repo-recon`, `secret-sast-sweep`, and `visual-verify`. Scoped
+  rules:
   - `lintmax`: repositories with `pnpm-lock.yaml`
   - `agent-test-author`: prompt-behemoth consumers
   - `everyday-ai-frontend-styleguide`: `de-dashboard`
   - `perform-dangerous-action`: DE service repositories
   - `kpi-tracking`: Hono-based DE service repositories
   - `policy-guide-setup` and `system-design-template`: established DE service repositories
+  - `gcp-investigate`: DE service repositories and `de-dashboard`
 - **Custom subagents:** `~/.omp/agent/agents/*.md` and `<cwd>/.omp/agents/*.md`.
   Required frontmatter: `name`, `description`; optional: `tools`, `spawns`, `model`,
   `thinking-level`, `autoloadSkills`, `prewalk`, `advisor`. Bundled agents are `scout`,
