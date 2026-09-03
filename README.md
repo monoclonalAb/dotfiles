@@ -186,6 +186,7 @@ Then finish the normal setup:
 
 ```sh
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
+herdr plugin link ~/.config/herdr/plugins/spaces-env --enabled
 herdr integration install omp
 herdr config check
 herdr
@@ -205,6 +206,25 @@ the integration automatically; use OMP's `/reload` (or restart) for an already-r
 session.
 The next-agent priority/scope settings are tracked under
 `~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
+
+The local spaces-env plugin organises Spaces into two fixed environments,
+Personal and Work, inside the one persistent server — a focus boundary, not a
+process boundary, so moving a Space never touches its panes. `C-a ;` toggles
+environments and focuses the destination's most recently used Space (an empty
+destination just flips where new Spaces start); `C-a :` (shift+;) sends the
+current Space to the other environment and stays on the source's most recent
+remaining Space, following the moved Space only when it was the source's last.
+New Spaces inherit the active environment, restored Spaces keep their
+assignment (identity is Herdr's stable workspace id, so renames don't matter),
+and unknown or stale ids reconcile to Personal. Herdr's sidebar cannot hide the
+inactive environment, so instead each Space carries a dim P/W badge and the
+Personal block is kept ordered above the Work block; next-agent jumps stay
+global and the active environment simply follows wherever focus lands. To
+reset every assignment, delete
+`~/.local/state/herdr/plugins/martinro.spaces-env/state.json` (all Spaces
+become Personal), or run
+`herdr plugin action invoke martinro.spaces-env.status` to see the current
+split.
 
 **tmux (legacy fallback)**
 

@@ -1,6 +1,9 @@
 # macOS
 **/.DS_Store
 
+# Python bytecode caches from running plugin tests in place
+**/__pycache__/
+
 # nvim (managed plugin lockfile / scratch)
 **/lazy-lock.json
 **/temp.tmp

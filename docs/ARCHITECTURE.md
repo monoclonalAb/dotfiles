@@ -99,6 +99,10 @@ There are three distinct owners:
   patch, builds with explicit tool versions, and publishes atomically.
 - [`herdr/.config/herdr/plugins/next-agent/`](../herdr/.config/herdr/plugins/next-agent/)
   owns pane-attention behaviour and its focused unit tests.
+- [`herdr/.config/herdr/plugins/spaces-env/`](../herdr/.config/herdr/plugins/spaces-env/)
+  owns the fixed Personal/Work Space environments and their focused unit tests.
+  Its workspace assignments and MRU order are runtime state under
+  `~/.local/state/herdr/plugins/martinro.spaces-env/`, not source.
 
 The installed binary, generated Herdr config, plugin runtime ledger, and server
 process are deployment/runtime outputs and do not belong in Git.

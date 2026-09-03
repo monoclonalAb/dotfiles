@@ -1,0 +1,38 @@
+id = "martinro.spaces-env"
+name = "Spaces Environments"
+version = "0.1.0-local"
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "toggle"
+title = "Toggle the Personal/Work environment"
+contexts = ["global", "workspace"]
+command = ["python3.14", "spaces_env.py", "toggle"]
+
+[[actions]]
+id = "send"
+title = "Send the current Space to the other environment"
+contexts = ["global", "workspace"]
+command = ["python3.14", "spaces_env.py", "send"]
+
+[[actions]]
+id = "status"
+title = "Show the environment assignment summary"
+contexts = ["global", "workspace"]
+command = ["python3.14", "spaces_env.py", "status"]
+
+[[events]]
+on = "workspace.created"
+command = ["python3.14", "spaces_env.py"]
+
+[[events]]
+on = "workspace.closed"
+command = ["python3.14", "spaces_env.py"]
+
+[[events]]
+on = "workspace.focused"
+command = ["python3.14", "spaces_env.py"]
+
+[[startup]]
+command = ["python3.14", "spaces_env.py"]

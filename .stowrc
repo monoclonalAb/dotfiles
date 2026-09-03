@@ -1,5 +1,6 @@
 --no-folding
 --ignore='\.DS_Store'
+--ignore='__pycache__'
 --ignore='lazy-lock\.json'
 --ignore='temp\.tmp'
 --ignore='\.zsh_history'
