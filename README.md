@@ -519,6 +519,8 @@ lookup.
   production-simplification prompt without submitting it automatically.
   Pi's `/domain-first [scope]` command similarly stages a domain-constraint
   sweep that creates or evolves `domain-first-operating-model.md`.
+  Pi's `alt+shift+c` shortcut (`copy-prompt.ts`) copies the current prompt
+  draft to the clipboard.
 - **Plugins:** `omp plugin install <spec>` or `omp plugin link <path>`; state lives
   under `~/.omp/plugins/`.
 - **Marketplaces:** `/marketplace add <owner/repo>`, then `/marketplace discover`.
