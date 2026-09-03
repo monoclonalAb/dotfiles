@@ -254,8 +254,8 @@ rows = [
     { token = "\$dot_idle", fg = "$overlay0" },
     "workspace",
     "tab",
+    "agent",
   ],
-  ["agent"],
 ]
 EOF
 }
