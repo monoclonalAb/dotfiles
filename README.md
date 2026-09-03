@@ -493,6 +493,10 @@ lookup.
   `<cwd>/.omp/hooks/{pre,post}/`; both use TypeScript/JavaScript default-export
   factories. Pi's global `/skill` command (with the `~/.local/bin/pi` wrapper's
   `--no-skills` default) makes skill loading opt-in and session-scoped.
+  Pi's `/test-sweep [scope]` command stages a reviewable test-value and
+  production-simplification prompt without submitting it automatically.
+  Pi's `/domain-first [scope]` command similarly stages a domain-constraint
+  sweep that creates or evolves `domain-first-operating-model.md`.
 - **Plugins:** `omp plugin install <spec>` or `omp plugin link <path>`; state lives
   under `~/.omp/plugins/`.
 - **Marketplaces:** `/marketplace add <owner/repo>`, then `/marketplace discover`.
