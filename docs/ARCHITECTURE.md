@@ -32,7 +32,7 @@ normally application-owned state. `gh` is intentionally mixed: its public
 | Shell and editor | [`zsh/`](../zsh/), [`nvim/`](../nvim/) | Interactive environment, language tooling, editor plugins, and theme consumer |
 | Terminal and window environment | [`alacritty/`](../alacritty/), [`ghostty/`](../ghostty/), [`aerospace/`](../aerospace/) | Terminal defaults, key handling, and macOS workspace routing |
 | Terminal workspaces | [`herdr/`](../herdr/), [`tmux/`](../tmux/) | Primary and fallback multiplexing, navigation, persistence, and attention state |
-| User commands and automation | [`bin/`](../bin/), [`launchd/`](../launchd/) | Cross-application orchestration, audited builds, and scheduled local jobs |
+| User commands and automation | [`bin/`](../bin/) | Cross-application orchestration and audited builds. Machine-local scheduled jobs (LaunchAgents and their scripts) stay in `$HOME`, outside this repository: the repo carries portable per-tool configuration for a new Mac, not single-machine workflows |
 | Git clients | [`git/`](../git/), [`gh/`](../gh/) | Global ignore behaviour and non-secret GitHub CLI preferences |
 | Agent harnesses | [`omp/`](../omp/), [`pi/`](../pi/), [`.omp/`](../.omp/) | Global OMP configuration and skills, Pi extensions, and this repository's project-scoped tools |
 | Human operations | [`README.md`](../README.md) | New-machine setup, live operation, common tasks, and troubleshooting |
@@ -119,7 +119,7 @@ static configuration is managed here.
 ### 5. GUI and scheduled execution
 
 Interactive shells initialise rich paths; GUI hotkeys and launchd do not.
-Commands reached from Alacritty, AeroSpace, Herdr, or [`launchd/`](../launchd/)
+Commands reached from Alacritty, AeroSpace, Herdr, or launchd
 must assume a minimal macOS environment and set an explicit `PATH` or use audited
 absolute executable paths. A command that works only after `.zshrc` is sourced is
 not valid for this boundary.
