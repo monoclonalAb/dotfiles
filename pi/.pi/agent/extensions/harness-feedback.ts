@@ -4,7 +4,7 @@ const STATUS_KEY = "harness-feedback";
 const SOURCE_URL = "https://github.com/lopopolo/harness-engineering";
 
 const HARNESS_GUIDANCE = `
-# Correction-driven harness mode
+# Learning from corrective feedback
 
 This mode is active. Work normally until the user indicates that your prior response or implementation was wrong, incomplete, overcomplicated, misunderstood, or even slightly missed the mark.
 
@@ -25,13 +25,13 @@ export default function harnessFeedback(pi: ExtensionAPI) {
   let enabled = false;
 
   function updateStatus(ctx: ExtensionContext): void {
-    ctx.ui.setStatus(STATUS_KEY, enabled ? "harness: on" : undefined);
+    ctx.ui.setStatus(STATUS_KEY, enabled ? "feedback learning: on" : undefined);
   }
 
   function setEnabled(value: boolean, ctx: ExtensionContext): void {
     enabled = value;
     updateStatus(ctx);
-    ctx.ui.notify(`Harness feedback mode ${enabled ? "enabled" : "disabled"}`, "info");
+    ctx.ui.notify(`Learn-from-feedback mode ${enabled ? "enabled" : "disabled"}`, "info");
   }
 
   pi.on("session_start", (_event, ctx) => {
@@ -42,8 +42,8 @@ export default function harnessFeedback(pi: ExtensionAPI) {
     ctx.ui.setStatus(STATUS_KEY, undefined);
   });
 
-  pi.registerCommand("harness", {
-    description: "Toggle correction-driven harness-engineering guidance",
+  pi.registerCommand("feedback", {
+    description: "Toggle guidance for learning from corrective feedback",
     getArgumentCompletions: (prefix: string) => {
       const matches = ["on", "off", "status"]
         .filter((value) => value.startsWith(prefix))
@@ -69,11 +69,11 @@ export default function harnessFeedback(pi: ExtensionAPI) {
       }
 
       if (argument === "status") {
-        ctx.ui.notify(`Harness feedback mode is ${enabled ? "enabled" : "disabled"}`, "info");
+        ctx.ui.notify(`Learn-from-feedback mode is ${enabled ? "enabled" : "disabled"}`, "info");
         return;
       }
 
-      ctx.ui.notify("Usage: /harness [on|off|status]", "error");
+      ctx.ui.notify("Usage: /feedback [on|off|status]", "error");
     },
   });
 
