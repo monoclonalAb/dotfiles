@@ -1,11 +1,13 @@
 #!/bin/sh
 # Keep automatic skill discovery disabled; the /skill extension selectively
-# contributes only the skills enabled for the current session.
+# contributes only the skills enabled for the current session. Fullscreen mode
+# gives the Vim navigation extension an application-owned transcript to scroll.
 set -eu
 
 # Reject --skill only where Pi would parse it as an option: before a literal
 # "--". Anything after "--" is message text and passes through untouched.
 seen_separator=false
+tui_mode_set=false
 for argument do
     if [ "$seen_separator" = false ]; then
         case "$argument" in
@@ -16,20 +18,24 @@ for argument do
                 printf '%s\n' 'pi: use /skill inside Pi to enable skills selectively' >&2
                 exit 2
                 ;;
+            --tui-mode|--tui-mode=*)
+                tui_mode_set=true
+                ;;
         esac
     fi
 done
 
 # Management commands do not start an agent session, and they reject regular
 # session flags. Let them pass through unchanged.
-disable_skills=true
+apply_session_defaults=true
 case "${1-}" in
-    auth|config|install|remove|list|update) disable_skills=false ;;
+    auth|config|install|remove|list|update) apply_session_defaults=false ;;
 esac
 
-# Insert --no-skills where it remains an option: before a literal "--"
-# separator when one is present, otherwise after all arguments.
-if [ "$disable_skills" = true ]; then
+# Insert session defaults where they remain options: before a literal "--"
+# separator when one is present, otherwise after all arguments. An explicit
+# --tui-mode always wins.
+if [ "$apply_session_defaults" = true ]; then
     if [ "$seen_separator" = true ]; then
         remaining=$#
         placed=false
@@ -37,7 +43,11 @@ if [ "$disable_skills" = true ]; then
             argument=$1
             shift
             if [ "$placed" = false ] && [ "$argument" = '--' ]; then
-                set -- "$@" --no-skills "$argument"
+                set -- "$@" --no-skills
+                if [ "$tui_mode_set" = false ]; then
+                    set -- "$@" --tui-mode fullscreen
+                fi
+                set -- "$@" "$argument"
                 placed=true
             else
                 set -- "$@" "$argument"
@@ -46,6 +56,9 @@ if [ "$disable_skills" = true ]; then
         done
     else
         set -- "$@" --no-skills
+        if [ "$tui_mode_set" = false ]; then
+            set -- "$@" --tui-mode fullscreen
+        fi
     fi
 fi
 
