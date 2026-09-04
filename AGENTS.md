@@ -52,8 +52,12 @@ view.
 4. Exercise the changed path, not just its parser. Use the focused check first,
    then the broader native check when practical.
 5. Inspect `git diff --check` and `git status --short` before reporting.
-6. Update documentation only for durable behaviour, decisions, or verification
-   gaps. Prefer links to canonical code over copied implementation detail.
+6. Update documentation in the same change as the behaviour it describes: any
+   change to setup, update, or operator-visible behaviour must land together
+   with its `README.md` (or owning doc) update, so a fresh install or
+   `dotfiles-update` never follows stale instructions. Beyond that, document
+   only durable behaviour, decisions, or verification gaps. Prefer links to
+   canonical code over copied implementation detail.
 
 ## Verification routing
 

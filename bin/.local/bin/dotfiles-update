@@ -1,0 +1,81 @@
+#!/bin/sh
+# Bring this machine's dotfiles clone and its deployed links up to date with
+# origin. Safe to run repeatedly: pulls fast-forward only (never rewrites
+# local work), restows every package, applies the cheap follow-ups itself,
+# and prints the slow or disruptive ones instead of running them.
+set -eu
+
+# GUI, hotkey, and launchd contexts provide a minimal PATH; establish the
+# paths this script needs itself.
+PATH="/opt/homebrew/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH
+
+# Resolve the repository root from this script's physical location so the
+# clone can live anywhere. Stow links ~/.local/bin/dotfiles-update directly
+# to <repo>/bin/.local/bin/dotfiles-update.
+script=$0
+while [ -L "$script" ]; do
+    target=$(readlink "$script")
+    case $target in
+        /*) script=$target ;;
+        *) script=$(dirname "$script")/$target ;;
+    esac
+done
+repo=$(cd "$(dirname "$script")/../../.." && pwd)
+cd "$repo"
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo 'note: worktree has local changes; pulling fast-forward only' >&2
+    git status --short >&2
+fi
+
+old=$(git rev-parse HEAD)
+git pull --ff-only
+new=$(git rev-parse HEAD)
+
+# Restow even when HEAD is unchanged: it is cheap and repairs missing links.
+# On conflicts stow stops and names the real file in the way; move it aside
+# and rerun (see README "Link everything").
+stow -R -t "$HOME" */
+
+if [ "$old" = "$new" ]; then
+    echo "dotfiles: already at $(git rev-parse --short HEAD); packages restowed"
+    exit 0
+fi
+
+changed=$(git diff --name-only "$old" "$new")
+touched() { printf '%s\n' "$changed" | grep -q "$1"; }
+
+if touched '^Brewfile$'; then
+    echo 'Brewfile changed -> brew bundle'
+    brew bundle --file=Brewfile
+fi
+
+if touched '^bin/\.local/bin/theme$\|^herdr/\.config/herdr/config\.base\.toml$\|^alacritty/'; then
+    echo 'theme inputs changed -> theme apply'
+    theme apply || echo 'warning: theme apply failed; run it by hand' >&2
+fi
+
+if touched '^tmux/' && tmux has-session 2>/dev/null; then
+    echo 'tmux config changed -> tmux source-file'
+    tmux source-file ~/.config/tmux/tmux.conf
+fi
+
+manual=''
+if touched '^herdr/\.config/herdr/patches/\|^bin/\.local/bin/install-herdr-focus$'; then
+    manual="$manual
+  install-herdr-focus    # rebuild the patched Herdr binary (takes minutes)"
+fi
+if touched '^zsh/'; then
+    manual="$manual
+  exec zsh               # restart the shell to load the updated config"
+fi
+if touched '^nvim/'; then
+    manual="$manual
+  nvim                   # plugins/tooling reconcile on next launch"
+fi
+
+echo "dotfiles: updated $(git rev-parse --short "$old") -> $(git rev-parse --short "$new")"
+if [ -n "$manual" ]; then
+    echo "run next:$manual"
+fi

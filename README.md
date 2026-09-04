@@ -569,6 +569,36 @@ lookup.
   Catalogues live at `.omp-plugin/marketplace.json` or `.claude-plugin/marketplace.json`;
   the Claude Code plugin format is compatible.
 
+## Updating an existing machine
+
+An existing clone updates to the latest pushed state with one command:
+
+```sh
+dotfiles-update
+```
+
+It fast-forwards from origin, restows every package, then runs `brew bundle` and
+`theme apply` when their inputs changed and reloads tmux when its config changed.
+Slow or disruptive follow-ups are printed instead of run: rebuilding the patched
+Herdr binary (`install-herdr-focus`) and restarting the shell. It never rewrites
+local commits or uncommitted changes; when the pull cannot fast-forward it stops
+and says so.
+
+On a clone too old to have the script yet, pull once by hand and run it from the
+repo — after that it is on `PATH` as usual:
+
+```sh
+cd ~/dotfiles && git pull --ff-only && ./bin/.local/bin/dotfiles-update
+```
+
+Two things keep updates trustworthy:
+
+- **Only pushed commits reach other machines.** Finished work on any machine must
+  be committed and pushed, or `dotfiles-update` elsewhere cannot see it.
+- **Documentation lands in the same change as the behaviour it describes**
+  (see [`AGENTS.md`](AGENTS.md)), so the setup steps above always match the
+  current state of the repository.
+
 ## Common tasks
 
 ```sh
