@@ -9,6 +9,14 @@ Identity is the stable `workspace_id` (persisted by Herdr across restarts);
 labels are display-only. The durable mapping and MRU lists live in
 HERDR_PLUGIN_STATE_DIR and are reconciled against the live snapshot on every
 action, so stale IDs are pruned rather than trusted.
+
+The sidebar follows the active environment: every action or event that can
+change the active environment or its membership re-issues an `agent.view.set`
+override filtering the agents panel on the member workspace IDs, and stamps
+the reserved `sidebar_hidden` metadata token on inactive-environment Spaces so
+the custom Herdr build drops them from the Spaces list (the focused Space is
+always exempt server-side; a stock binary ignores the token). Both are
+in-memory server state, so `startup` reapplies them after a restart.
 """
 
 import fcntl
@@ -27,6 +35,11 @@ STATE_FILE = "state.json"
 # sidebar drops missing tokens with their separators, so exactly one badge
 # renders per row (config.base.toml [ui.sidebar.spaces]).
 BADGE_TOKENS = {"personal": ("env_personal", "P"), "work": ("env_work", "W")}
+# Reserved token honoured by the custom build's sidebar (see the local Herdr
+# patch): non-empty hides the Space from the list, None removes the marker.
+HIDDEN_TOKEN = "sidebar_hidden"
+# Herdr rejects `in` filters with more than 32 values; chunk under an `any`.
+MAX_FILTER_VALUES = 32
 
 
 def other(env):
@@ -169,6 +182,36 @@ def regroup_plan(order, assignments):
     if is_grouped(order, assignments):
         return None
     return [ws for ws in order if assignments.get(ws, DEFAULT_ENV) == "work"]
+
+
+def visibility_patch(assignments, active):
+    """Per-Space sidebar_hidden values: "1" outside active, None inside it."""
+    return {
+        ws: (None if env == active else "1") for ws, env in assignments.items()
+    }
+
+
+def agent_view_filter(assignments, env):
+    """agent.view.set filter matching only agents in env's Spaces.
+
+    Workspace IDs are compared against the builtin workspace_id field. An
+    empty environment matches nothing (workspace IDs are never empty), so the
+    panel shows Herdr's own "no matching agents" state. Stale IDs are harmless
+    here: they match no live agent.
+    """
+    members = [ws for ws, assigned in assignments.items() if assigned == env]
+    if not members:
+        return {"op": "eq", "field": "workspace_id", "value": ""}
+    chunks = [
+        members[i : i + MAX_FILTER_VALUES]
+        for i in range(0, len(members), MAX_FILTER_VALUES)
+    ]
+    filters = [
+        {"op": "in", "field": "workspace_id", "values": chunk} for chunk in chunks
+    ]
+    if len(filters) == 1:
+        return filters[0]
+    return {"op": "any", "filters": filters}
 
 
 # --- action/event plans (pure, run under the state lock) --------------------
@@ -337,6 +380,37 @@ def stamp_badge(ws_id, env):
         print(f"badge not updated for {ws_id}: {error}")
 
 
+def apply_visibility(assignments, active):
+    """Hide inactive-environment Spaces from the sidebar. Display-only: never abort."""
+    for ws_id, value in visibility_patch(assignments, active).items():
+        try:
+            api(
+                "workspace.report_metadata",
+                {
+                    "workspace_id": ws_id,
+                    "source": plugin_source(),
+                    "tokens": {HIDDEN_TOKEN: value},
+                },
+            )
+        except (SystemExit, OSError, json.JSONDecodeError) as error:
+            print(f"visibility not updated for {ws_id}: {error}")
+
+
+def apply_agent_view(assignments, env):
+    """Filter the agents panel to env's Spaces. Display-only: never abort."""
+    try:
+        api(
+            "agent.view.set",
+            {
+                "source": plugin_source(),
+                "label": env.title(),
+                "filter": agent_view_filter(assignments, env),
+            },
+        )
+    except (SystemExit, OSError, json.JSONDecodeError) as error:
+        print(f"agent view not updated for {env}: {error}")
+
+
 def apply_grouping(order, assignments):
     """Keep the personal block above the work block. Display-only: never abort."""
     plan = regroup_plan(order, assignments)
@@ -370,6 +444,8 @@ def toggle():
         stamp_badge(ws, assignments[ws])
     if added:
         apply_grouping(order, assignments)
+    apply_agent_view(assignments, dest)
+    apply_visibility(assignments, dest)
     if target is None:
         print(f"toggle -> {dest}: empty")
         toast(f"{dest.title()} has no Spaces — new Spaces will start there")
@@ -402,6 +478,8 @@ def send():
         if ws != ws_id:
             stamp_badge(ws, assignments[ws])
     apply_grouping(order, assignments)
+    apply_agent_view(assignments, src if remaining else dest)
+    apply_visibility(assignments, src if remaining else dest)
     label = labels_by_id(live).get(ws_id, ws_id)
     if remaining is None:
         print(f"send {ws_id} {src}->{dest}: last Space, following it")
@@ -427,6 +505,8 @@ def status():
     added, assignments, active = mutate_state(summarise)
     for ws in added:
         stamp_badge(ws, assignments[ws])
+    apply_agent_view(assignments, active)
+    apply_visibility(assignments, active)
     counts = {
         env: sum(1 for ws in order if assignments.get(ws) == env)
         for env in ENVIRONMENTS
@@ -459,9 +539,9 @@ def handle_created():
 
     def observe(state):
         env, added = plan_created(state, order, ws_id)
-        return env, added, dict(state["assignments"])
+        return env, added, dict(state["assignments"]), state["active_env"]
 
-    env, added, assignments = mutate_state(observe)
+    env, added, assignments, active = mutate_state(observe)
     if env is None:
         print(f"created {ws_id}: gone before assignment")
         return
@@ -469,6 +549,8 @@ def handle_created():
         if ws in assignments:
             stamp_badge(ws, assignments[ws])
     apply_grouping(order, assignments)
+    apply_agent_view(assignments, active)
+    apply_visibility(assignments, active)
     print(f"created {ws_id} -> {env}")
 
 
@@ -477,7 +559,13 @@ def handle_closed():
     ws_id = data.get("workspace_id") if data else None
     if not isinstance(ws_id, str):
         return
-    mutate_state(lambda state: forget(state, ws_id))
+
+    def drop(state):
+        forget(state, ws_id)
+        return dict(state["assignments"]), state["active_env"]
+
+    assignments, active = mutate_state(drop)
+    apply_agent_view(assignments, active)
     print(f"closed {ws_id}")
 
 
@@ -486,9 +574,19 @@ def handle_focused():
     ws_id = data.get("workspace_id") if data else None
     if not isinstance(ws_id, str):
         return
-    env, newly = mutate_state(lambda state: plan_focused(state, ws_id))
+
+    def follow(state):
+        previous = state["active_env"]
+        env, newly = plan_focused(state, ws_id)
+        return previous, env, newly, dict(state["assignments"])
+
+    previous, env, newly, assignments = mutate_state(follow)
     if newly:
         stamp_badge(ws_id, env)
+    # Focus fires constantly; only re-issue the view when it can change.
+    if newly or env != previous:
+        apply_agent_view(assignments, env)
+        apply_visibility(assignments, env)
     print(f"focused {ws_id} env={env} newly_mapped={newly}")
 
 
@@ -501,10 +599,13 @@ def startup():
         return added, dict(state["assignments"]), state["active_env"]
 
     added, assignments, active = mutate_state(fold)
-    # Metadata tokens do not survive a server restart, so restamp every Space.
+    # Metadata tokens and the agent-view override do not survive a server
+    # restart, so restamp every Space and re-issue the view and visibility.
     for ws in order:
         stamp_badge(ws, assignments[ws])
     apply_grouping(order, assignments)
+    apply_agent_view(assignments, active)
+    apply_visibility(assignments, active)
     print(f"startup: {len(order)} spaces, {len(added)} newly mapped, active={active}")
 
 

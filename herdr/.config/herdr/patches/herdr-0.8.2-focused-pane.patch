@@ -1,5 +1,5 @@
 diff --git a/docs/next/website/src/data/config-reference.json b/docs/next/website/src/data/config-reference.json
-index 1765c10..efdd71c 100644
+index 1765c10f..efdd71c1 100644
 --- a/docs/next/website/src/data/config-reference.json
 +++ b/docs/next/website/src/data/config-reference.json
 @@ -730,6 +730,12 @@
@@ -35,7 +35,7 @@ index 1765c10..efdd71c 100644
            "key": "ui.hide_tab_bar_when_single_tab",
            "type": "boolean",
 diff --git a/src/app/agent_resume.rs b/src/app/agent_resume.rs
-index 29c2c31..95c11cc 100644
+index 29c2c317..95c11cc6 100644
 --- a/src/app/agent_resume.rs
 +++ b/src/app/agent_resume.rs
 @@ -131,6 +131,7 @@ impl App {
@@ -44,7 +44,7 @@ index 29c2c31..95c11cc 100644
              self.state.pane_outer_borders,
 +            self.state.host_cell_size,
          );
- 
+
          if self.state.active == Some(ws_idx)
 @@ -292,12 +293,14 @@ fn derived_pending_agent_resume_pane_infos(
      pane_borders: bool,
@@ -62,10 +62,43 @@ index 29c2c31..95c11cc 100644
      .into_iter()
      .map(|mut info| {
 diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
-index 6615fa0..9b2b96d 100644
+index 6615fa0a..ae0f76dc 100644
 --- a/src/app/api/panes.rs
 +++ b/src/app/api/panes.rs
-@@ -1715,6 +1715,7 @@ impl App {
+@@ -60,13 +60,29 @@ impl App {
+         let host_terminal_theme = self.state.host_terminal_theme;
+         let host_terminal_appearance = self.state.host_terminal_appearance;
+         let previous_focus = self.state.current_pane_focus_target();
+-        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+-            return encode_error(id, "pane_not_found", "pane not found");
+-        };
+         let direction = match params.direction {
+             crate::api::schema::SplitDirection::Right => ratatui::layout::Direction::Horizontal,
+             crate::api::schema::SplitDirection::Down => ratatui::layout::Direction::Vertical,
+         };
++        if !self.state.can_split_pane(
++            ws_idx,
++            target_pane_id,
++            direction,
++            params.ratio.unwrap_or(0.5),
++        ) {
++            return encode_error(
++                id,
++                "pane_split_too_small",
++                format!(
++                    "split would make a pane too small to read (minimum {} columns x {} rows)",
++                    crate::layout::MIN_READABLE_PANE_COLS,
++                    crate::layout::MIN_READABLE_PANE_ROWS,
++                ),
++            );
++        }
++        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
++            return encode_error(id, "pane_not_found", "pane not found");
++        };
+         let shell_config = crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode);
+         let split_result = match params.ratio {
+             Some(ratio) => ws.split_pane_with_ratio(
+@@ -1715,6 +1731,7 @@ impl App {
              self.state.pane_borders,
              self.state.pane_gaps,
              self.state.pane_outer_borders,
@@ -73,8 +106,33 @@ index 6615fa0..9b2b96d 100644
          )
          .into_iter()
          .filter_map(|pane| {
+diff --git a/src/app/api/plugins/panes.rs b/src/app/api/plugins/panes.rs
+index 8b0749e3..3b892e08 100644
+--- a/src/app/api/plugins/panes.rs
++++ b/src/app/api/plugins/panes.rs
+@@ -110,6 +110,20 @@ impl App {
+             crate::api::schema::SplitDirection::Right => Direction::Horizontal,
+             crate::api::schema::SplitDirection::Down => Direction::Vertical,
+         };
++        if !self
++            .state
++            .can_split_pane(ws_idx, target_pane, direction, 0.5)
++        {
++            return encode_error(
++                id,
++                "pane_split_too_small",
++                format!(
++                    "split would make a pane too small to read (minimum {} columns x {} rows)",
++                    crate::layout::MIN_READABLE_PANE_COLS,
++                    crate::layout::MIN_READABLE_PANE_ROWS,
++                ),
++            );
++        }
+         let cwd = Some(self.plugin_pane_cwd(plugin, params.cwd));
+         let (rows, cols) = self.state.estimate_pane_size();
+         let previous_focus = self.state.current_pane_focus_target();
 diff --git a/src/app/mod.rs b/src/app/mod.rs
-index 85ad4fa..9b4ab4c 100644
+index 85ad4fa3..dd4e2772 100644
 --- a/src/app/mod.rs
 +++ b/src/app/mod.rs
 @@ -650,9 +650,12 @@ impl App {
@@ -104,8 +162,60 @@ index 85ad4fa..9b4ab4c 100644
                  self.state.hide_tab_bar_when_single_tab = config.ui.hide_tab_bar_when_single_tab;
                  self.state.tab_bar_position = config.ui.tab_bar_position;
                  self.configure_tab_bar_status(
+@@ -4665,6 +4671,51 @@ mod tests {
+         }
+     }
+
++    #[tokio::test]
++    async fn pane_split_request_rejects_unreadable_result() {
++        let _guard = config_env_lock().lock().unwrap();
++        let original_shell = std::env::var_os("SHELL");
++        std::env::set_var("SHELL", "/usr/bin/true");
++
++        let mut app = test_app();
++        let workspace = Workspace::test_new("api-pane-split-too-small");
++        let target_pane = workspace.tabs[0].root_pane;
++        app.state.workspaces = vec![workspace];
++        app.state.ensure_test_terminals();
++        app.state.active = Some(0);
++        app.state.selected = 0;
++        app.state.view.terminal_area = ratatui::layout::Rect::new(
++            0,
++            0,
++            (crate::layout::MIN_READABLE_PANE_COLS + 3) * 2 - 1,
++            20,
++        );
++        let target_pane_id = app.pane_info(0, target_pane).unwrap().pane_id;
++
++        let response = app.handle_api_request(crate::api::schema::Request {
++            id: "req_pane_split_too_small".into(),
++            method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
++                workspace_id: None,
++                target_pane_id: Some(target_pane_id),
++                direction: crate::api::schema::SplitDirection::Right,
++                ratio: None,
++                cwd: None,
++                focus: true,
++                right_click: Default::default(),
++                env: Default::default(),
++            }),
++        });
++        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
++
++        assert_eq!(response["error"]["code"], "pane_split_too_small");
++        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
++
++        match original_shell {
++            Some(value) => std::env::set_var("SHELL", value),
++            None => std::env::remove_var("SHELL"),
++        }
++    }
++
+     #[tokio::test]
+     async fn pane_split_request_uses_active_focused_pane_when_target_is_omitted() {
+         let _guard = config_env_lock().lock().unwrap();
 diff --git a/src/app/state.rs b/src/app/state.rs
-index d9dcfc9..1ac8978 100644
+index d9dcfc9d..2fe37c49 100644
 --- a/src/app/state.rs
 +++ b/src/app/state.rs
 @@ -1484,9 +1484,12 @@ pub struct AppState {
@@ -121,7 +231,39 @@ index d9dcfc9..1ac8978 100644
      pub hide_tab_bar_when_single_tab: bool,
      pub tab_bar_position: TabBarPositionConfig,
      pub tab_bar_right: Vec<TabBarStatusSegment>,
-@@ -1875,9 +1878,12 @@ impl AppState {
+@@ -1666,6 +1669,31 @@ impl AppState {
+         }
+     }
+
++    /// Check a prospective split against the currently rendered terminal area.
++    /// Before the first render, use the configured headless size so API clients
++    /// and tests receive the same guard instead of an accidental zero-area pass.
++    pub(crate) fn can_split_pane(
++        &self,
++        ws_idx: usize,
++        pane_id: PaneId,
++        direction: Direction,
++        ratio: f32,
++    ) -> bool {
++        let area = if self.view.terminal_area.width > 0 && self.view.terminal_area.height > 0 {
++            self.view.terminal_area
++        } else {
++            Rect::new(0, 0, self.headless_size.0, self.headless_size.1)
++        };
++        self.workspaces
++            .get(ws_idx)
++            .and_then(|workspace| {
++                workspace
++                    .find_tab_index_for_pane(pane_id)
++                    .and_then(|tab_idx| workspace.tabs.get(tab_idx))
++            })
++            .is_some_and(|tab| tab.layout.can_split_pane(pane_id, direction, ratio, area))
++    }
++
+     /// Returns true when the given (workspace, tab, pane) refers to the
+     /// currently focused pane in the active workspace's active tab.
+     pub(crate) fn runtime_for_pane_in_workspace<'a>(
+@@ -1875,9 +1903,12 @@ impl AppState {
              prompt_new_workspace_name: false,
              pane_borders: true,
              pane_outer_borders: true,
@@ -135,13 +277,13 @@ index d9dcfc9..1ac8978 100644
              tab_bar_position: TabBarPositionConfig::Top,
              tab_bar_right: Vec::new(),
 diff --git a/src/config/model.rs b/src/config/model.rs
-index c10cd73..4689592 100644
+index c10cd733..4689592d 100644
 --- a/src/config/model.rs
 +++ b/src/config/model.rs
 @@ -11,6 +11,20 @@ use super::{
- 
+
  pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
- 
+
 +fn deserialize_pane_opacity<'de, D>(deserializer: D) -> Result<f32, D::Error>
 +where
 +    D: Deserializer<'de>,
@@ -234,7 +376,7 @@ index c10cd73..4689592 100644
 @@ -1440,6 +1473,18 @@ tab_bar_right_separator = " · "
          assert_eq!(config.ui.tab_bar_right_separator, " · ");
      }
- 
+
 +    #[test]
 +    fn unfocused_pane_opacity_rejects_values_outside_unit_interval() {
 +        for value in ["-0.1", "1.1", "nan"] {
@@ -250,14 +392,94 @@ index c10cd73..4689592 100644
      #[test]
      fn worktrees_directory_defaults_and_parses() {
          let default_config = Config::default();
+diff --git a/src/layout.rs b/src/layout.rs
+index c46a0753..400c0b3f 100644
+--- a/src/layout.rs
++++ b/src/layout.rs
+@@ -7,6 +7,15 @@ use ratatui::{
+     widgets::Borders,
+ };
+
++/// Minimum terminal content kept in each pane created by a split.
++///
++/// The layout check reserves room for the normal pane chrome and one-cell gap
++/// so these are content dimensions, not merely the outer rectangle size.
++pub const MIN_READABLE_PANE_COLS: u16 = 10;
++pub const MIN_READABLE_PANE_ROWS: u16 = 4;
++const MIN_PANE_OUTER_WIDTH: u16 = MIN_READABLE_PANE_COLS + 3;
++const MIN_PANE_OUTER_HEIGHT: u16 = MIN_READABLE_PANE_ROWS + 2;
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+ pub struct PaneId(u32);
+
+@@ -129,6 +138,28 @@ impl TileLayout {
+         result
+     }
+
++    /// Return whether splitting `target` would leave both new panes readable.
++    pub fn can_split_pane(
++        &self,
++        target: PaneId,
++        direction: Direction,
++        ratio: f32,
++        area: Rect,
++    ) -> bool {
++        let Some(target_rect) = self
++            .panes(area)
++            .into_iter()
++            .find(|pane| pane.id == target)
++            .map(|pane| pane.rect)
++        else {
++            return false;
++        };
++        let (first, second) = split_rect(target_rect, direction, valid_split_ratio(ratio));
++        [first, second]
++            .into_iter()
++            .all(|rect| rect.width >= MIN_PANE_OUTER_WIDTH && rect.height >= MIN_PANE_OUTER_HEIGHT)
++    }
++
+     /// Collect all split boundaries for mouse drag resize.
+     pub fn splits(&self, area: Rect) -> Vec<SplitBorder> {
+         let mut result = Vec::new();
+@@ -1138,6 +1169,30 @@ mod tests {
+         assert_eq!(layout.pane_ids(), ids);
+     }
+
++    #[test]
++    fn split_is_rejected_when_either_new_pane_would_be_unreadable() {
++        let (layout, root) = TileLayout::new();
++
++        assert!(layout.can_split_pane(
++            root,
++            Direction::Horizontal,
++            0.5,
++            Rect::new(0, 0, MIN_PANE_OUTER_WIDTH * 2, 20),
++        ));
++        assert!(!layout.can_split_pane(
++            root,
++            Direction::Horizontal,
++            0.5,
++            Rect::new(0, 0, MIN_PANE_OUTER_WIDTH * 2 - 1, 20),
++        ));
++        assert!(!layout.can_split_pane(
++            root,
++            Direction::Vertical,
++            0.5,
++            Rect::new(0, 0, 40, MIN_PANE_OUTER_HEIGHT * 2 - 1),
++        ));
++    }
++
+     #[test]
+     fn insert_pane_near_unfocused_keeps_focus_and_history() {
+         let mut layout = sample_layout();
 diff --git a/src/main.rs b/src/main.rs
-index 56dbb8d..4714ac4 100644
+index 56dbb8df..4714ac45 100644
 --- a/src/main.rs
 +++ b/src/main.rs
 @@ -325,6 +325,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # Disable for tmux-style internal splitters without an outside frame.
  # pane_outer_borders = true
- 
+
 +# Use heavy box-drawing glyphs for the focused pane border.
 +# focused_pane_heavy_borders = false
 +
@@ -267,7 +489,7 @@ index 56dbb8d..4714ac4 100644
 @@ -335,6 +338,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # Show detected/reported agent labels in split pane borders when no manual pane name is set.
  # show_agent_labels_on_pane_borders = false
- 
+
 +# Fade unfocused pane content toward the terminal background.
 +# dim_unfocused_panes = false
 +# Fraction of the original colour to retain (0.0 fully faded, 1.0 unchanged).
@@ -277,7 +499,7 @@ index 56dbb8d..4714ac4 100644
  # New tabs can still be created with the configured keybinding.
  # hide_tab_bar_when_single_tab = false
 diff --git a/src/metadata_tokens.rs b/src/metadata_tokens.rs
-index f79e8ae..9af6285 100644
+index f79e8ae2..9af6285a 100644
 --- a/src/metadata_tokens.rs
 +++ b/src/metadata_tokens.rs
 @@ -88,6 +88,10 @@ impl MetadataTokens {
@@ -292,12 +514,12 @@ index f79e8ae..9af6285 100644
          self.entries
              .values()
 diff --git a/src/protocol/wire.rs b/src/protocol/wire.rs
-index 4a44536..86d310a 100644
+index 4a445361..86d310a4 100644
 --- a/src/protocol/wire.rs
 +++ b/src/protocol/wire.rs
 @@ -792,8 +792,7 @@ pub(crate) fn color_to_u32(color: ratatui::style::Color) -> u32 {
  }
- 
+
  /// Converts a packed u32 back to a ratatui `Color`.
 -#[cfg(test)]
 -fn u32_to_color(val: u32) -> ratatui::style::Color {
@@ -306,7 +528,7 @@ index 4a44536..86d310a 100644
          0x00 => match val & 0xFF {
              0x00 => ratatui::style::Color::Reset,
 diff --git a/src/server/headless.rs b/src/server/headless.rs
-index 9161cd3..78db377 100644
+index 9161cd34..78db3771 100644
 --- a/src/server/headless.rs
 +++ b/src/server/headless.rs
 @@ -4300,12 +4300,21 @@ impl HeadlessServer {
@@ -335,7 +557,7 @@ index 9161cd3..78db377 100644
 @@ -6036,6 +6045,59 @@ mod tests {
          (server, client_rx, pane_id)
      }
- 
+
 +    fn add_dimmed_unfocused_test_pane(
 +        server: &mut HeadlessServer,
 +        initial_screen: &[u8],
@@ -395,7 +617,7 @@ index 9161cd3..78db377 100644
 @@ -10193,6 +10255,120 @@ next_tab = ""
          assert_frame_data_eq(&retained_frame, &full_frame);
      }
- 
+
 +    #[tokio::test]
 +    async fn retained_pty_update_keeps_unfocused_pane_faded() {
 +        let initial = b"idle";
@@ -513,8 +735,37 @@ index 9161cd3..78db377 100644
      #[tokio::test]
      async fn retained_pty_update_streams_cursor_only_change() {
          let initial = b"abcd";
+diff --git a/src/terminal/title.rs b/src/terminal/title.rs
+index 89b4fed2..472ac6c2 100644
+--- a/src/terminal/title.rs
++++ b/src/terminal/title.rs
+@@ -2,6 +2,9 @@ const CLAUDE_ACTIVITY_GLYPHS: &str = "·✢✳✶✻✽◐◓◑◒";
+
+ pub(crate) fn stripped_terminal_title(title: &str) -> Option<String> {
+     let title = crate::platform::terminal_title_for_presentation(title).trim();
++    // OMP uses this stable product marker before its useful task title. It is
++    // presentation chrome, not part of the conversation summary.
++    let title = title.strip_prefix("π > ").unwrap_or(title);
+     if title.is_empty() {
+         return None;
+     }
+@@ -47,6 +50,14 @@ mod tests {
+         );
+     }
+
++    #[test]
++    fn strips_omp_task_prefix() {
++        assert_eq!(
++            stripped_terminal_title("π > Explain the deployment").as_deref(),
++            Some("Explain the deployment")
++        );
++    }
++
+     #[test]
+     fn preserves_unrecognized_or_unbounded_symbols() {
+         for (title, expected) in [
 diff --git a/src/ui.rs b/src/ui.rs
-index 8adc31e..e3d4f58 100644
+index 8adc31ef..e3d4f584 100644
 --- a/src/ui.rs
 +++ b/src/ui.rs
 @@ -94,7 +94,10 @@ pub(crate) use self::{
@@ -531,7 +782,7 @@ index 8adc31e..e3d4f58 100644
      widgets::{centered_popup_rect, modal_stack_areas},
 @@ -1405,7 +1408,7 @@ mod tests {
      }
- 
+
      #[test]
 -    fn prefix_mode_renders_prefix_indicator() {
 +    fn prefix_mode_renders_compact_prefix_indicator() {
@@ -541,7 +792,7 @@ index 8adc31e..e3d4f58 100644
 @@ -1416,14 +1419,15 @@ mod tests {
              .draw(|frame| render_prefix_overlay(&app, frame, app.view.terminal_area))
              .expect("draw prefix overlay");
- 
+
 -        let rendered = terminal
 -            .backend()
 -            .buffer()
@@ -560,15 +811,15 @@ index 8adc31e..e3d4f58 100644
 +            Some(ratatui::style::Color::Reset)
 +        );
      }
- 
+
      #[test]
 diff --git a/src/ui/menus.rs b/src/ui/menus.rs
-index 763c0ea..d4b5525 100644
+index 763c0ea8..d4b5525d 100644
 --- a/src/ui/menus.rs
 +++ b/src/ui/menus.rs
 @@ -29,34 +29,12 @@ fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui:
  }
- 
+
  pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
 -    let key = Style::default()
 -        .fg(app.palette.accent)
@@ -605,15 +856,15 @@ index 763c0ea..d4b5525 100644
 +    let overlay_area = Rect::new(area.x, overlay_y, area.width.min(8), 1);
      render_bottom_bar(frame, overlay_area, line, app.palette.panel_bg);
  }
- 
+
 diff --git a/src/ui/panes.rs b/src/ui/panes.rs
-index f20b55b..a93aeac 100644
+index f20b55b5..7f870fa6 100644
 --- a/src/ui/panes.rs
 +++ b/src/ui/panes.rs
-@@ -81,19 +81,26 @@ fn pane_below<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo
+@@ -81,19 +81,32 @@ fn pane_below<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo
      })
  }
- 
+
 -fn shrink_for_one_cell_gap(size: u16) -> u16 {
 -    if size > 1 {
 -        size - 1
@@ -624,9 +875,15 @@ index f20b55b..a93aeac 100644
          size
      }
  }
- 
+
 +fn columns_per_row(cell_size: crate::kitty_graphics::HostCellSize) -> u16 {
-+    let width = cell_size.width_px.max(1);
++    // Herdr suppresses host pixels unless Kitty graphics is enabled. Preserve
++    // independent gaps in Alacritty, but prefer the thinner side of the
++    // rectangular-cell approximation rather than widening panes to three columns.
++    if !cell_size.is_known() {
++        return 2;
++    }
++    let width = cell_size.width_px;
 +    let rounded_ratio = cell_size.height_px.saturating_add(width / 2) / width;
 +    rounded_ratio.clamp(1, u32::from(u16::MAX)) as u16
 +}
@@ -640,10 +897,10 @@ index f20b55b..a93aeac 100644
  ) -> Vec<PaneInfo> {
      let multi_pane = panes.len() > 1;
      let outer_left = panes.iter().map(|info| info.rect.x).min().unwrap_or(0);
-@@ -115,12 +122,19 @@ pub(crate) fn apply_pane_chrome(
+@@ -115,12 +128,19 @@ pub(crate) fn apply_pane_chrome(
              let right_neighbor = multi_pane.then(|| pane_to_right(&info, &panes)).flatten();
              let below_neighbor = multi_pane.then(|| pane_below(&info, &panes)).flatten();
- 
+
 -            if multi_pane && pane_gaps && !pane_borders {
 +            if multi_pane && pane_gaps {
 +                // A terminal row is usually about twice as tall as a column is
@@ -662,27 +919,27 @@ index f20b55b..a93aeac 100644
 +                    info.rect.height = shrink_for_gap(info.rect.height, vertical_gap);
                  }
              }
- 
-@@ -232,6 +246,7 @@ pub(super) fn resize_tab_panes(
+
+@@ -232,6 +252,7 @@ pub(super) fn resize_tab_panes(
          app.pane_borders,
          app.pane_gaps,
          app.pane_outer_borders,
 +        cell_size,
      ) {
          let pane_inner = pane_inner_rect(info.rect, info.borders);
- 
-@@ -307,6 +322,7 @@ pub(super) fn compute_pane_infos(
+
+@@ -307,6 +328,7 @@ pub(super) fn compute_pane_infos(
          app.pane_borders,
          app.pane_gaps,
          app.pane_outer_borders,
 +        cell_size,
      );
- 
+
      for info in &mut pane_infos {
-@@ -338,6 +354,203 @@ pub(super) fn compute_pane_infos(
+@@ -338,6 +360,203 @@ pub(super) fn compute_pane_infos(
      pane_infos
  }
- 
+
 +fn indexed_color_to_rgb(index: u8) -> Rgb {
 +    const ANSI: [Rgb; 16] = [
 +        (0, 0, 0),
@@ -883,10 +1140,10 @@ index f20b55b..a93aeac 100644
  pub(super) fn render_panes(
      app: &AppState,
      terminal_runtimes: &TerminalRuntimeRegistry,
-@@ -364,16 +577,15 @@ pub(super) fn render_panes(
+@@ -364,16 +583,15 @@ pub(super) fn render_panes(
              rt.render(frame, info.inner_rect, show_cursor);
              render_pane_scrollbar(app, frame, info, rt);
- 
+
 -            let should_dim = !info.is_focused && multi_pane && !terminal_active;
 +            let should_dim =
 +                !info.is_focused && multi_pane && (!terminal_active || app.dim_unfocused_panes);
@@ -906,9 +1163,9 @@ index f20b55b..a93aeac 100644
 +                    pane_unfocused_opacity(app, ws_idx, info.id),
 +                );
              }
- 
+
              let (copy_search_top, copy_search_bottom, copy_search_matches) =
-@@ -497,6 +709,10 @@ fn render_pane_borders(
+@@ -497,6 +715,10 @@ fn render_pane_borders(
          add_pane_border_cells(&mut cells, info);
      }
      add_split_border_cells(app.pane_gaps, split_borders, &mut cells);
@@ -919,7 +1176,7 @@ index f20b55b..a93aeac 100644
 
      let buf = frame.buffer_mut();
      let area = buf.area;
-@@ -511,14 +727,21 @@ fn render_pane_borders(
+@@ -511,14 +733,21 @@ fn render_pane_borders(
          let focused = pane_infos
              .iter()
              .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
@@ -942,7 +1199,7 @@ index f20b55b..a93aeac 100644
          } else {
              app.palette.overlay0
          };
-@@ -686,6 +909,8 @@ fn render_pane_border_titles(
+@@ -686,6 +915,8 @@ fn render_pane_border_titles(
          }
          let color = if info.is_focused {
              app.palette.accent
@@ -951,10 +1208,10 @@ index f20b55b..a93aeac 100644
          } else {
              app.palette.overlay0
          };
-@@ -703,23 +928,38 @@ fn render_pane_border_titles(
+@@ -703,23 +934,38 @@ fn render_pane_border_titles(
      }
  }
- 
+
 -fn line_cell_symbol(line: LineCell) -> &'static str {
 -    match (line.up, line.down, line.left, line.right) {
 -        (true, true, true, true) => "┼",
@@ -1007,10 +1264,10 @@ index f20b55b..a93aeac 100644
          _ => "",
      }
  }
-@@ -1082,6 +1322,13 @@ mod tests {
+@@ -1082,6 +1328,36 @@ mod tests {
          assert_eq!(buffer[(6, 0)].symbol(), "块");
      }
- 
+
 +    fn test_cell_size() -> crate::kitty_graphics::HostCellSize {
 +        crate::kitty_graphics::HostCellSize {
 +            width_px: 8,
@@ -1018,10 +1275,33 @@ index f20b55b..a93aeac 100644
 +        }
 +    }
 +
++    #[test]
++    fn missing_host_cell_size_keeps_a_thin_independent_gap() {
++        let mut workspace = Workspace::test_new("test");
++        let left_id = workspace.tabs[0].root_pane;
++        let right_id = workspace.test_split(ratatui::layout::Direction::Horizontal);
++        let infos = apply_pane_chrome(
++            workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
++            true,
++            true,
++            true,
++            crate::kitty_graphics::HostCellSize::default(),
++        );
++        let left = infos.iter().find(|info| info.id == left_id).unwrap();
++        let right = infos.iter().find(|info| info.id == right_id).unwrap();
++
++        assert_eq!(
++            right.rect.x - (left.rect.x + left.rect.width.saturating_sub(1)),
++            2
++        );
++        assert_eq!(left.borders, Borders::ALL);
++        assert_eq!(right.borders, Borders::ALL);
++    }
++
      #[test]
      fn default_horizontal_split_uses_one_shared_divider_column() {
          let mut workspace = Workspace::test_new("test");
-@@ -1094,6 +1341,7 @@ mod tests {
+@@ -1094,6 +1370,7 @@ mod tests {
              true,
              false,
              true,
@@ -1029,7 +1309,7 @@ index f20b55b..a93aeac 100644
          );
          let left = infos.iter().find(|info| info.id == root).unwrap();
          let right = infos.iter().find(|info| info.id == right).unwrap();
-@@ -1115,6 +1363,7 @@ mod tests {
+@@ -1115,6 +1392,7 @@ mod tests {
              true,
              false,
              true,
@@ -1037,7 +1317,7 @@ index f20b55b..a93aeac 100644
          );
          let top = infos.iter().find(|info| info.id == root).unwrap();
          let bottom = infos.iter().find(|info| info.id == bottom).unwrap();
-@@ -1136,6 +1385,7 @@ mod tests {
+@@ -1136,6 +1414,7 @@ mod tests {
              true,
              false,
              false,
@@ -1045,9 +1325,9 @@ index f20b55b..a93aeac 100644
          );
          let left = infos.iter().find(|info| info.id == root).unwrap();
          let right = infos.iter().find(|info| info.id == right).unwrap();
-@@ -1145,28 +1395,60 @@ mod tests {
+@@ -1145,28 +1424,60 @@ mod tests {
      }
- 
+
      #[test]
 -    fn pane_gaps_keep_independent_bordered_panes() {
 -        let mut workspace = Workspace::test_new("test");
@@ -1073,7 +1353,7 @@ index f20b55b..a93aeac 100644
 +            .iter()
 +            .find(|info| info.id == right_id)
 +            .unwrap();
- 
+
 -        let infos = apply_pane_chrome(
 -            workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
 +        let mut vertical = Workspace::test_new("vertical");
@@ -1096,7 +1376,7 @@ index f20b55b..a93aeac 100644
 +            .iter()
 +            .find(|info| info.id == bottom_id)
 +            .unwrap();
- 
+
 -        assert_eq!(left.rect.x + left.rect.width, right.rect.x);
 +        let horizontal_border_distance_px =
 +            u32::from(right.rect.x - (left.rect.x + left.rect.width.saturating_sub(1)))
@@ -1110,14 +1390,14 @@ index f20b55b..a93aeac 100644
 +        assert_eq!(top.borders, Borders::ALL);
 +        assert_eq!(bottom.borders, Borders::ALL);
      }
- 
+
      #[test]
 -    fn borderless_pane_gaps_add_one_empty_cell_between_panes() {
 +    fn borderless_pane_gaps_balance_pixel_spacing() {
          let mut workspace = Workspace::test_new("test");
          let root = workspace.tabs[0].root_pane;
          let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
-@@ -1177,11 +1459,12 @@ mod tests {
+@@ -1177,11 +1488,12 @@ mod tests {
              false,
              true,
              true,
@@ -1125,23 +1405,23 @@ index f20b55b..a93aeac 100644
          );
          let left = infos.iter().find(|info| info.id == root).unwrap();
          let right = infos.iter().find(|info| info.id == right).unwrap();
- 
+
 -        assert_eq!(left.rect, Rect::new(0, 0, 49, 20));
 +        assert_eq!(left.rect, Rect::new(0, 0, 48, 20));
          assert_eq!(right.rect, Rect::new(50, 0, 50, 20));
          assert!(left.borders.is_empty());
          assert!(right.borders.is_empty());
-@@ -1197,6 +1480,7 @@ mod tests {
+@@ -1197,6 +1509,7 @@ mod tests {
              false,
              false,
              true,
 +            test_cell_size(),
          );
- 
+
          for info in infos {
-@@ -1206,9 +1490,10 @@ mod tests {
+@@ -1206,9 +1519,10 @@ mod tests {
      }
- 
+
      #[test]
 -    fn global_pane_border_renderer_composes_junctions_and_focus_style() {
 +    fn global_pane_border_renderer_composes_heavy_focused_junctions() {
@@ -1151,9 +1431,9 @@ index f20b55b..a93aeac 100644
          app.view.terminal_area = Rect::new(0, 0, 4, 4);
          app.view.pane_infos = vec![
              PaneInfo {
-@@ -1269,12 +1554,112 @@ mod tests {
+@@ -1269,12 +1583,112 @@ mod tests {
              .unwrap();
- 
+
          let buffer = terminal.backend().buffer();
 -        assert_eq!(buffer[(2, 2)].symbol(), "┼");
 +        assert_eq!(buffer[(2, 2)].symbol(), "╋");
@@ -1162,7 +1442,7 @@ index f20b55b..a93aeac 100644
 +        assert_eq!(buffer[(2, 1)].symbol(), "┃");
          assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.accent));
      }
- 
+
 +    #[test]
 +    fn agent_attention_uses_theme_border_colours_and_midpoint_opacity() {
 +        let mut app = AppState::test_new();
@@ -1266,3 +1546,228 @@ index f20b55b..a93aeac 100644
      #[test]
      fn gapped_pane_focus_does_not_color_neighbor_border() {
          let mut app = AppState::test_new();
+diff --git a/src/ui/sidebar.rs b/src/ui/sidebar.rs
+index a6dfbcd3..7be9aa76 100644
+--- a/src/ui/sidebar.rs
++++ b/src/ui/sidebar.rs
+@@ -328,6 +328,26 @@ pub(crate) fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry>
+     workspace_list_entries_inner(app, false)
+ }
+
++/// Reserved workspace metadata token: any source may set it non-empty via
++/// `workspace.report_metadata` to hide that Space from the sidebar list.
++/// Every consumer of the list (rendering, mouse cards, scroll metrics, and
++/// visible-order navigation) flows through `workspace_list_entries_inner`,
++/// so hidden Spaces drop out of all of them at once.
++pub(crate) const SIDEBAR_HIDDEN_TOKEN: &str = "sidebar_hidden";
++
++fn workspace_sidebar_hidden(app: &AppState, ws_idx: usize) -> bool {
++    // The active workspace — and, while navigating, the selected one — always
++    // stays visible so focus and selection can never point at a hidden row.
++    if app.active == Some(ws_idx) || (matches!(app.mode, Mode::Navigate) && app.selected == ws_idx)
++    {
++        return false;
++    }
++    app.workspaces
++        .get(ws_idx)
++        .and_then(|ws| ws.metadata_tokens.get(SIDEBAR_HIDDEN_TOKEN))
++        .is_some_and(|value| !value.is_empty())
++}
++
+ /// Like [`workspace_list_entries`] but always expands worktree groups, ignoring
+ /// `collapsed_space_keys`. The mobile switcher has no collapse affordance and
+ /// always shows the full worktree tree.
+@@ -338,6 +358,9 @@ pub(crate) fn workspace_list_entries_expanded(app: &AppState) -> Vec<WorkspaceLi
+ fn workspace_list_entries_inner(app: &AppState, force_expanded: bool) -> Vec<WorkspaceListEntry> {
+     let mut members_by_key = std::collections::HashMap::<String, Vec<usize>>::new();
+     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
++        if workspace_sidebar_hidden(app, ws_idx) {
++            continue;
++        }
+         if let Some(space) = ws.worktree_space() {
+             members_by_key
+                 .entry(space.key.clone())
+@@ -374,6 +397,9 @@ fn workspace_list_entries_inner(app: &AppState, force_expanded: bool) -> Vec<Wor
+     let mut emitted_groups = std::collections::HashSet::<String>::new();
+     let mut entries = Vec::new();
+     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
++        if workspace_sidebar_hidden(app, ws_idx) {
++            continue;
++        }
+         let Some(space) = ws
+             .worktree_space()
+             .filter(|space| grouped_keys.contains(&space.key))
+@@ -786,15 +812,19 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area:
+         return;
+     }
+
+-    for (visible_idx, ws) in app.workspaces.iter().enumerate() {
+-        let y = ws_area.y + visible_idx as u16;
++    for (row_idx, entry) in workspace_list_entries(app).iter().enumerate() {
++        let WorkspaceListEntry::Workspace { ws_idx, .. } = entry;
++        let Some(ws) = app.workspaces.get(*ws_idx) else {
++            continue;
++        };
++        let y = ws_area.y + row_idx as u16;
+         if y >= ws_area.y + ws_area.height {
+             break;
+         }
+         let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
+         let (icon, icon_style) = state_icon(agg_state, agg_seen, app.status_indicators, p);
+-        let is_selected = visible_idx == app.selected && is_navigating;
+-        let is_active = Some(visible_idx) == app.active;
++        let is_selected = *ws_idx == app.selected && is_navigating;
++        let is_active = Some(*ws_idx) == app.active;
+         let selection_bg = workspace_selection_background(p, is_active);
+         let row_style = if is_selected {
+             Style::default().bg(selection_bg)
+@@ -820,7 +850,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area:
+
+         frame.render_widget(
+             Paragraph::new(Line::from(vec![
+-                Span::styled(format!("{:<2}", visible_idx + 1), num_style),
++                Span::styled(format!("{:<2}", ws_idx + 1), num_style),
+                 Span::styled(icon, icon_style),
+             ])),
+             Rect::new(ws_area.x, y, ws_area.width, 1),
+@@ -838,6 +868,14 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area:
+             buf[(x, divider_y)].set_symbol("─");
+             buf[(x, divider_y)].set_style(Style::default().fg(divider_color));
+         }
++        if let Some(badge) = active_agent_view_label(app)
++            .and_then(|label| label.chars().next())
++            .map(|initial| initial.to_ascii_uppercase().to_string())
++        {
++            buf[(ws_area.x, divider_y)].set_symbol(&badge);
++            buf[(ws_area.x, divider_y)]
++                .set_style(Style::default().fg(p.accent).add_modifier(Modifier::BOLD));
++        }
+     }
+
+     let detail_content_area = Rect::new(
+@@ -1619,6 +1657,125 @@ mod tests {
+             })
+     }
+
++    fn set_sidebar_hidden(app: &mut crate::app::state::AppState, ws_idx: usize, value: &str) {
++        app.workspaces[ws_idx].metadata_tokens.patch(
++            std::collections::HashMap::from([(
++                SIDEBAR_HIDDEN_TOKEN.into(),
++                Some(value.to_string()),
++            )]),
++            None,
++            std::time::Instant::now(),
++        );
++    }
++
++    fn visible_ws_indices(app: &crate::app::state::AppState) -> Vec<usize> {
++        workspace_list_entries(app)
++            .into_iter()
++            .map(|entry| match entry {
++                WorkspaceListEntry::Workspace { ws_idx, .. } => ws_idx,
++            })
++            .collect()
++    }
++
++    #[test]
++    fn sidebar_hidden_token_hides_workspace_except_active_or_selected() {
++        let mut app = crate::app::state::AppState::test_new();
++        app.workspaces = vec![Workspace::test_new("shown"), Workspace::test_new("hidden")];
++        app.active = Some(0);
++        app.mode = Mode::Terminal;
++        set_sidebar_hidden(&mut app, 1, "1");
++
++        assert_eq!(vec![0], visible_ws_indices(&app));
++
++        // The active workspace can never be hidden out from under focus.
++        app.active = Some(1);
++        assert_eq!(vec![0, 1], visible_ws_indices(&app));
++
++        // While navigating, the selected workspace stays visible too.
++        app.active = Some(0);
++        app.mode = Mode::Navigate;
++        app.selected = 1;
++        assert_eq!(vec![0, 1], visible_ws_indices(&app));
++
++        // An empty value means not hidden.
++        app.mode = Mode::Terminal;
++        app.selected = 0;
++        set_sidebar_hidden(&mut app, 1, "");
++        assert_eq!(vec![0, 1], visible_ws_indices(&app));
++    }
++
++    #[test]
++    fn hidden_workspaces_leave_visible_navigation_order() {
++        let mut app = crate::app::state::AppState::test_new();
++        app.workspaces = vec![
++            Workspace::test_new("one"),
++            Workspace::test_new("two"),
++            Workspace::test_new("three"),
++        ];
++        app.active = Some(0);
++        app.selected = 0;
++        app.mode = Mode::Terminal;
++        set_sidebar_hidden(&mut app, 1, "1");
++
++        assert_eq!(vec![0, 2], app.visible_workspace_order());
++        assert_eq!(Some(2), app.workspace_at_visible_position(1));
++
++        // Visible-order navigation steps over the hidden Space.
++        app.mode = Mode::Navigate;
++        app.move_selected_workspace_by_visible_delta(1);
++        assert_eq!(2, app.selected);
++    }
++
++    #[test]
++    fn collapsed_sidebar_uses_the_filtered_workspace_list() {
++        let mut app = crate::app::state::AppState::test_new();
++        app.workspaces = vec![
++            Workspace::test_new("one"),
++            Workspace::test_new("hidden"),
++            Workspace::test_new("three"),
++        ];
++        app.ensure_test_terminals();
++        app.active = Some(0);
++        app.selected = 0;
++        set_sidebar_hidden(&mut app, 1, "1");
++
++        let area = Rect::new(0, 0, 4, 10);
++        let (ws_area, _, _) = collapsed_sidebar_sections(area);
++        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
++        terminal
++            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
++            .unwrap();
++        let buffer = terminal.backend().buffer();
++
++        assert!(row_text(buffer, ws_area.y, ws_area.width).starts_with('1'));
++        assert!(row_text(buffer, ws_area.y + 1, ws_area.width).starts_with('3'));
++        assert_eq!("", row_text(buffer, ws_area.y + 2, ws_area.width));
++    }
++
++    #[test]
++    fn collapsed_sidebar_marks_the_active_view_on_its_divider() {
++        let mut app = crate::app::state::AppState::test_new();
++        app.agent_view_override = Some(crate::api::schema::AgentViewSetParams {
++            source: "plugin:test".into(),
++            label: Some("Personal".into()),
++            filter: None,
++            sort: Vec::new(),
++        });
++
++        let area = Rect::new(0, 0, 4, 8);
++        let (_, divider_y, _) = collapsed_sidebar_sections(area);
++        let divider_y = divider_y.expect("tall collapsed sidebar has a divider");
++        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
++        terminal
++            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
++            .unwrap();
++        let cell = &terminal.backend().buffer()[(area.x, divider_y)];
++
++        assert_eq!("P", cell.symbol());
++        assert_eq!(app.palette.accent, cell.fg);
++        assert!(cell.modifier.contains(Modifier::BOLD));
++    }
++
+     #[test]
+     fn expanded_and_collapsed_sidebars_use_custom_background() {
+         let mut app = crate::app::state::AppState::test_new();

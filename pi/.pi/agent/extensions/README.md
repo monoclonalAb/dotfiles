@@ -15,10 +15,12 @@ Relevant APIs and hooks requiring explicit review include `registerTool`, `input
 
 Prefer command-only, UI-only, or metadata-only extensions. Keep any model-context-changing behavior outside the auto-discovered extension set unless it is deliberately approved.
 
+`herdr-task-summary/` is metadata-only. It observes finalized user messages without returning a replacement, deterministically normalizes the latest substantive request into an up-to-six-word task phrase, and reports only an in-memory Herdr pane token, using `New conversation` until a substantive request exists. It does not append Pi session entries, rename the Pi session, or alter model-visible content.
+
 Approved exceptions:
 
 - `selective-skills.ts` only contributes skills explicitly enabled by the user through `/skill`, keeps that selection session-local, and starts every new session with no skills enabled.
-- `harness-feedback.ts` appends correction-handling guidance only after the user explicitly enables `/harness`; it starts disabled whenever the extension runtime is loaded.
+- `harness-feedback.ts` appends correction-handling guidance only after the user explicitly enables `/feedback`; it starts disabled whenever the extension runtime is loaded.
 - `omp-anthropic-route/` rewrites only direct Anthropic OAuth HTTP traffic to the explicitly requested, pinned OMP-compatible wire shape. It is enabled by default but applies the rewrite only when the installed OMP version matches that reviewed target; a mismatch gets one package-only Homebrew update attempt before the stale route is disabled in favour of Pi's native transport. It adds OMP's provider identity/metadata and removes only Pi's built-in documentation-locator block during serialization (project/user context remains), never applies to API-key or proxy traffic, and retains Pi's billing warning.
 
 This README is a development policy only. Pi does not load it into model context, and Pi has no capability sandbox that automatically enforces the policy; extension source must still be reviewed.

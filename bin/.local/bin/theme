@@ -226,6 +226,9 @@ auto_switch = false
 [theme.custom]
 accent = "$mauve"
 panel_bg = "$panel_bg"
+# Surface0 makes the focused Agent (and active Space) row distinct from the
+# sidebar while remaining inside the selected Catppuccin palette.
+active_row_bg = "$surface0"
 surface_dim = "$mantle"
 surface0 = "$surface0"
 surface1 = "$surface1"
@@ -242,20 +245,53 @@ teal = "$teal"
 peach = "$peach"
 
 # Herdr's own state_icon clears as soon as a pane's TAB is seen, even for panes that were never
-# focused, so the martinro.next-agent plugin owns this dot instead: it reports exactly one \$dot_*
-# token per pane from its per-pane ledger, the same state prefix+u jumps to. The custom Herdr build
-# also uses \$dot_blocked/\$dot_review for palette-matched borders and intermediate opacity.
-# Missing tokens and their separators disappear, so exactly one dot renders per row.
+# focused, so the martinro.next-agent plugin owns the leading glyph instead: it reports exactly one
+# \$dot_* token per pane from its per-pane ledger, the same state prefix+u jumps to. The custom
+# Herdr build also uses \$dot_blocked/\$dot_review for palette-matched borders and intermediate
+# opacity. Missing tokens and their separators disappear, so exactly one glyph renders per row.
+#
+# Never use the agent token: it can expose either a CLI kind or a Herdr nickname.
+# Unknown integrations fall back to dim workspace/tab context instead. OMP's stripped
+# terminal title is already a useful task summary; Pi's terminal title identifies only
+# its repository, so the context-neutral extension supplies a display-only token.
 [ui.sidebar.agents]
+row_gap = 1
 rows = [
   [
     { token = "\$dot_blocked", fg = "$red" },
     { token = "\$dot_review", fg = "$peach" },
     { token = "\$dot_working", fg = "$blue" },
     { token = "\$dot_idle", fg = "$overlay0" },
-    "workspace",
-    "tab",
-    "agent",
+    { token = "workspace", bold = false, dim = true },
+    { token = "tab", bold = false, dim = true },
+  ],
+]
+
+[ui.sidebar.agents.rows_by_agent]
+pi = [
+  [
+    { token = "\$dot_blocked", fg = "$red" },
+    { token = "\$dot_review", fg = "$peach" },
+    { token = "\$dot_working", fg = "$blue" },
+    { token = "\$dot_idle", fg = "$overlay0" },
+    { token = "\$task_summary", fg = "$text", bold = true, dim = false },
+  ],
+  [
+    { token = "workspace", bold = false, dim = true },
+    { token = "tab", bold = false, dim = true },
+  ],
+]
+omp = [
+  [
+    { token = "\$dot_blocked", fg = "$red" },
+    { token = "\$dot_review", fg = "$peach" },
+    { token = "\$dot_working", fg = "$blue" },
+    { token = "\$dot_idle", fg = "$overlay0" },
+    { token = "terminal_title_stripped", fg = "$text", bold = true, dim = false },
+  ],
+  [
+    { token = "workspace", bold = false, dim = true },
+    { token = "tab", bold = false, dim = true },
   ],
 ]
 EOF

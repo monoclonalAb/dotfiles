@@ -164,6 +164,52 @@ class GroupingTests(unittest.TestCase):
         )
 
 
+class VisibilityPatchTests(unittest.TestCase):
+    def test_inactive_environment_hides_and_active_unhides(self):
+        assignments = {"w1": "personal", "w2": "work", "w3": "personal"}
+        self.assertEqual(
+            {"w1": None, "w2": "1", "w3": None},
+            spaces_env.visibility_patch(assignments, "personal"),
+        )
+        self.assertEqual(
+            {"w1": "1", "w2": None, "w3": "1"},
+            spaces_env.visibility_patch(assignments, "work"),
+        )
+
+    def test_empty_assignments_patch_nothing(self):
+        self.assertEqual({}, spaces_env.visibility_patch({}, "personal"))
+
+
+class AgentViewFilterTests(unittest.TestCase):
+    def test_members_of_the_environment_form_one_in_filter(self):
+        assignments = {"w1": "personal", "w2": "work", "w3": "personal"}
+        self.assertEqual(
+            {"op": "in", "field": "workspace_id", "values": ["w1", "w3"]},
+            spaces_env.agent_view_filter(assignments, "personal"),
+        )
+
+    def test_empty_environment_matches_nothing(self):
+        """Workspace IDs are never empty, so eq "" shows no agents."""
+        self.assertEqual(
+            {"op": "eq", "field": "workspace_id", "value": ""},
+            spaces_env.agent_view_filter({"w1": "personal"}, "work"),
+        )
+
+    def test_more_than_32_members_chunk_under_any(self):
+        """Herdr caps `in` filters at 32 values."""
+        assignments = {f"w{i}": "work" for i in range(40)}
+        spec = spaces_env.agent_view_filter(assignments, "work")
+        self.assertEqual("any", spec["op"])
+        self.assertEqual(2, len(spec["filters"]))
+        self.assertEqual([32, 8], [len(f["values"]) for f in spec["filters"]])
+        self.assertTrue(
+            all(
+                f["op"] == "in" and f["field"] == "workspace_id"
+                for f in spec["filters"]
+            )
+        )
+
+
 class ToggleTests(unittest.TestCase):
     def test_toggle_focuses_destination_mru(self):
         state = state_with(

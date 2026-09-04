@@ -98,7 +98,8 @@ There are three distinct owners:
   pinned local binary variant. The installer fetches one commit, preflights the
   patch, builds with explicit tool versions, and publishes atomically. The patch
   consumes next-agent's blocked/review metadata to render palette-native pane
-  borders and intermediate content opacity.
+  borders and intermediate content opacity, and hides sidebar Spaces whose
+  metadata carries the reserved `sidebar_hidden` token (stamped by spaces-env).
 - [`herdr/.config/herdr/plugins/next-agent/`](../herdr/.config/herdr/plugins/next-agent/)
   owns the per-pane attention ledger and metadata consumed by navigation, the
   sidebar, and split-pane chrome, plus its focused unit tests.
@@ -116,7 +117,9 @@ process are deployment/runtime outputs and do not belong in Git.
 tooling catalogues, agents, and global or scoped skills. Scoped skills are inert
 until a project links them. [`pi/.pi/agent/extensions/`](../pi/.pi/agent/extensions/)
 contains globally discovered Pi extensions and an explicit policy for any hook
-that can alter model-visible context.
+that can alter model-visible context. Its metadata-only Herdr bridge derives a
+bounded task label from Pi's latest substantive user request and reports it as
+in-memory pane metadata; Pi session content remains the sole durable source.
 
 The root [`.omp/mcp.json`](../.omp/mcp.json) is project-specific configuration for
 this repository, not a global default. Credentials, model caches, databases,

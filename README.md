@@ -161,8 +161,11 @@ Herdr's runtime `config.toml` is generated from `config.base.toml` by `theme`, s
 run the Theme step above before starting it. This repo builds an audited patch on
 upstream v0.8.2 commit `9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c` rather than
 binary-editing the `wkentaro/herdr` prerelease. The patch adds heavy focused-pane
-box drawing and theme-native agent-attention chrome: blocked panes use the active
-palette's red, completed conversations awaiting review use peach, and either keeps
+box drawing and theme-native agent-attention chrome, and teaches the sidebar to
+hide any Space whose metadata carries a non-empty reserved `sidebar_hidden` token
+(the focused Space is always exempt, and hidden Spaces drop out of rendering,
+mouse hit-testing, and visible-order navigation together). Blocked panes use the
+active palette's red, completed conversations awaiting review use peach, and either keeps
 content at the midpoint between background and focused opacity (`0.75` with the
 tracked `ui.unfocused_pane_opacity = 0.5`). Ordinary inactive panes still blend every
 foreground/background colour toward the queried host-terminal background, which is
@@ -198,6 +201,8 @@ Herdr is the primary terminal workspace manager. Its config keeps the tmux `C-a`
 muscle memory: `h/j/k/l` moves between panes, `\` / `-` splits right / down, `c`
 closes a pane, `C-c` creates a tab, `r` renames it, `w` opens the workspace picker,
 and `z` zooms. `H` / `L` changes tabs, `x` swaps down, and `Space` enters resize mode.
+Splits stop when either resulting pane would have less than 10 readable columns or 4
+readable rows (with room reserved for pane chrome), and report why the split was refused.
 Press `C-a u` to jump to the next agent conversation needing attention, or `C-a ?`
 for the complete live keymap. Workspaces replace tmux sessions, tabs replace tmux
 windows, and Herdr persists them. The official OMP integration supplies lifecycle state;
@@ -220,10 +225,33 @@ current Space to the other environment and stays on the source's most recent
 remaining Space, following the moved Space only when it was the source's last.
 New Spaces inherit the active environment, restored Spaces keep their
 assignment (identity is Herdr's stable workspace id, so renames don't matter),
-and unknown or stale ids reconcile to Personal. Herdr's sidebar cannot hide the
-inactive environment, so instead each Space carries a dim P/W badge and the
-Personal block is kept ordered above the Work block; next-agent jumps stay
-global and the active environment simply follows wherever focus lands. To
+and unknown or stale ids reconcile to Personal. The whole sidebar follows the
+active environment. The Agents panel is filtered through an `agent.view.set`
+override on the member Spaces, so it lists only that environment's agents, names
+the environment in its header, and shows "no matching agents" when it is empty.
+Within that view, attention sorts first. Every row leads with the next-agent
+state glyph and, when available, a task summary, with dim Space/tab context
+beneath it. OMP uses
+its stripped terminal task title. Pi's context-neutral `herdr-task-summary`
+extension reports a display-only `$task_summary` pane token derived
+without an LLM as an up-to-six-word task phrase from the latest substantive user
+request; it observes finalized
+input without changing or injecting model-visible content and restores existing
+sessions on Pi reload when their active branch contains a usable request. Fresh
+sessions show `New conversation` until one is available. Standalone
+clipboard/image paths and conversational acknowledgements are skipped. Unknown integrations show only Space/tab context rather than falling
+back to a CLI kind or Herdr nickname. The sidebar defaults to 40 columns, with a
+36–42 column resize range. The Spaces
+list is filtered by stamping the custom build's reserved
+`sidebar_hidden` metadata token on inactive-environment Spaces (the focused
+Space stays visible server-side, so toggling into an empty environment leaves
+exactly the Space you are on); each Space keeps its dim P/W badge in the
+expanded view, while the collapsed view shows one active P/W marker on its
+section divider. The Personal block stays ordered above the Work block for the
+picker and moments when both are visible. On a stock binary the token is ignored and only the
+Agents panel filters. Both are in-memory server state, reapplied at startup.
+next-agent jumps stay global and the active environment simply follows wherever
+focus lands. To
 reset every assignment, delete
 `~/.local/state/herdr/plugins/martinro.spaces-env/state.json` (all Spaces
 become Personal), or run
@@ -525,8 +553,12 @@ lookup.
   sweep that creates or evolves `domain-first-operating-model.md`.
   Pi's `alt+shift+c` shortcut (`copy-prompt.ts`) copies the current prompt
   draft to the clipboard.
-  Pi's global `harness-feedback.ts` extension starts disabled; use `/harness on`
-  to add correction-driven guidance and `/harness off` to remove it.
+  Pi's global `harness-feedback.ts` extension starts disabled; use
+  `/feedback on` to learn from corrective feedback and `/feedback off` to
+  remove that guidance.
+  Pi's context-neutral `herdr-task-summary` extension reports deterministic,
+  display-only task metadata to its current Herdr pane; it does not alter the
+  conversation or model context.
   Pi's `omp-anthropic-route` extension aligns direct Anthropic OAuth traffic
   with OMP's reviewed wire shape when the installed OMP version matches its
   pinned target, falling back to Pi's native transport otherwise;

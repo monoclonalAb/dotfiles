@@ -107,8 +107,15 @@ built_binary=$source_dir/target/release/herdr
   ZIG="$zig_bin" "$rustup_bin" run "$RUST_TOOLCHAIN" cargo test --locked --release --bin herdr -- \
     config::model::tests::pane_appearance_defaults_and_parse \
     config::model::tests::unfocused_pane_opacity_rejects_values_outside_unit_interval \
+    terminal::title::tests::strips_omp_task_prefix \
     ui::tests::prefix_mode_renders_compact_prefix_indicator \
     ui::panes::tests \
+    layout::tests \
+    app::tests::pane_split_request_rejects_unreadable_result \
+    ui::sidebar::tests::sidebar_hidden_token_hides_workspace_except_active_or_selected \
+    ui::sidebar::tests::hidden_workspaces_leave_visible_navigation_order \
+    ui::sidebar::tests::collapsed_sidebar_uses_the_filtered_workspace_list \
+    ui::sidebar::tests::collapsed_sidebar_marks_the_active_view_on_its_divider \
     server::headless::tests::retained_pty_update_keeps_unfocused_pane_faded \
     server::headless::tests::retained_pty_update_keeps_attention_pane_at_midpoint_opacity \
     --test-threads=1
