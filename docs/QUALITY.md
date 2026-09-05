@@ -22,11 +22,11 @@ currently healthy on this Mac.
 | Stow deployment and runtime separation | B | [`.stowrc`](../.stowrc), [`.gitignore`](../.gitignore), package-only dry runs, and the setup guide's managed/unmanaged boundary | No isolated regression check proves wildcard stowing cannot publish ignored runtime or documentation files |
 | Shared theme flow | B | [`theme`](../bin/.local/bin/theme) validates state, writes atomically, reports reachability, and exposes `status` | Cross-consumer behaviour has no automated fixture or integration test |
 | Herdr customisation | B | Pinned source and toolchains in [`install-herdr-focus`](../bin/.local/bin/install-herdr-focus), patch preflight, the patch's focused cargo tests run during install, `herdr config check`, and focused [`next_agent` tests](../herdr/.config/herdr/plugins/next-agent/test_next_agent.py) | Build verification is network/toolchain dependent; plugin tests cover the ledger but not a live Herdr event flow |
-| Shell, terminal, and window-manager configuration | C | Native syntax/reload paths are listed in [`../AGENTS.md`](../AGENTS.md) and [`../README.md`](../README.md) | Most confidence comes from this host's installed applications; there is no consolidated read-only smoke check |
+| Shell, terminal, and window-manager configuration | C | Native syntax/reload paths and side effects are listed in [`VERIFICATION.md`](VERIFICATION.md) and [`../README.md`](../README.md) | Most confidence comes from this host's installed applications; there is no consolidated read-only smoke check |
 | Neovim configuration | C | Headless startup and `checkhealth` can exercise the assembled config | Plugin resolution is intentionally unpinned and checks depend on mutable external installations |
-| OMP and Pi agent tooling | B | Extension policy, scoped skills, explicit configuration, and focused Bun tests for the Anthropic transport | No single check validates discovery, frontmatter, configuration parsing, and all extension load paths together |
+| OMP and Pi agent tooling | B | Extension policy, scoped skills, explicit configuration, and [focused Bun test commands](VERIFICATION.md#source-only-checks) for transport, task summaries, and navigation | No single check validates discovery, frontmatter, configuration parsing, and all extension load paths together |
 | Local automation | C | Scripts use dry-run/status paths and defensive identity checks where implemented | External APIs, launchd context, and hardcoded personal paths make end-to-end testing host-specific |
-| Repository knowledge | C | Short agent map, indexed architecture/principles/quality documents, and a versioned plan convention | Local links, freshness, and catalogue coverage are not checked automatically |
+| Repository knowledge | C | Scoped agent map, indexed maintained/historical/vendored documents, a [verification runbook](VERIFICATION.md), and a versioned plan convention | Local links, freshness, and catalogue coverage are not checked automatically |
 | Secrets and supply boundaries | B | Runtime/secret ignore rules, environment-name indirection, pinned Herdr source, and a documented `gitleaks` check | Secret scanning and dependency/source verification are not enforced by repository CI |
 
 ## Open technical debt
@@ -40,7 +40,6 @@ an execution plan for implementation history.
 | Q-001 | There is no one-command, read-only repository check | A documented command validates Markdown links, script syntax, key config parsers, and a sandboxed Stow layout without mutating `$HOME` |
 | Q-002 | Knowledge-base structure and freshness rely on review | A lightweight check catches broken local links and uncatalogued required documents; a documented gardening pass handles semantic drift |
 | Q-003 | The theme orchestrator has no automated tests | State transitions and generated Alacritty, Herdr, and tmux outputs are exercised in temporary directories without contacting live applications |
-| Q-004 | Several application checks require this fully provisioned Mac | Portable syntax checks are separated from optional live integration checks, with blocked consumers reported explicitly |
 | Q-005 | Operational detail is concentrated in the long root README | Frequently changed subsystem rationale moves to one canonical linked document without weakening the README's setup path |
 
 ## Gardening rule

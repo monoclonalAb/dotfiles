@@ -1,6 +1,6 @@
 ---
 name: agent-test-author
-description: Authors, audits, and bulk-generates `*.agent-test.ts` files for the prompt-behemoth framework (`withTrace`, `mockTool`, `httpRun`, `toSatisfyRubric`, `harness`, `tool`, `playwrightTools`). Covers two patterns — agentic-system-under-test AND non-agentic SUT (website, service, GraphQL endpoint) exercised by an LLM-driven tester. Three modes plus free-text suggestions. Use when the user says "scaffold an agent test", "write an agent test for X", "audit the agent tests", "build agent tests for the repo", "find files missing agent tests", "test this website with an agent", "use an agent to test this service", or invokes `/agent-test-author`. Also handles creating harness/tool stubs in source when a test requires them, and writes `it.fails()` negative cases when appropriate.
+description: Authors, audits, and bulk-generates `*.agent-test.ts` files for the prompt-behemoth framework (`withTrace`, `mockTool`, `httpRun`, `toSatisfyRubric`, `harness`, `tool`, `playwrightTools`). Covers two patterns — agentic-system-under-test AND non-agentic SUT (website, service, GraphQL endpoint) exercised by an LLM-driven tester. Three modes plus free-text suggestions. Use when the user says "scaffold an agent test", "write an agent test for X", "audit the agent tests", "build agent tests for the repo", "find files missing agent tests", "test this website with an agent", "use an agent to test this service", or invokes `/agent-test-author`. Also handles test-driver helpers and in-scope harness/tool implementation, and writes `it.fails()` negative cases when appropriate.
 ---
 
 # agent-test-author
@@ -13,6 +13,20 @@ Authors `*.agent-test.ts` files for the prompt-behemoth framework. Two distinct 
 Both patterns share the same primitives. The author's first job is to decide which pattern fits and frame the test accordingly.
 
 Operates in **three modes** plus a **free-text** escape hatch.
+
+## Execution boundary
+
+Read repository instructions, installed package exports/examples, and canonical
+scripts first. The API examples below describe this skill's expected framework;
+if the installed version differs, ground changes in its source instead of
+inventing compatibility.
+
+These are **live-model integration tests**, not offline unit tests. Before running,
+confirm the test dataset is allowed to reach the provider, non-model external
+writes are isolated, credentials are available without displaying their values,
+and the run has an authorised model-call/cost budget. If not, write or validate
+what can be checked locally and report the live run as blocked/not run. The
+real-model requirement is not permission to spend without scope or export data.
 
 ## Framework primer (read this once per session)
 
@@ -104,7 +118,10 @@ Goal: produce a working `<name>.agent-test.ts`.
 8. **Decide negative cases per file.** 0–2 `it.fails(...)` cases when:
    - The prompt/SUT makes a strong claim → input crafted to violate it.
    - You want to demonstrate what a failing rubric looks like.
-9. **Create missing harness/tool stubs.** If the test needs a `tool({...})` or wrapper that doesn't exist, scaffold a minimal stub in **source** (not the test) with a TODO. Mention this in the end-of-turn summary.
+9. **Keep test drivers separate from production features.** Put test-only
+   `tool({...})` wrappers in the test or existing test helpers. Add a production
+   harness/tool only when the requested implementation needs it; do not ship a
+   TODO stub merely to satisfy a test scaffold. Report missing behaviour as a gap.
 10. **Write the test file, then run it.** Confirm the command from `package.json`. For browser tests, ensure `pnpm exec playwright install chromium` has been mentioned in case the user hasn't run it. Fix mechanical failures (import paths, mock URLs, type errors) in up to 3 attempts. Don't loosen rubrics to make tests pass — surface the real failure.
 
 ## Mode: `audit`

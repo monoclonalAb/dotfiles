@@ -3,14 +3,32 @@
 My macOS dotfiles, managed with [GNU Stow](https://www.gnu.org/software/stow/).
 
 Each active top-level folder is a **Stow package** that mirrors its real path under
-`$HOME`. Stowing a package symlinks it into place, so the files here *are* the live
-config — no more copy-drift.
+`$HOME`, except `docs/`, which is deliberately excluded from deployment. The
+[`.stowrc`](.stowrc) uses `--no-folding`: parent directories remain real and managed
+files become symlinks. Content edits here can therefore change live configuration
+immediately — no copy or restow is needed for an already-linked file.
 
+```text
+nvim/.config/nvim/init.lua  --stow--> ~/.config/nvim/init.lua  (file symlink)
+zsh/.config/zsh/.zshrc      --stow--> ~/.config/zsh/.zshrc      (file symlink)
+zsh/.zshenv                --stow--> ~/.zshenv               (sets ZDOTDIR)
 ```
-dotfiles/nvim/.config/nvim/…   --stow-->   ~/.config/nvim   (symlink)
-dotfiles/zsh/.config/zsh/…     --stow-->   ~/.config/zsh    (symlink)
-dotfiles/zsh/.zshenv           --stow-->   ~/.zshenv        (symlink, sets ZDOTDIR)
-```
+
+## Find the right guide
+
+- **Coding agents:** start with [`AGENTS.md`](AGENTS.md), then the
+  [`docs/` catalogue](docs/README.md). The guidance is usable with GPT-6 Astra
+  without changing model selection or enabling additional tools.
+- **New workstation:** [Setting up a new Mac](#setting-up-a-new-mac).
+- **Existing workstation:** [Updating](#updating-an-existing-machine),
+  [common tasks](#common-tasks), and [troubleshooting](#troubleshooting).
+- **Ownership and safe checks:** [Architecture](docs/ARCHITECTURE.md) and
+  [verification](docs/VERIFICATION.md).
+- **Subsystem operation:** [Theme](#theme-toggle), [OMP tooling](#omp-agent-tooling),
+  and [per-tool setup](#8-set-up-each-tool).
+
+Setup and update commands below change the workstation; they are not a checklist
+for an agent doing a source or documentation edit.
 
 ## Setting up a new Mac
 
@@ -34,9 +52,9 @@ needs `python3`.
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-> **Apple Silicon assumed.** `.zshrc` hardcodes `/opt/homebrew/share/...` in four
-> `source` lines. On an Intel Mac (prefix `/usr/local`) you have to edit those by hand —
-> see [Troubleshooting](#troubleshooting).
+> **Apple Silicon assumed.** `.zshrc` sources several shell plugins from
+> `/opt/homebrew/share/...`. On an Intel Mac (prefix `/usr/local`), review those
+> source paths — see [Troubleshooting](#troubleshooting).
 
 ### 3. Rust — do this before opening a new shell
 
@@ -92,8 +110,10 @@ cd ~/dotfiles
 stow -n -v -t "$HOME" */
 ```
 
-Anything it complains about is a real file or directory sitting where a symlink needs to
-go. Move each one aside and re-run:
+A conflict means a target is occupied by an unmanaged file/directory or a
+conflicting link. Inspect it and preserve anything valuable before moving it
+aside and re-running. The following are examples, not unconditional commands;
+use an unused backup name and never replace a previous backup:
 
 ```sh
 mv ~/.zshenv ~/.zshenv.bak          # macOS ships one
@@ -330,13 +350,19 @@ herdr                    # persistent workspace opens with the C-a prefix
 
 ## The rule (how to tell what's managed)
 
-In `~/.config`, **a symlink = managed by this repo**; **a real directory is usually
-unmanaged**. Partially managed directories are the exception: `~/.config/gh` remains real,
-with `config.yml` linked from this repo and secret-bearing `hosts.yml` left local.
+A **file symlink resolving into this checkout** is managed; a symlink elsewhere
+is not necessarily ours. Parent directories normally remain real and may contain
+both managed leaves and app-owned state. For example, `~/.config/gh/config.yml`
+is linked while secret-bearing `hosts.yml` stays local.
 
 ```sh
-ls -la ~/.config    # symlinks -> ../dotfiles/... are the managed dotfiles
+ls -la ~/.config/zsh ~/.config/gh  # inspect leaves, not just parent directories
+readlink ~/.config/zsh/.zshrc     # confirm the link's source before editing
 ```
+
+If an older installation still has a whole-directory link into the checkout,
+inspect its runtime files before migrating it. Do not use `stow --adopt` or copy
+app state into Git to resolve a conflict.
 
 ## Personal bits — edit or skip
 
@@ -346,12 +372,12 @@ machine. Fix or delete as you go.
 
 | Where | What | Do what |
 |---|---|---|
-| `zsh/.zshenv:2` | `. "$HOME/.cargo/env"` | install rustup (step 3) — this one **does** error at startup |
-| `zsh/.config/zsh/.zshrc:12` | `$HOME/pmd-bin-7.16.0` | unzip PMD 7.16.0 there, or drop the alias |
-| `zsh/.config/zsh/.zshrc:16-18` | `~/Desktop/life`, `~/Desktop/resumes` | create the dirs, or drop the aliases |
-| `zsh/.config/zsh/.zshrc:24` | `/Users/ericzheng/Desktop/prosperity/…` | drop it — absolute path, old project |
-| `zsh/.config/zsh/.zshrc:30` | `/Library/TeX/texbin`, `/usr/local/share/dotnet` | harmless if absent; they're just PATH entries |
-| `zsh/.config/zsh/.zshrc:36-49` | conda block at `/opt/anaconda3` | install Anaconda there, or delete the block |
+| `zsh/.zshenv` — Cargo environment | `. "$HOME/.cargo/env"` | install rustup (step 3) — this one **does** error at startup |
+| `zsh/.config/zsh/.zshrc` — `pmd` alias | `$HOME/pmd-bin-7.16.0` | unzip PMD 7.16.0 there, or drop the alias |
+| `zsh/.config/zsh/.zshrc` — `life`, `todo`, `resumes` aliases | `~/Desktop/life`, `~/Desktop/resumes` | create the dirs, or drop the aliases |
+| `zsh/.config/zsh/.zshrc` — `prosperity` alias | `/Users/ericzheng/Desktop/prosperity/…` | drop it — absolute path, old project |
+| `zsh/.config/zsh/.zshrc` — PATH block | `/Library/TeX/texbin`, `/usr/local/share/dotnet` | harmless if absent; they're just PATH entries |
+| `zsh/.config/zsh/.zshrc` — conda initialisation | conda block at `/opt/anaconda3` | install Anaconda there, or delete the block |
 | `.archive/fish/.config/fish/config.fish` | the same conda block | ditto |
 | `nvim/.config/nvim/lua/plugins/obsidian.lua` | Obsidian integration loads only when `~/Documents/obsidian` exists | create your vault there; ordinary Markdown works without one |
 
@@ -400,14 +426,15 @@ passwordless sudoers entry.
 
 | Managed (stow packages) | Left in `~/.config` (real dirs, untracked) |
 |---|---|
-| nvim, herdr, tmux, zsh (+`~/.zshenv`), alacritty, aerospace, git, gh (`config.yml` only), bin | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh credentials (`hosts.yml`), github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
+| nvim, herdr, tmux, zsh (+`~/.zshenv`), alacritty, ghostty, aerospace, git, gh (`config.yml` only), bin, omp, pi | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh credentials (`hosts.yml`), github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
 
 
-Secrets never enter this repo: token/history files (`access_tokens.md`, `.zsh_history`,
-`hosts.yml`, `token.json`, `auth.db`, …) are gitignored or live in untracked dirs. Note the
-mechanism — because `~/.config/zsh` is a symlink *into* the repo, files zsh writes at
-runtime land physically inside the working tree. They're kept out of git by the `**` globs
-in `.gitignore`, not by living elsewhere. Check `git status` before committing.
+Secrets and runtime state must remain outside this repo. With leaf linking,
+new app-written files normally stay in real `$HOME` directories rather than
+landing in the checkout. [`.gitignore`](.gitignore) and [`.stowrc`](.stowrc) cover
+specific known outputs, not every possible secret filename. Older folded links
+or a misconfigured writer can still leak state: inspect unexpected files and
+`git status` before committing, without dumping credential contents.
 
 ## Theme toggle
 
@@ -470,8 +497,11 @@ neovim     found 3 instance(s)
 
 ## omp agent tooling
 
-`omp/.omp/agent/mcp.json` is a catalogue: every entry has `enabled: false`, so no MCP server is
-activated globally. Enable reviewed servers per repository in `<repo>/.omp/mcp.json`; each file
+[`omp/.omp/agent/mcp.json`](omp/.omp/agent/mcp.json) is an opt-in catalogue except
+for the globally enabled read-only `gcloud` and `gcp-observability` servers.
+The remaining entries are disabled globally. This repository enables Context7,
+DeepWiki, and grep.app in [`.omp/mcp.json`](.omp/mcp.json). Enable other reviewed
+servers per repository in `<repo>/.omp/mcp.json`; each file
 must include the complete server definition because project files cannot use `enabledServers`, and
 it must sit in the directory omp is launched from because MCP project config is not searched up
 the tree. Keep `disabledServers: ["node_repl"]` to suppress the Codex-provided server; never add
@@ -482,7 +512,7 @@ CLI-only: install it with `uv tool install semgrep`, then run `semgrep scan --co
 
 | Capability | omp built-in | Alternatives | Enabled where |
 | --- | --- | --- | --- |
-| Library/API docs | `web_search` | Context7 · Ref.tools · GitMCP · AWS Knowledge/Docs · MS Learn · Cloudflare docs · Terraform registry | context7 (all repos) · ms-learn (habithealth-de01/02, rock-rubble-ai) |
+| Library/API docs | `web_search` | Context7 · Ref.tools · GitMCP · AWS Knowledge/Docs · MS Learn · Cloudflare docs · Terraform registry | context7 (dotfiles MCP; elsewhere inspect project/plugin config) |
 | Repo Q&A | — | DeepWiki · GitMCP · Octocode | deepwiki (dotfiles, de-dashboard) |
 | Public code search | `grep` (local only) | grep.app · Octocode · `gh search` via the `github` tool | grep (dotfiles, de-dashboard) |
 | Browser drive + inspect | `browser` (Puppeteer, CDP, relay) | Playwright MCP · Chrome DevTools MCP | built-in |
@@ -499,9 +529,14 @@ CLI-only: install it with `uv tool install semgrep`, then run `semgrep scan --co
 | Notebooks | `eval` (persistent py/js kernels) | Jupyter MCP (Datalayer) | built-in |
 | Observability | — | Sentry · Grafana · Datadog | — |
 | Issue tracker / docs | — | Linear · Atlassian Rovo · Notion | linear (habithealth-de01) |
-| Deploy / infra | — | Vercel · Netlify · Railway · Fly · Cloudflare · Terraform · Kubernetes | — |
+| Cloud investigation / infra | — | gcloud · GCP Observability · Vercel · Netlify · Railway · Fly · Cloudflare · Terraform · Kubernetes | gcloud + gcp-observability (global, read-only) |
 | Design / payments | — | Figma Dev Mode · Stripe | — |
 | LLM-app evals & tracing | — | Promptfoo (CLI) · Langfuse · Braintrust · LangSmith · Arize Phoenix · Opik | — |
+
+This table describes OMP capabilities, not tools guaranteed in Pi or any model
+session. Other repositories' activation state is host-local; inspect it before
+relying on it. For prerequisites and alternatives, use the owning
+[OMP tooling catalogue](omp/.omp/agent/TOOLING.md).
 
 For evals and tracing, use Promptfoo as a CLI by default:
 `npx promptfoo@latest eval` takes YAML, runs locally, and gates CI without an MCP
@@ -579,7 +614,9 @@ lookup.
 
 ## Updating an existing machine
 
-An existing clone updates to the latest pushed state with one command:
+When updating the workstation is intended, an existing clone updates to the
+latest pushed state with one command. First inspect `git status --short` and
+finish or deliberately preserve local work; this is not a verification command:
 
 ```sh
 dotfiles-update
@@ -590,7 +627,9 @@ It fast-forwards from origin, restows every package, then runs `brew bundle` and
 Slow or disruptive follow-ups are printed instead of run: rebuilding the patched
 Herdr binary (`install-herdr-focus`) and restarting the shell. It never rewrites
 local commits or uncommitted changes; when the pull cannot fast-forward it stops
-and says so.
+and says so. It warns about a dirty worktree but does **not** refuse to restow it:
+uncommitted package changes can therefore become deployed. Do not run it during
+another task's unfinished work.
 
 Machines set up before the Pi status integration was added also need
 `herdr integration install pi` once, then `/reload` in each existing idle Pi conversation.
@@ -605,8 +644,10 @@ cd ~/dotfiles && git pull --ff-only && ./bin/.local/bin/dotfiles-update
 
 Two things keep updates trustworthy:
 
-- **Only pushed commits reach other machines.** Finished work on any machine must
-  be committed and pushed, or `dotfiles-update` elsewhere cannot see it.
+- **Only pushed commits reach other machines.** To publish finished work, review,
+  commit, and push it; `dotfiles-update` elsewhere cannot see local-only edits.
+  This describes the release path, not standing permission for an agent to commit
+  or push without a request.
 - **Documentation lands in the same change as the behaviour it describes**
   (see [`AGENTS.md`](AGENTS.md)), so the setup steps above always match the
   current state of the repository.
@@ -625,7 +666,7 @@ stow -n -v -t "$HOME" nvim  # dry-run: preview link actions / conflicts
 | Symptom | Cause |
 |---|---|
 | `. "$HOME/.cargo/env": no such file or directory` on every prompt | rustup missing — step 3 |
-| `no such file or directory: /opt/homebrew/share/powerlevel10k/…` | `brew bundle` didn't run; or Intel Mac — edit the four `source` lines in `.zshrc` to `/usr/local/share/...` |
+| `no such file or directory: /opt/homebrew/share/powerlevel10k/…` | `brew bundle` didn't run; or Intel Mac — review the hardcoded Homebrew `source` paths in `.zshrc` for `/usr/local/share/...` |
 | `gls: command not found` from the `ls` alias | `brew install coreutils` |
 | Boxes / tofu instead of icons | Nerd Font not installed, or not selected in the terminal |
 | `stow: WARNING! stowing X would cause conflicts` | a real file/dir occupies the target — `mv` it aside and re-run |

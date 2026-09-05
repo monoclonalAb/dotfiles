@@ -16,7 +16,10 @@ metadata:
 ## Hard rule when reviewing code
 
 - Any mutation to an external client system is a required `performDangerousAction` call.
-- This wrapper exists to require explicit user consent before executing external side effects.
+- This wrapper mediates external writes according to runtime mode. It is not
+  proof of interactive consent: production/non-TTY can auto-approve. An agent
+  still needs explicit user intent for the action, environment, and resource
+  before executing a live write; tests must isolate or mock those writes.
 - Missing this wrapper for external writes is a P0.
 
 ## Examples

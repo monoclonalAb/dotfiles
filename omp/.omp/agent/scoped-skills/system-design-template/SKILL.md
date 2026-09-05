@@ -14,16 +14,19 @@ description: >-
 
 ## Asking Questions
 
-Whenever this skill instructs you to ask the user a question, use the
-`AskUserQuestion` tool if it is available in your current environment. If the
-tool is not available, ask in plain text instead.
+Use a question tool only if exposed in the current session, with its actual
+schema; otherwise ask in plain text. Do not assume `AskUserQuestion` or a
+particular parameter shape exists. Ask only for facts not established by source
+or supplied context.
 
 ---
 
 ## Step 1: Detect Project State
 
-Before doing anything else, determine whether this is an **existing project**
-or a **new/bare project**.
+Read repository instructions, current worktree state, and existing design/plan
+owners first. Update the canonical document rather than creating a duplicate;
+the output paths below are defaults only when the repository has no convention.
+Then determine whether this is an **existing project** or a **new/bare project**.
 
 Run a quick scan:
 
@@ -39,7 +42,7 @@ Run a quick scan:
 |---|---|
 | ≥3 meaningful source files, service configs, or API routes | **Existing project** → go to Step 2A |
 | Only boilerplate (README, empty src/, skeleton package.json) | **New/bare project** → go to Step 2B |
-| Ambiguous | Ask the user (via `AskUserQuestion` if available): "This looks partially set up — should I treat this as an existing project or start fresh?" |
+| Ambiguous | Ask the user: "This looks partially set up — should I treat this as an existing project or start fresh?" |
 
 ---
 
@@ -48,8 +51,8 @@ Run a quick scan:
 1. Read the codebase to understand services, workflows, and integrations.
 2. Fill in every section of the template (see `references/template.md`).
 3. Use "TBD" for unknowns rather than omitting sections.
-4. Present your draft and ask the user (via `AskUserQuestion` if available)
-   to confirm or correct any details you're unsure about.
+4. Present your draft and ask the user to confirm or correct any details you're
+   unsure about.
 5. Save the result as `system-design.md`. If a `docs/` folder exists in the
    project root, save it there (`docs/system-design.md`); otherwise save to
    the project root.
@@ -70,9 +73,8 @@ rounds so the user isn't stuck in a 15-turn back-and-forth.
 Read `references/interview-questions.md` for the full question bank organized
 by template section.
 
-For each round, use `AskUserQuestion` if the tool is available. Pass all
-questions for that round together as a single, clearly numbered list in the
-`question` parameter. If the tool is not available, ask in plain text.
+For each round, present a short numbered batch through the available question
+tool or in plain text. Follow the tool's exposed schema, not a remembered API.
 
 **Round 1 — Big Picture (always ask first):**
 Ask about the DE's purpose, the services/systems it will interact with, and
@@ -125,12 +127,16 @@ The plan should:
 
 PDA is a safety wrapper (`performDangerousAction`) that gates any operation
 affecting external client systems — writes, sends, updates, deletes. During
-early deployment phases (passive/beta), PDA blocks these operations so the DE
-can run end-to-end without real side effects. In production, PDA auto-approves.
+passive deployment, PDA is configured to block these operations so the DE can
+run end-to-end without external writes. Active Beta may enable monitored writes;
+production/non-TTY may auto-approve. Verify the installed wrapper and deployment
+configuration: a phase label or wrapper call alone does not prove writes are blocked.
 
 When filling the PDA section, list every external write or send the DE
 performs. If an operation reads/fetches only (GET requests), it does **not**
-need PDA. See `docs/dangerous-actions.md` for implementation details.
+need PDA. Read the consuming repository's `docs/dangerous-actions.md` if present,
+its installed package, and the scoped `perform-dangerous-action` skill for details.
+Generating a design or rollout plan does not authorise deployment or real writes.
 
 ### Deployment Phases
 

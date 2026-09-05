@@ -80,15 +80,15 @@ These questions map to **Section 4 (Testing)**.
 
 ---
 
-## Tips for the Interviewer (Claude)
+## Tips for the interviewer
 
 1. **Don't overwhelm.** If Round 1 gives you enough to fill most of the
    template, compress Rounds 2 and 3 into one short follow-up.
 2. **Reflect back.** After each round, summarize what you heard. Users often
    correct themselves when they see their answers written down.
 3. **Suggest when you can.** If the user says "I'm not sure about auth," you
-   can suggest common patterns ("Most teams use OAuth for this service —
-   does that match your setup?").
+   can offer options supported by that service's docs, clearly labelled as
+   proposals rather than facts about the user's setup.
 4. **Mark TBD honestly.** It's fine to leave things TBD. The design doc is a
    living document. Don't invent answers to fill gaps.
 5. **Use what they give you.** If the user provides a product spec, PRD, or

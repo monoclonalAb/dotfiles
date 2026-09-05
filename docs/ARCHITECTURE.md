@@ -20,9 +20,10 @@ application/runtime writes --------> untracked local state (never back to source
 ```
 
 The key boundary is not simply "inside or outside `~/.config`". It is ownership:
-a managed symlink is repository-owned desired state; a real file or directory is
-normally application-owned state. `gh` is intentionally mixed: its public
-`config.yml` is managed while credential-bearing `hosts.yml` is local.
+a file symlink resolving into this checkout is repository-owned desired state;
+real parent directories can hold both managed leaves and application-owned
+state. `gh` demonstrates this: its public `config.yml` is managed while
+credential-bearing `hosts.yml` is local.
 
 ## Repository map
 
@@ -43,6 +44,24 @@ All top-level non-hidden directories participate in the documented `stow */`
 workflow except `docs/`. [`docs/.stow-local-ignore`](.stow-local-ignore) excludes
 all documentation payloads, so the conventional knowledge path does not create
 `~/ARCHITECTURE.md` or similar targets.
+
+## Task-to-owner routing
+
+Paths below are relative to the repository root. Follow a producer through its
+consumer; do not fix generated output or add a second writer.
+
+| Requested change | Start at source | Follow through / focused evidence |
+| --- | --- | --- |
+| Install or update the workstation | `Brewfile`, `.stowrc`, `bin/.local/bin/dotfiles-update` | Root README → reviewed package dry run; updates have live side effects |
+| Theme, colour, opacity | `bin/.local/bin/theme` | Alacritty imports, Herdr base, tmux source, Neovim `lua/theme.lua` → generated output → live consumer |
+| Herdr attention glyphs or jumps | `herdr/.config/herdr/plugins/next-agent/next_agent.py` | Lifecycle integration → attention ledger → theme metadata rows and pinned patch; ledger tests alone do not prove lifecycle delivery |
+| Personal/Work Space filtering | `herdr/.config/herdr/plugins/spaces-env/spaces_env.py` | Runtime assignment state → sidebar/agent-view metadata; `test_spaces_env.py` |
+| Herdr rendering or binary behaviour | `herdr/.config/herdr/patches/` | `bin/.local/bin/install-herdr-focus` → built binary → next natural server start |
+| Pi command, UI, or display metadata | `pi/.pi/agent/extensions/README.md`, then owning extension | `bin/.local/bin/pi` and installed Pi API → focused suite → safe fresh-session check |
+| OMP defaults, tools, skills | `omp/.omp/agent/` | Global deployment versus project `.omp/`; consuming task and installed harness, not the model name |
+| Shell or editor startup | `zsh/.zshenv`, `zsh/.config/zsh/.zshrc`, `nvim/.config/nvim/init.lua` | Startup sources → command/plugin consumer; distinguish syntax from startup side effects |
+
+Exact commands and prerequisites live in [`VERIFICATION.md`](VERIFICATION.md).
 
 ## Important flows
 
@@ -89,7 +108,7 @@ provides the diagnostic path.
 
 ### 3. Herdr source and plugin customisation
 
-There are three distinct owners:
+There are four distinct owners:
 
 - [`herdr/.config/herdr/config.base.toml`](../herdr/.config/herdr/config.base.toml)
   owns stable user configuration.
@@ -117,8 +136,11 @@ process are deployment/runtime outputs and do not belong in Git.
 tooling catalogues, agents, and global or scoped skills. Scoped skills are inert
 until a project links them. [`pi/.pi/agent/extensions/`](../pi/.pi/agent/extensions/)
 contains globally discovered Pi extensions and an explicit policy for any hook
-that can alter model-visible context. Its metadata-only Herdr bridge derives a
-bounded task label from Pi's latest substantive user request and reports it as
+that can alter model-visible context. The [Pi wrapper](../bin/.local/bin/pi)
+disables automatic skill discovery; `/skill` enables selected skills per session.
+OMP defaults are not automatically Pi defaults, and a catalogue entry does not
+prove a tool is exposed in the current session. Pi's metadata-only Herdr bridge
+derives a bounded task label from Pi's latest substantive user request and reports it as
 in-memory pane metadata; Pi session content remains the sole durable source.
 
 The root [`.omp/mcp.json`](../.omp/mcp.json) is project-specific configuration for

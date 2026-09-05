@@ -26,6 +26,19 @@ an off-by-one nobody noticed, the setting preserves it and the description descr
 Pin the current behaviour with differential tests before wiring, so the refactor is
 provably a no-op. Behaviour fixes are separate PRs.
 
+## Scope and side effects
+
+Read repository instructions and preserve current work. Resolve a reviewed
+upstream commit and fetch all template files from that revision, staging downloads
+outside the repository before comparing/copying. Existing files must not be
+silently overwritten. Access failures are blockers, not a reason to invent APIs.
+
+Adding the policy interface is not permission to publish it: publishing for dev
+viewer verification and manual publishing both write remote state. Confirm the target environment and
+user intent before triggering either; report rendered verification as not run
+when publication is outside scope. Never put a real access password in versioned
+source; use the target project's approved secret mechanism or flag the gap.
+
 ## Step 1 — Copy the interface from base-DE-template
 
 Pull these from GitHub — `everyday-artificial-intelligence/base-DE-template` — never

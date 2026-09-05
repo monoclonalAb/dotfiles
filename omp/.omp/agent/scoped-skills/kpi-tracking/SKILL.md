@@ -14,7 +14,9 @@ Use this skill when a task asks to add KPI tracking or align KPI behavior with a
 
 ## Before coding (required)
 
-1. Read all reference PRs and source files listed in `references/reference-prs.md`.
+1. Read repository instructions, preserve existing work, and read the required
+   PRs/source files in [`references/reference-prs.md`](references/reference-prs.md).
+   Record the resolved source commit so all copied files come from one revision.
 2. Extract exact implementation patterns from those references.
 3. Record the required file touchpoints in this repo before changing code.
 
@@ -27,7 +29,11 @@ If `perform-dangerous-action` is not installed in this project (required in the 
 - [ ] Confirm scheduler/task entrypoints and the API endpoints they call.
 - [ ] Map each endpoint to a `workflow` value and ensure `workflow` is set at route boundary.
 - [ ] Copy `kpi.ts` and `logger.ts` changes from references as verbatim as possible.
-  - `kpi.ts` **must** be copied verbatim from GitHub. Please do not apply this as a patch or write, but instead use the `gh` CLI to download the raw file contents directly to this project. It is much more efficient.
+  - Fetch `kpi.ts` verbatim with `gh` from the reviewed GitHub commit into a
+    temporary file outside the repository. Check the fetch succeeded and compare
+    with any existing target before copying; never redirect a network response
+    straight over a working source file. Preserve unrelated customisation or
+    report a conflict with the verbatim requirement.
   - `logger.ts` may differ in other places, so it's OK to wire in the logger manually. Review how `logger.ts` changed in https://github.com/everyday-artificial-intelligence/base-DE-template/pull/23 to get an idea of what needs to change to support `logger.kpi`.
 - [ ] Update type definitions (`env.d.ts`, `hono.d.ts`, workflow-related types) required for KPI plumbing. See PR #23 in base-DE-template to see the env vars that need to be added.
 - [ ] Add missing dependencies (for example `@google-cloud/pubsub`) only if absent, using `pnpm` to install it.
@@ -55,7 +61,9 @@ Once you've iterated with the user on the KPIs to add to the project, it's up to
 
 - Do not invent KPI naming unless required; prefer names from the reference PR set.
 - Route-level `workflow` assignment is mandatory for scheduler-driven tasks.
-  - If you need, use the `gcloud` CLI tool to investigate Cloud Scheduler for this GCP project if it helps you map workflows
+  - If needed, investigate Cloud Scheduler read-only with an explicit project,
+    following the `gcp-investigate` skill; implementation does not authorise cloud
+    mutation or publishing real KPI events during tests.
 - Include both success and failure KPI paths where applicable.
 - Include duration KPIs for long-running scans/workflows.
 - Keep emitted values explicit (`value_int = 1`, counters, elapsed ms, etc.).
@@ -63,6 +71,6 @@ Once you've iterated with the user on the KPIs to add to the project, it's up to
 ## Validation loop
 
 1. Run typecheck/lint/tests used by the target repo.
-2. Fix all failures.
-3. Re-run until clean.
+2. Fix task-related failures; report unrelated failures and missing prerequisites.
+3. Re-run affected checks without weakening assertions or enabling production writes.
 4. Re-check KPI table against final code.

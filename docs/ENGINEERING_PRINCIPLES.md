@@ -11,7 +11,9 @@ local artefacts. `AGENTS.md` is a map, not an encyclopaedia. Detailed knowledge
 belongs in the linked document or beside the code that owns it.
 
 **Consequence:** new durable concepts need one canonical owner and an entry in
-the knowledge catalogue when they affect repository-wide navigation.
+the knowledge catalogue when they affect repository-wide navigation. Write
+instructions as scope, observable outcome, constraints, and evidence; do not rely
+on a particular model remembering a workflow or having another harness's tools.
 
 ## 2. Separate desired state from runtime state
 
@@ -48,7 +50,10 @@ the same boundary as the user-visible behaviour: source to Stow target, generate
 state to consumer, configuration to application, or event to plugin response.
 
 **Consequence:** every completion report names the checks actually run and any
-part of the real path that remained unobserved.
+part of the real path that remained unobserved. Use the
+[verification runbook](VERIFICATION.md) to separate source-only checks from live
+reloads, installs, network calls, and other side effects. Historical test results
+and successful parsers do not establish current integration health.
 
 ## 6. Prefer inspectable and recoverable mechanisms
 
@@ -56,8 +61,11 @@ Pinned source, small scripts, standard formats, atomic writes, dry runs, and
 strict fast-forwards are easier to reason about and recover than opaque mutable
 steps. Personal convenience never justifies destructive ambiguity.
 
-**Consequence:** preserve local work, validate identities before side effects,
-and make high-impact operations previewable or reversible.
+**Consequence:** preserve local and concurrent work, validate identities before
+side effects, and make high-impact operations previewable or reversible. A tool's
+availability, a sample command, or an auto-approval wrapper is not user consent.
+Ask only when an unresolved choice materially changes correctness, scope, risk,
+or recovery; proceed on evidence-backed, reversible implementation choices.
 
 ## 7. Turn feedback into compounding improvement
 

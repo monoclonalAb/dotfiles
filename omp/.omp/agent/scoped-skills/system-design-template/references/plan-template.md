@@ -1,7 +1,9 @@
 # Plan Template
 
 For new/bare projects, generate a `plan.md` that turns the system design into
-actionable implementation steps. Use the structure below.
+actionable implementation steps. Use the repository's existing plan owner/path
+when it has one. The structure below is a planning template, not permission to
+deploy or remove human review gates; replace examples with confirmed requirements.
 
 ---
 

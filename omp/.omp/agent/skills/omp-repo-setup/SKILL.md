@@ -9,6 +9,8 @@ Configure the minimum, not the maximum. Every link and server needs a concrete, 
 
 ## 1. Inventory (read-only)
 
+Read repository instructions and `git status --short` first. This skill applies
+only when OMP setup is requested; do not create `.omp/` for a Pi-only task.
 Check: `justfile`; `package.json` scripts and dependencies (`hono`, `@everyday-artificial-intelligence/*`); `pnpm-lock.yaml`; `.everyday.json`; a `client/` frontend; existing `.omp/skills/` and `.omp/mcp.json`; and `.github/skills/`. Establish the repository name from its Git top-level directory before applying repository-name rules.
 
 ## 2. Link scoped skills
@@ -33,14 +35,19 @@ For the established-DE row, require evidence rather than inferring it from `.eve
 
 ## 3. Keep the repository clean
 
-If `.omp/` is neither tracked nor ignored here, append `.omp/` to `.git/info/exclude` (local, never committed). Do not edit the repository's `.gitignore`, and do not commit the links unless the user asks.
+If `.omp/` is neither tracked nor ignored here, add a single `.omp/` entry to the
+local exclude file resolved by `git rev-parse --git-path info/exclude` (works when
+`.git` is a worktree pointer file). Preserve existing entries. Do not edit the
+repository's `.gitignore`, and do not commit the links unless the user asks.
 
 ## 4. MCP servers — only with a concrete need
 
 - Before enabling a server, record its observable justification from the repository or task. Typical examples: `deepwiki` for a large, unfamiliar GitHub repository where repo-level Q&A is needed; `linear` where an issue, links, or the user's task establishes Linear as the repository's tracker; `microsoft-learn` where dependencies, imports, or task requirements establish Microsoft APIs as the target.
 - Copy the complete matching server entry from the catalogue `~/.omp/agent/mcp.json` into `<repo>/.omp/mcp.json` with `"enabled": true`. Project files cannot use `enabledServers`, and the file must sit in the directory OMP is launched from.
 - Never enable a server that duplicates a native tool (`github`, `browser`, `lsp`, mnemopi memory) or an installed plugin (`@upstash/context7-pi` already provides Context7 docs).
-- The read-only `gcloud` and `gcp-observability` servers are already enabled globally — do not re-declare them. Never touch the global catalogue or `disabledServers`.
+- The tracked defaults enable read-only `gcloud` and `gcp-observability` globally;
+  confirm their effective availability before relying on them and do not re-declare
+  them. Never touch the global catalogue or `disabledServers` during project setup.
 
 ## 5. Record canonical commands and verification paths
 

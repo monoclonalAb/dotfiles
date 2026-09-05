@@ -5,8 +5,11 @@ description: "Fonts, colours, and styles for Everyday AI frontend. Use when styl
 
 # Everyday AI Frontend Styleguide
 
-Fonts, colours, and styles only. Canonical token values are in
-[`references/theme-tokens.css`](references/theme-tokens.css) (mirrors `client/src/index.css`).
+Fonts, colours, and styles only, scoped to `de-dashboard`. Read its current
+`client/src/index.css` first; [`references/theme-tokens.css`](references/theme-tokens.css)
+is a bundled reference snapshot. If they differ, preserve the consuming project's
+intent and report/update the snapshot within scope rather than overwriting live
+styles from an older copy.
 
 ## Fonts
 
@@ -21,9 +24,9 @@ Fonts, colours, and styles only. Canonical token values are in
 ## Colours
 
 Use semantic Tailwind classes only (`bg-card`, `text-muted-foreground`, …) — no raw hex in
-classNames. The canonical token values are below and bundled in
-[`references/theme-tokens.css`](references/theme-tokens.css) (copy that straight into your
-stylesheet).
+classNames. Reference token values are below and bundled in
+[`references/theme-tokens.css`](references/theme-tokens.css); reuse existing tokens
+rather than copying a complete stylesheet over project customisation.
 
 | Token | Light | Dark |
 |-------|-------|------|

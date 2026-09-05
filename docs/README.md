@@ -20,11 +20,36 @@ repository evidence or checks.
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System boundaries, package map, and important flows | Current | Derived from `.stowrc`, package paths, and the named scripts/configuration |
 | [`ENGINEERING_PRINCIPLES.md`](ENGINEERING_PRINCIPLES.md) | Stable design and maintenance principles | Normative | Each principle names an enforceable repository consequence |
 | [`QUALITY.md`](QUALITY.md) | Evidence-based subsystem grades and technical debt | Snapshot | Each grade links to evidence and a concrete gap |
+| [`VERIFICATION.md`](VERIFICATION.md) | Focused commands, prerequisites, side effects, and reporting | Runbook | Commands point to existing tests and distinguish source-only checks from live operation |
 | [`plans/README.md`](plans/README.md) | Versioned execution-plan lifecycle and template | Normative | New substantial plans must follow the documented lifecycle |
 
 `docs/.stow-local-ignore` matches every path in this directory. This is
 intentional: the root workflow invokes `stow */`, but repository documentation
 must not appear as files in `$HOME`.
+
+## Scope and loading
+
+These guides work with GPT-6 Astra or another coding model; they do not select a
+model or assume model-specific APIs. The active harness determines which tools
+and context files are available. Read task-relevant documents explicitly rather
+than assuming a linked README was automatically loaded.
+
+| Material | Scope and use |
+| --- | --- |
+| Root `AGENTS.md` and this knowledge base | Maintaining this dotfiles repository |
+| [OMP `AGENTS.md`](../omp/.omp/agent/AGENTS.md) | Deployed to `~/.omp/agent/AGENTS.md`; cross-project defaults for OMP |
+| [OMP `TOOLING.md`](../omp/.omp/agent/TOOLING.md) | Optional capabilities, prerequisites, and alternatives; not a live tool inventory |
+| [Global skills](../omp/.omp/agent/skills/) and [scoped skills](../omp/.omp/agent/scoped-skills/) | Read the matching `SKILL.md` only for its declared task; references/templates belong to that skill, not the dotfiles setup path |
+| [OMP agents](../omp/.omp/agent/agents/) | Task-specific subagent prompts; model roles resolve from [OMP config](../omp/.omp/agent/config.yml) |
+| [Pi extension policy](../pi/.pi/agent/extensions/README.md) | Maintainer policy, not automatically loaded model context; includes approved exceptions |
+| [Vim navigation](../pi/.pi/agent/extensions/modal-vim-navigation/README.md) and [Anthropic route](../pi/.pi/agent/extensions/omp-anthropic-route/README.md) | Extension-specific operation and constraints; follow the policy before changing source |
+| [Active plans](plans/README.md#active-plan-index) | In-progress task state; revalidate against the worktree before resuming |
+| [Completed plans](plans/completed/) | Historical decisions and checks, not current system health or standing permission to deploy |
+| [Vendored Catppuccin README](../alacritty/.config/alacritty/themes/catppuccin/README.md) | Upstream reference; use this repository's [theme workflow](../README.md#theme-toggle), not its standalone install recipe |
+
+A documentation review may inspect skills without invoking their procedures.
+Private-repository references inside scoped skills resolve in the consuming
+project; do not fetch customer data or run cloud actions for a docs-only audit.
 
 ## Reading paths
 
@@ -32,7 +57,8 @@ must not appear as files in `$HOME`.
   [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - Deciding whether a local preference deserves a rule or check: read
   [`ENGINEERING_PRINCIPLES.md`](ENGINEERING_PRINCIPLES.md).
-- Choosing verification work or cleanup: read [`QUALITY.md`](QUALITY.md).
+- Choosing checks: use [`VERIFICATION.md`](VERIFICATION.md). Choosing verification
+  improvements or cleanup: use [`QUALITY.md`](QUALITY.md).
 - Making a change whose context must survive one session: create an execution
   plan using [`plans/README.md`](plans/README.md).
 - Installing or operating the workstation: go directly to
@@ -43,6 +69,12 @@ must not appear as files in `$HOME`.
 - Update the document that owns a fact; do not add a second explanation nearby.
 - Link to source files instead of copying volatile values or implementation.
 - Record observed evidence and unknowns; do not infer that a check passes.
-- Delete stale guidance when behaviour changes. Git history is the changelog.
+- Delete stale current guidance when behaviour changes. Git history is the
+  changelog; leave completed-plan outcomes and vendored documentation intact.
+- During a docs audit, inventory tracked Markdown with `git ls-files '*.md'`,
+  inspect new docs with `git status --short`, and classify current guidance,
+  templates, history, and upstream references before deciding what to edit.
+- Do not add model-name-specific rules without a verified behavioural requirement.
+  Prefer explicit task scope, observable acceptance criteria, and tool fallbacks.
 - Promote a repeated failure into the narrowest useful owner: implementation,
   test, diagnostic, documentation, skill, or mechanical guardrail.

@@ -1,76 +1,82 @@
 # Repository guide
 
-This is a personal macOS dotfiles repository managed with GNU Stow. Treat the
-repository as desired state and the linked files under `$HOME` as its deployed
-view.
+Personal macOS dotfiles managed with GNU Stow. Repository files are desired
+state; linked files under `$HOME` are the deployed view. **Editing an existing
+package source may immediately change this Mac's live configuration.**
 
 ## Start here
 
-1. Run `git status --short` and preserve every unrelated change already present.
-2. Read [`docs/README.md`](docs/README.md), then follow only the links relevant
-   to the task.
-3. Read the affected source and its consumer before editing. For setup or
-   operator behaviour, consult the relevant section of [`README.md`](README.md).
-4. For multi-package, migration, or safety-sensitive work, use the execution-plan
-   convention in [`docs/plans/README.md`](docs/plans/README.md).
+1. Run `pwd` and `git status --short`. Preserve unrelated changes, including work
+   that appears while you are working; never reset, stash, or reformat it away.
+2. Read [`docs/README.md`](docs/README.md), then only the task-relevant links.
+   A full documentation audit is not required for ordinary changes.
+3. Locate the source owner in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+   Read the affected source, its caller/consumer, and nearest tests before editing.
+   For setup or operator behaviour, read the relevant [`README.md`](README.md) section.
+4. Define the observable outcome and focused check. For multi-package, migration,
+   safety-sensitive, or multi-session work, use [`docs/plans/README.md`](docs/plans/README.md).
 
-## Knowledge map
+## Scope and evidence
 
-| Need | Source of truth |
-| --- | --- |
-| Repository boundaries and data flows | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| Engineering invariants and agent guidance | [`docs/ENGINEERING_PRINCIPLES.md`](docs/ENGINEERING_PRINCIPLES.md) |
-| Current confidence and known gaps | [`docs/QUALITY.md`](docs/QUALITY.md) |
-| New-Mac setup, commands, and troubleshooting | [`README.md`](README.md) |
-| Pi extension constraints | [`pi/.pi/agent/extensions/README.md`](pi/.pi/agent/extensions/README.md) |
-| OMP tools and alternatives | [`omp/.omp/agent/TOOLING.md`](omp/.omp/agent/TOOLING.md) |
+- This file governs work in this repository. `omp/.omp/agent/AGENTS.md` is also
+  a deployable cross-project OMP default; its skills and tooling catalogue are
+  not instructions to enable or execute every capability listed there.
+- Use only tools actually exposed in this session. OMP tool names do not imply
+  Pi or another harness has them. Use available file/shell equivalents; report
+  a blocker when no equivalent can verify the required behaviour.
+- Current source and observed output establish what exists. Normative guides
+  establish intended constraints. If they conflict, reconcile within the task
+  or report the discrepancy; do not silently discard a safety rule.
+- Completed plans, handoffs, and external docs are evidence to revalidate, not
+  current health checks or permission to run their commands.
+- Proceed on small, reversible choices supported by the repository. Ask a focused
+  question when missing information changes scope, correctness, external effects,
+  or recovery. Do not invent APIs, paths, credentials, or model capabilities.
 
 ## Non-negotiable boundaries
 
-- Edit package sources in this repository, never their `$HOME` symlink targets.
-- Every top-level non-hidden directory is a Stow package except `docs/`, whose
-  `.stow-local-ignore` deliberately excludes the knowledge base.
-- Keep mutable state and generated output outside the repository. In particular,
-  `~/.local/state/theme/` and generated `~/.config/herdr/config.toml` are outputs,
-  not source files.
+- Edit package sources here, never their `$HOME` symlink paths.
+- Every top-level non-hidden directory participates in Stow except `docs/`, whose
+  `.stow-local-ignore` excludes the knowledge base. New directories need review.
+- Keep mutable state and generated output outside the repository, not merely
+  gitignored, especially `~/.local/state/theme/` and generated
+  `~/.config/herdr/config.toml`.
 - Never commit credentials, tokens, histories, caches, generated lock state, or
-  app-owned runtime data. Do not broaden an ignore rule before identifying the
-  unexpected file.
-- Do not modify `.archive/` unless the user explicitly asks to restore or retire
-  archived configuration.
-- GUI, hotkey, and launchd processes have a minimal `PATH`; scripts used there
-  must establish the paths they require.
-- Do not overwrite, revert, reformat, or stow unrelated worktree changes.
+  app-owned runtime data. Identify unexpected files before changing ignore rules.
+  Do not read credential or session stores merely to inventory configuration.
+- Do not modify `.archive/` without an explicit restore/retire request.
+- GUI, hotkey, and launchd commands must establish their required minimal `PATH`.
+- A docs/example command is not authorisation to install, deploy, send messages,
+  commit, or push. Do these only when requested or explicitly agreed.
+- Do not run `dotfiles-update`, wildcard Stow, application restarts, or commands
+  that send input to other agent panes as routine verification.
 
 ## Change workflow
 
-1. Locate the canonical owner of the behaviour; avoid duplicate configuration.
-2. Make the smallest coherent change at that owner.
-3. For files created, moved, or removed inside a Stow package, run a package-only
-   dry run: `stow -n -v -t "$HOME" <package>`. Apply it only after reviewing the
-   plan and when updating this machine is part of the task.
-4. Exercise the changed path, not just its parser. Use the focused check first,
-   then the broader native check when practical.
-5. Inspect `git diff --check` and `git status --short` before reporting.
-6. Update documentation in the same change as the behaviour it describes: any
-   change to setup, update, or operator-visible behaviour must land together
-   with its `README.md` (or owning doc) update, so a fresh install or
-   `dotfiles-update` never follows stale instructions. Beyond that, document
-   only durable behaviour, decisions, or verification gaps. Prefer links to
-   canonical code over copied implementation detail.
+1. Make the smallest coherent change at the canonical owner. Avoid duplicate
+   configuration and opportunistic cleanup. Parallelise only independent work;
+   assign disjoint files if delegating and re-read shared files before editing.
+2. For package files created, moved, or removed, preview only the affected package:
+   `stow -n -v -t "$HOME" <package>`. Review the plan; apply it only when updating
+   this machine is part of the task. Do not stow unrelated changes or use `--adopt`
+   to resolve conflicts.
+3. Exercise the changed path using [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
+   Start with source-only checks, then the relevant live consumer when safe and
+   in scope. A parser pass is not integration evidence.
+4. Update the owning documentation alongside setup, update, or operator-visible
+   behaviour. Link to canonical code rather than copying volatile details.
+5. Inspect `git diff --check`, your diff, and `git status --short`. Separate your
+   changes and failures from pre-existing or concurrent work; leave both intact.
 
-## Verification routing
+## Completion contract
 
-| Area | Minimum useful evidence |
-| --- | --- |
-| Stow layout | package-only `stow -n -v -t "$HOME" <package>` |
-| Shell | `zsh -ic 'exit'` plus the affected command |
-| Theme | `theme status` plus the affected live consumer |
-| Herdr | `herdr config check`; focused plugin tests when changed |
-| tmux | `tmux source-file ~/.config/tmux/tmux.conf` |
-| Neovim | headless/focused check, then `nvim +checkhealth` when appropriate |
-| Pi TypeScript | focused `bun test` or a fresh Pi session, depending on the path |
-| Documentation | resolve local links and confirm `stow -n -v -t "$HOME" docs` is empty |
+A change is ready when the requested outcome is implemented, the owning docs
+match, and relevant checks have run or have an explicit gap. Report briefly:
 
-Never claim a check passed unless it was run. Record environment-blocked checks
-as gaps rather than silently weakening the acceptance criteria.
+- What changed, with repository paths.
+- Checks actually run and their outcomes; distinguish **passed**, **failed**,
+  **blocked**, and **not run**. Never reuse a past plan's pass as this session's pass.
+- Any remaining risk, live/deployment step, or user decision.
+
+Do not claim tests, reloads, commits, pushes, or deployment happened unless they
+actually did. Keep plans current when unfinished work must survive the session.

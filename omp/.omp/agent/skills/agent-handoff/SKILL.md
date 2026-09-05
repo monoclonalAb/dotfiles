@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-description: Write or resume a structured handoff note when work moves between OMP conversations or Herdr panes — "hand off this session", "write a handoff note", "resume from handoff", or ending a session whose remaining work another conversation will pick up. Not for durable facts (use memory).
+description: Write or resume a structured handoff note when work moves between OMP conversations or Herdr panes — "hand off this session", "write a handoff note", "resume from handoff", or ending a session whose remaining work another conversation will pick up. Not for durable project facts (use the owning repository's docs).
 ---
 
 # Agent handoff
@@ -55,11 +55,17 @@ printf '%s-%s\n' "$(basename "$top")" "$(printf '%s' "$top" | shasum -a 256 | cu
 
 1. Read the note for the current directory's slug. If absent, say so and stop — never invent prior context.
 2. Verify the note against reality: current branch and `git status` must match the Changes section. On divergence, report it and trust the repository, not the note.
-3. Treat recorded command outcomes as claims from a previous session: re-run any verification that gates further work or whose inputs may have changed; skip only expensive commands whose recorded inputs demonstrably still hold. Never repeat actions listed under External side effects.
-4. Start from item 1 of Remaining work.
-5. Delete the note once absorbed, so a stale handoff is never resumed twice.
+3. Treat recorded command outcomes as historical claims: re-run verification
+   that gates further work or whose inputs changed; label any retained result as
+   historical rather than a new pass. Do not repeat recorded external effects
+   automatically; a necessary retry requires current intent and idempotency checks.
+4. Reconcile Remaining work with the current user's request, repository
+   instructions, and active plan, then start at the first still-applicable item.
+5. Delete the note only after its remaining work has been absorbed into the
+   current task or owning plan, so a stale handoff is never resumed twice.
 
 ## Do not use when
 
-- Recording durable project knowledge — retain it in memory instead.
+- Recording durable project knowledge — put it in the owning repository's docs.
+  Memory is only for rare personal/cross-repository facts no repository can own.
 - Producing something for humans — write a PR description or commit message instead.

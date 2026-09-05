@@ -9,14 +9,21 @@ Investigation is read-only. The gcloud MCP allowlist enforces this and the obser
 
 ## Prerequisites
 
-- The `gcloud` and `gcp-observability` MCP servers (enabled globally).
-- Working credentials: check with `gcloud auth list`. On expiry, refresh both together — `gcloud auth login` (CLI) and `gcloud auth application-default login` (observability ADC); the organisation's reauthentication policy expires both at once.
+- The tracked OMP defaults enable `gcloud` and `gcp-observability`; check the
+  current session's actual tools. If absent, use reviewed read-only CLI equivalents
+  when available, with the same explicit project and resource scope. Do not enable
+  servers or widen the allowlist as an investigation side effect.
+- Working credentials: check with `gcloud auth list` without inspecting token
+  stores. On expiry, ask the user to complete `gcloud auth login` (CLI) and
+  `gcloud auth application-default login` (observability ADC); the organisation's
+  reauthentication policy expires both at once.
 
 ## 1. Resolve the project — never trust the default
 
 - Read `.everyday.json` in the repository root for the project id; otherwise use the map: `habithealth-de01`/`habithealth-de02`/`habithealth-de03` → `habithealth`; `de-dashboard` → `eai-internal`; `raywhite-ai` → `raywhite-417614`; `rock-rubble-ai` → `rockandrubble`; `base-DE-template` → the placeholder in `.everyday.json`.
 - The gcloud default project is `eai-internal`, so an omitted `--project` silently returns another project's resources. Every gcloud and `bq` invocation carries the project explicitly; observability MCP calls name the project id.
-- All Cloud Run services use `us-central1`.
+- The known DE Cloud Run convention is `us-central1`; verify against this
+  repository's deployment configuration rather than inferring a new service's region.
 - State the resolved project once at the start; never switch project or environment mid-investigation without saying so.
 
 ## 2. Fix the timeframe
@@ -25,7 +32,10 @@ Convert the reported symptom time to UTC and record the window before querying. 
 
 ## 3. Ordered checks
 
-1. **Service state** — `gcloud run services describe` and `gcloud run revisions list`/`describe`: current revision, deploy time, image tag. A symptom starting at a deploy boundary is a deploy issue first.
+1. **Service state** — `gcloud run services describe` and `gcloud run revisions
+   list`/`describe`: current revision, deploy time, image tag. A symptom starting
+   at a deploy boundary makes that deploy the first hypothesis to test, not an
+   established cause.
 2. **Logs** — `list_log_entries` with project, resource filter, and the UTC window; widen only if empty.
 3. **Recurring errors** — `list_group_stats` for stack-trace groups in the window.
 4. **Traces** — `list_traces` / `get_trace` for latency and cross-service questions.

@@ -2,9 +2,15 @@
 
 Use the `gh` CLI when viewing GitHub content, as it allows you to view (with authentication) the content.
 
-If you cannot view the content, you should exit early and tell the user they must authenticate the `gh` CLI tool for you to use. The rest of this skill CANNOT be done unless you view all required reference.
+If a required reference is inaccessible, report the exact missing source and
+whether the cause is authentication, permission, or a moved path; ask for access
+or a supplied copy rather than guessing. Do not implement reference-dependent
+changes until the required evidence is available. Report the blocker in the
+requested output format.
 
-This is more important than any desired output format requested later, as you cannot meet a high quality output if you have bad inputs!
+These private references are inputs when implementing KPIs in a consuming
+project, not prerequisites for editing this skill's wording. Record the resolved
+commit when using a moving `main` URL; fetch related source from that same commit.
 
 ## Required references
 
