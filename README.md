@@ -192,7 +192,9 @@ Then finish the normal setup:
 ```sh
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
 herdr plugin link ~/.config/herdr/plugins/spaces-env --enabled
+herdr integration install pi
 herdr integration install omp
+herdr integration status      # Pi and OMP should both be current
 herdr config check
 herdr
 ```
@@ -205,14 +207,20 @@ Splits stop when either resulting pane would have less than 10 readable columns 
 readable rows (with room reserved for pane chrome), and report why the split was refused.
 Press `C-a u` to jump to the next agent conversation needing attention, or `C-a ?`
 for the complete live keymap. Workspaces replace tmux sessions, tabs replace tmux
-windows, and Herdr persists them. The official OMP integration supplies lifecycle state;
-native Herdr toasts cover background tabs and workspaces; the local next-agent hook fills
-the otherwise-suppressed active-tab, different-pane case. A prompt already visible in the
-focused OMP pane makes the request sound without a redundant popup. New OMP sessions load
-the integration automatically; use OMP's `/reload` (or restart) for an already-running
-session.
+windows, and Herdr persists them. The official Pi and OMP integrations supply lifecycle
+state; task-summary metadata alone does not report whether Pi is running. Without the Pi
+integration, Herdr guesses from screen text and can show an active conversation as idle.
+New sessions load their integration automatically; once an existing conversation is idle,
+use `/reload` in that Pi or OMP session (or restart it). No Herdr restart is needed.
+Herdr owns these generated extension files outside Stow; reinstall with
+`herdr integration install pi` / `herdr integration install omp`, rather than editing them.
+Native Herdr toasts cover background tabs and workspaces; the local next-agent hook fills
+the otherwise-suppressed active-tab, different-pane OMP case. A prompt already visible in
+the focused OMP pane makes the request sound without a redundant popup.
 The same per-pane next-agent ledger drives split-pane attention borders and midpoint
-opacity, so focusing one conversation cannot accidentally clear a sibling. The
+opacity, so focusing one conversation cannot accidentally clear a sibling. Its glyphs are
+`◐` working, `◆` blocked/needs input (not necessarily broken), `●` finished but unreviewed,
+and `○` idle/reviewed. The
 next-agent priority/scope settings are tracked under
 `~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
 
@@ -584,6 +592,10 @@ Herdr binary (`install-herdr-focus`) and restarting the shell. It never rewrites
 local commits or uncommitted changes; when the pull cannot fast-forward it stops
 and says so.
 
+Machines set up before the Pi status integration was added also need
+`herdr integration install pi` once, then `/reload` in each existing idle Pi conversation.
+Stow does not install Herdr-owned integrations; confirm them with `herdr integration status`.
+
 On a clone too old to have the script yet, pull once by hand and run it from the
 repo — after that it is on `PATH` as usual:
 
@@ -621,6 +633,7 @@ stow -n -v -t "$HOME" nvim  # dry-run: preview link actions / conflicts
 | Tree-sitter errors on every startup | `tree-sitter-cli` missing — run `brew bundle` and restart Neovim |
 | Web LSPs or TypeScript fail to start | Node/npm missing — source `~/.nvm/nvm.sh`, run `nvm install --lts`, and restart Neovim |
 | Herdr ignores a config edit | Run `herdr server reload-config`, or press `C-a R` |
+| Herdr conversation symbol stays idle while Pi works | Check `herdr integration status`; install/update with `herdr integration install pi`, then `/reload` in that Pi session once idle. `herdr agent explain <pane-id> --json` should show screen detection skipped once lifecycle reports are active; `default_known_agent_idle_fallback` means Herdr is still guessing from the screen |
 | tmux statusline unstyled, plugins absent | tpm not cloned, or `C-a I` never pressed |
 | `prefix + Space` does nothing | `cycle-2x2.sh` needs `python3`, and only acts on exactly 5 or 7 panes |
 

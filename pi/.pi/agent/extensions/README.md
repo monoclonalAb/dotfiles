@@ -17,6 +17,13 @@ Prefer command-only, UI-only, or metadata-only extensions. Keep any model-contex
 
 `herdr-task-summary/` is metadata-only. It observes finalized user messages without returning a replacement, deterministically normalizes the latest substantive request into an up-to-six-word task phrase, and reports only an in-memory Herdr pane token, using `New conversation` until a substantive request exists. It does not append Pi session entries, rename the Pi session, or alter model-visible content.
 
+Herdr's official `herdr-agent-state.ts` is generated outside this repository by
+`herdr integration install pi` (see the [Herdr setup](../../../../README.md)).
+It is the lifecycle-status owner; `herdr-task-summary/` is not a replacement for it.
+The audited v8 integration reports state and session identity over local IPC without
+registering tools, injecting messages, or changing model context. Keep it Herdr-owned
+rather than vendoring or adding a competing lifecycle reporter here.
+
 Approved exceptions:
 
 - `selective-skills.ts` only contributes skills explicitly enabled by the user through `/skill`, keeps that selection session-local, and starts every new session with no skills enabled.
