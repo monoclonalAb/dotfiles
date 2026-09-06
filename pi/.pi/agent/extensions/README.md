@@ -32,6 +32,10 @@ Approved exceptions:
 
 This README is a development policy only. Pi does not load it into model context, and Pi has no capability sandbox that automatically enforces the policy; extension source must still be reviewed.
 
+## Runtime controls
+
+- `long-context/` adds `/long-context [on|off|status]` for direct OpenAI and OpenAI Codex GPT-5.6 Sol, Terra, Luna, and GPT-6 Astra. With no argument it toggles the active model between Pi's 272K default and the model's 1.05M window for the current session. It changes only the active model metadata, shows `ctx:1.05M` while enabled, and warns that requests above 272K may use long-context pricing; it does not alter conversation content or provider payloads.
+
 ## Draft commands
 
 - `domain-first.ts` adds `/domain-first [scope]`, which stages a reviewable domain-constraint and simplification prompt in the editor. It guides the agent to create or evolve `domain-first-operating-model.md` without submitting or injecting anything automatically.

@@ -595,7 +595,10 @@ lookup.
   Pi's `/domain-first [scope]` command similarly stages a domain-constraint
   sweep that creates or evolves `domain-first-operating-model.md`.
   Pi's `alt+shift+c` shortcut (`copy-prompt.ts`) copies the current prompt
-  draft to the clipboard.
+  draft to the clipboard. `/long-context [on|off|status]` toggles supported
+  GPT-5.6 models and GPT-6 Astra on OpenAI / OpenAI Codex between Pi's 272K
+  default and the 1.05M window for the current session; the footer shows
+  `ctx:1.05M` while enabled, and requests above 272K may use long-context pricing.
   Pi's global `harness-feedback.ts` extension starts disabled; use
   `/feedback on` to learn from corrective feedback and `/feedback off` to
   remove that guidance.

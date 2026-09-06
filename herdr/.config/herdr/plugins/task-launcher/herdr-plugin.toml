@@ -1,0 +1,26 @@
+id = "martinro.task-launcher"
+name = "Pi Tasks"
+version = "0.1.0-local"
+min_herdr_version = "0.8.2"
+description = "Start a Pi task; create its worktree underneath."
+platforms = ["macos"]
+
+[[actions]]
+id = "open"
+title = "Start a Pi task"
+contexts = ["global", "workspace", "pane"]
+command = ["/bin/sh", "launch.sh", "open"]
+
+[[panes]]
+id = "launcher"
+title = "Pi Tasks"
+placement = "popup"
+width = "80%"
+height = 24
+command = ["/bin/sh", "launch.sh", "menu"]
+
+[[panes]]
+id = "pi"
+title = "Pi"
+placement = "tab"
+command = ["/bin/sh", "launch.sh", "run"]

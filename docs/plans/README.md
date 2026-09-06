@@ -29,7 +29,7 @@ placeholder directories are unnecessary.
 
 ## Active plan index
 
-No active plans.
+- [Pi-only task launcher](active/2026-09-06-pi-task-launcher.md) — task-first Herdr popup, worktree creation, and Pi startup.
 
 When there are no active plans, use `No active plans.` instead of the list.
 Keep other tasks' entries intact when adding or completing your own plan.

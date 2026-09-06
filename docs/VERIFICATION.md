@@ -18,6 +18,7 @@ Use temporary directories outside the repository for generated output.
 | Herdr attention ledger | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/.config/herdr/plugins/next-agent -p 'test_*.py'` | Standard-library tests; discovery handles the hyphenated directory |
 | Herdr environment grouping | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/.config/herdr/plugins/spaces-env -p 'test_*.py'` | Includes temporary-state concurrency tests; no live server |
 | Pi task summaries | `bun test ./pi/.pi/agent/extensions/herdr-task-summary/summary.test.ts` | Injected reporter; no live pane updates |
+| Pi long-context toggle | `bun test ./pi/.pi/agent/extensions/long-context/index.test.ts` | Mocked extension runtime; verifies model metadata switching and UI state, not provider acceptance or billing |
 | Pi Anthropic route | `bun test ./pi/.pi/agent/extensions/omp-anthropic-route/*.test.ts` | Mocked token/update/transport plus a loopback HTTP server and Bun subprocess; not a provider or billing check |
 | Pi Vim navigation | `bun test ./pi/.pi/agent/extensions/modal-vim-navigation/index.test.ts` | Requires npm and globally installed `@earendil-works/pi-coding-agent`; exercises installed editor APIs, not a rendered terminal |
 
