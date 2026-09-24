@@ -181,7 +181,9 @@ rows = [
 # Glyph colours follow the flavour.
 
 [ui.toast]
-delivery = "herdr"
+# macOS notifications. Settings changed in Herdr's UI land in the generated
+# config.toml; copy them here or `theme` regenerates them away.
+delivery = "system"
 delay_seconds = 1
 
 [ui.toast.herdr]
