@@ -1,0 +1,4507 @@
+diff --git a/docs/next/website/src/data/config-reference.json b/docs/next/website/src/data/config-reference.json
+index 36afe33..0468379 100644
+--- a/docs/next/website/src/data/config-reference.json
++++ b/docs/next/website/src/data/config-reference.json
+@@ -619,6 +619,18 @@
+           "default": "unset",
+           "description": "Focus the next agent shown in the agent panel. Unset by default."
+         },
++        {
++          "key": "keys.previous_machine",
++          "type": "keybinding",
++          "default": "unset",
++          "description": "Switch the client to the previous online machine. Unset by default."
++        },
++        {
++          "key": "keys.next_machine",
++          "type": "keybinding",
++          "default": "unset",
++          "description": "Switch the client to the next online machine. Unset by default."
++        },
+         {
+           "key": "keys.focus_agent",
+           "type": "keybinding",
+@@ -969,6 +981,12 @@
+           "default": "true",
+           "description": "Draw borders along the outside edge of the pane area. Disable with pane gaps disabled for tmux-style internal splitters without an outside frame."
+         },
++        {
++          "key": "ui.focused_pane_heavy_borders",
++          "type": "boolean",
++          "default": "false",
++          "description": "Use heavy box-drawing glyphs for the focused pane border."
++        },
+         {
+           "key": "ui.pane_scrollbars",
+           "type": "boolean",
+@@ -987,6 +1005,18 @@
+           "default": "false",
+           "description": "Show agent labels in split pane borders when no manual pane label is set."
+         },
++        {
++          "key": "ui.dim_unfocused_panes",
++          "type": "boolean",
++          "default": "false",
++          "description": "Dim unfocused pane content in split layouts."
++        },
++        {
++          "key": "ui.unfocused_pane_opacity",
++          "type": "number",
++          "default": "0.5",
++          "description": "Fraction of unfocused pane colour retained when dimming, from 0.0 to 1.0."
++        },
+         {
+           "key": "ui.hide_tab_bar_when_single_tab",
+           "type": "boolean",
+@@ -1066,6 +1096,12 @@
+           "default": "{}",
+           "description": "Complete Agent-row overrides keyed by strict canonical agent id. Agents without an override use ui.sidebar.agents.rows."
+         },
++        {
++          "key": "ui.sidebar.spaces.inline_agents",
++          "type": "boolean",
++          "default": "false",
++          "description": "Use one repository / worktree-Space / conversation tree instead of separate Spaces and Agents panels. Rows are compact (first Space label row only, no row gaps), with branch connectors, clickable repository headers and agent status counts. The view label and Menu share a bottom footer; New is hidden. All repository and Space branches start expanded, including inactive/new Spaces. Manual folding lasts for the current server lifetime; older saved folds are ignored on inline-tree startup/handoff. Ordinary config reloads preserve manual choices."
++        },
+         {
+           "key": "ui.sidebar.spaces.row_gap",
+           "type": "integer",
+diff --git a/src/app/agent_resume.rs b/src/app/agent_resume.rs
+index 2cbd93a..c47b358 100644
+--- a/src/app/agent_resume.rs
++++ b/src/app/agent_resume.rs
+@@ -131,6 +131,7 @@ impl App {
+             self.state.pane_borders,
+             self.state.pane_gaps,
+             self.state.pane_outer_borders,
++            self.state.host_cell_size,
+         );
+ 
+         if self.state.active == Some(ws_idx)
+@@ -292,12 +293,14 @@ fn derived_pending_agent_resume_pane_infos(
+     pane_borders: crate::config::PaneBordersConfig,
+     pane_gaps: bool,
+     pane_outer_borders: bool,
++    cell_size: crate::kitty_graphics::HostCellSize,
+ ) -> Vec<crate::layout::PaneInfo> {
+     crate::ui::apply_pane_chrome(
+         tab.layout.panes(terminal_area),
+         pane_borders,
+         pane_gaps,
+         pane_outer_borders,
++        cell_size,
+     )
+     .into_iter()
+     .map(|mut info| {
+diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
+index a025f0b..e72ed1f 100644
+--- a/src/app/api/panes.rs
++++ b/src/app/api/panes.rs
+@@ -62,13 +62,29 @@ impl App {
+         let host_terminal_theme = self.state.host_terminal_theme;
+         let host_terminal_appearance = self.state.host_terminal_appearance;
+         let previous_focus = self.state.current_pane_focus_target();
+-        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+-            return encode_error(id, "pane_not_found", "pane not found");
+-        };
+         let direction = match params.direction {
+             crate::api::schema::SplitDirection::Right => ratatui::layout::Direction::Horizontal,
+             crate::api::schema::SplitDirection::Down => ratatui::layout::Direction::Vertical,
+         };
++        if !self.state.can_split_pane(
++            ws_idx,
++            target_pane_id,
++            direction,
++            params.ratio.unwrap_or(0.5),
++        ) {
++            return encode_error(
++                id,
++                "pane_split_too_small",
++                format!(
++                    "split would make a pane too small to read (minimum {} columns x {} rows)",
++                    crate::layout::MIN_READABLE_PANE_COLS,
++                    crate::layout::MIN_READABLE_PANE_ROWS,
++                ),
++            );
++        }
++        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
++            return encode_error(id, "pane_not_found", "pane not found");
++        };
+         let shell_config = crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode);
+         let split_result = match params.ratio {
+             Some(ratio) => ws.split_pane_with_ratio(
+@@ -2015,6 +2031,7 @@ impl App {
+             self.state.pane_borders,
+             self.state.pane_gaps,
+             self.state.pane_outer_borders,
++            self.state.host_cell_size,
+         )
+         .into_iter()
+         .filter_map(|pane| {
+diff --git a/src/app/api/plugins/panes.rs b/src/app/api/plugins/panes.rs
+index 0579188..f21db1e 100644
+--- a/src/app/api/plugins/panes.rs
++++ b/src/app/api/plugins/panes.rs
+@@ -115,6 +115,20 @@ impl App {
+             crate::api::schema::SplitDirection::Right => Direction::Horizontal,
+             crate::api::schema::SplitDirection::Down => Direction::Vertical,
+         };
++        if !self
++            .state
++            .can_split_pane(ws_idx, target_pane, direction, 0.5)
++        {
++            return encode_error(
++                id,
++                "pane_split_too_small",
++                format!(
++                    "split would make a pane too small to read (minimum {} columns x {} rows)",
++                    crate::layout::MIN_READABLE_PANE_COLS,
++                    crate::layout::MIN_READABLE_PANE_ROWS,
++                ),
++            );
++        }
+         let (rows, cols) = self.state.estimate_pane_size();
+         let previous_focus = self.state.current_pane_focus_target();
+         let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+diff --git a/src/app/mod.rs b/src/app/mod.rs
+index 757a7f6..ebcb2b9 100644
+--- a/src/app/mod.rs
++++ b/src/app/mod.rs
+@@ -491,9 +491,12 @@ impl App {
+             confirm_close: config.ui.confirm_close,
+             pane_borders: config.ui.pane_borders,
+             pane_outer_borders: config.ui.pane_outer_borders,
++            focused_pane_heavy_borders: config.ui.focused_pane_heavy_borders,
+             pane_scrollbars: config.ui.pane_scrollbars,
+             pane_gaps: config.ui.pane_gaps,
+             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
++            dim_unfocused_panes: config.ui.dim_unfocused_panes,
++            unfocused_pane_opacity: config.ui.unfocused_pane_opacity,
+             tab_bar_right: Vec::new(),
+             tab_bar_right_separator: String::new(),
+             reveal_hidden_cursor_for_cjk_ime: config.experimental.reveal_hidden_cursor_for_cjk_ime,
+@@ -839,10 +842,13 @@ impl App {
+                 self.state.confirm_close = config.ui.confirm_close;
+                 self.state.pane_borders = config.ui.pane_borders;
+                 self.state.pane_outer_borders = config.ui.pane_outer_borders;
++                self.state.focused_pane_heavy_borders = config.ui.focused_pane_heavy_borders;
+                 self.state.pane_scrollbars = config.ui.pane_scrollbars;
+                 self.state.pane_gaps = config.ui.pane_gaps;
+                 self.state.show_agent_labels_on_pane_borders =
+                     config.ui.show_agent_labels_on_pane_borders;
++                self.state.dim_unfocused_panes = config.ui.dim_unfocused_panes;
++                self.state.unfocused_pane_opacity = config.ui.unfocused_pane_opacity;
+                 self.configure_tab_bar_status(
+                     &config.ui.tab_bar_right,
+                     &config.ui.tab_bar_right_separator,
+@@ -2734,6 +2740,51 @@ mod tests {
+         }
+     }
+ 
++    #[tokio::test]
++    async fn pane_split_request_rejects_unreadable_result() {
++        let _guard = config_env_lock().lock().unwrap();
++        let original_shell = std::env::var_os("SHELL");
++        std::env::set_var("SHELL", "/usr/bin/true");
++
++        let mut app = test_app();
++        let workspace = Workspace::test_new("api-pane-split-too-small");
++        let target_pane = workspace.tabs[0].root_pane;
++        app.state.workspaces = vec![workspace];
++        app.state.ensure_test_terminals();
++        app.state.active = Some(0);
++        app.state.selected = 0;
++        app.state.view.terminal_area = ratatui::layout::Rect::new(
++            0,
++            0,
++            (crate::layout::MIN_READABLE_PANE_COLS + 3) * 2 - 1,
++            20,
++        );
++        let target_pane_id = app.pane_info(0, target_pane).unwrap().pane_id;
++
++        let response = app.handle_api_request(crate::api::schema::Request {
++            id: "req_pane_split_too_small".into(),
++            method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
++                workspace_id: None,
++                target_pane_id: Some(target_pane_id),
++                direction: crate::api::schema::SplitDirection::Right,
++                ratio: None,
++                cwd: None,
++                focus: true,
++                right_click: Default::default(),
++                env: Default::default(),
++            }),
++        });
++        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
++
++        assert_eq!(response["error"]["code"], "pane_split_too_small");
++        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
++
++        match original_shell {
++            Some(value) => std::env::set_var("SHELL", value),
++            None => std::env::remove_var("SHELL"),
++        }
++    }
++
+     #[tokio::test]
+     async fn pane_split_request_uses_active_focused_pane_when_target_is_omitted() {
+         let _guard = config_env_lock().lock().unwrap();
+diff --git a/src/app/state.rs b/src/app/state.rs
+index 892ec5e..8988a57 100644
+--- a/src/app/state.rs
++++ b/src/app/state.rs
+@@ -833,9 +833,12 @@ pub struct AppState {
+     pub confirm_close: bool,
+     pub pane_borders: crate::config::PaneBordersConfig,
+     pub pane_outer_borders: bool,
++    pub focused_pane_heavy_borders: bool,
+     pub pane_scrollbars: bool,
+     pub pane_gaps: bool,
+     pub show_agent_labels_on_pane_borders: bool,
++    pub dim_unfocused_panes: bool,
++    pub unfocused_pane_opacity: f32,
+     pub tab_bar_right: Vec<TabBarStatusSegment>,
+     pub tab_bar_right_separator: String,
+     /// Expose the focused pane's cursor anchor to the outer terminal even when
+@@ -929,6 +932,31 @@ impl AppState {
+         }
+     }
+ 
++    /// Check a prospective split against the currently rendered terminal area.
++    /// Before the first render, use the configured headless size so API clients
++    /// and tests receive the same guard instead of an accidental zero-area pass.
++    pub(crate) fn can_split_pane(
++        &self,
++        ws_idx: usize,
++        pane_id: PaneId,
++        direction: ratatui::layout::Direction,
++        ratio: f32,
++    ) -> bool {
++        let area = if self.view.terminal_area.width > 0 && self.view.terminal_area.height > 0 {
++            self.view.terminal_area
++        } else {
++            Rect::new(0, 0, self.headless_size.0, self.headless_size.1)
++        };
++        self.workspaces
++            .get(ws_idx)
++            .and_then(|workspace| {
++                workspace
++                    .find_tab_index_for_pane(pane_id)
++                    .and_then(|tab_idx| workspace.tabs.get(tab_idx))
++            })
++            .is_some_and(|tab| tab.layout.can_split_pane(pane_id, direction, ratio, area))
++    }
++
+     /// Returns true when the given (workspace, tab, pane) refers to the
+     /// currently focused pane in the active workspace's active tab.
+     pub(crate) fn runtime_for_pane_in_workspace<'a>(
+@@ -1060,9 +1088,12 @@ impl AppState {
+             confirm_close: true,
+             pane_borders: crate::config::PaneBordersConfig::Auto,
+             pane_outer_borders: true,
++            focused_pane_heavy_borders: false,
+             pane_scrollbars: true,
+             pane_gaps: false,
+             show_agent_labels_on_pane_borders: false,
++            dim_unfocused_panes: false,
++            unfocused_pane_opacity: 0.5,
+             tab_bar_right: Vec::new(),
+             tab_bar_right_separator: " ".into(),
+             reveal_hidden_cursor_for_cjk_ime: false,
+diff --git a/src/build_info.rs b/src/build_info.rs
+index 1fdedfb..6bac396 100644
+--- a/src/build_info.rs
++++ b/src/build_info.rs
+@@ -3,7 +3,7 @@
+ pub const BASE_VERSION: &str = env!("CARGO_PKG_VERSION");
+ 
+ pub fn channel() -> &'static str {
+-    non_empty(option_env!("HERDR_BUILD_CHANNEL")).unwrap_or("stable")
++    non_empty(option_env!("HERDR_BUILD_CHANNEL")).unwrap_or("dotfiles")
+ }
+ 
+ pub fn build_id() -> Option<&'static str> {
+diff --git a/src/client/shell.rs b/src/client/shell.rs
+index 95ee5e7..582c9d4 100644
+--- a/src/client/shell.rs
++++ b/src/client/shell.rs
+@@ -33,6 +33,7 @@ mod settings;
+ mod state;
+ mod surface_patch;
+ mod text_editor;
++mod tree;
+ mod word_selection;
+ mod worktrees;
+ use text_editor::TextEditor;
+diff --git a/src/client/shell/composition.rs b/src/client/shell/composition.rs
+index e0888d0..495aef4 100644
+--- a/src/client/shell/composition.rs
++++ b/src/client/shell/composition.rs
+@@ -54,6 +54,7 @@ impl ClientShellState {
+             collapsed_endpoints: &self.collapsed_endpoints,
+             collapsed_groups: &self.collapsed_groups,
+             remote_collapsed_groups: &self.remote_collapsed_groups,
++            collapsed_space_agents: &self.collapsed_space_agents,
+             workspace_scroll: &mut self.workspace_scroll,
+             agent_scroll: &mut self.agent_scroll,
+             tab_scroll: &mut self.tab_scroll,
+@@ -70,7 +71,12 @@ impl ClientShellState {
+             dragged_workspace_id: None,
+             workspace_drop_indicator_row: None,
+         };
+-        if let Some(snapshot) = local_snapshot {
++        if self.config.spaces.inline_agents {
++            super::tree::render_tree(
++                &mut buffer, sidebar, self.snapshot.as_deref(),
++                &self.config, &mut render_state, &mut self.hits,
++            );
++        } else if let Some(snapshot) = local_snapshot {
+             render::render_sidebar(
+                 &mut buffer,
+                 sidebar,
+@@ -189,6 +195,7 @@ impl ClientShellState {
+                 collapsed_endpoints: &self.collapsed_endpoints,
+                 collapsed_groups: &self.collapsed_groups,
+                 remote_collapsed_groups: &self.remote_collapsed_groups,
++                collapsed_space_agents: &self.collapsed_space_agents,
+                 workspace_scroll: &mut self.workspace_scroll,
+                 agent_scroll: &mut self.agent_scroll,
+                 tab_scroll: &mut self.tab_scroll,
+diff --git a/src/client/shell/config.rs b/src/client/shell/config.rs
+index 2d16b00..f286803 100644
+--- a/src/client/shell/config.rs
++++ b/src/client/shell/config.rs
+@@ -72,6 +72,7 @@ impl ClientShellState {
+         match crate::config::load_live_config() {
+             Ok(loaded) => {
+                 let agent_panel_sort = self.config.agent_panel_sort;
++                let inline_agents = self.config.spaces.inline_agents;
+                 let diagnostics = self.config.apply_live_config(
+                     &loaded.config,
+                     &loaded.diagnostics,
+@@ -89,6 +90,18 @@ impl ClientShellState {
+                 if self.agent_panel_sort_manual {
+                     self.config.agent_panel_sort = agent_panel_sort;
+                 }
++                if inline_agents != self.config.spaces.inline_agents {
++                    // Switching layouts invalidates row offsets; entering the
++                    // tree starts fully open, leaving it keeps legacy folds.
++                    self.workspace_scroll = 0;
++                    self.agent_scroll = 0;
++                    self.reveal_focused_workspace = true;
++                    if self.config.spaces.inline_agents {
++                        self.collapsed_groups.clear();
++                        self.remote_collapsed_groups.clear();
++                        self.collapsed_space_agents.clear();
++                    }
++                }
+                 self.set_local_config_diagnostic(self.config.local_config_diagnostic(&diagnostics));
+                 if let Some(snapshot) = self.snapshot.as_deref() {
+                     let profile = snapshot.server_keybindings_toml.clone();
+diff --git a/src/client/shell/endpoint_navigation.rs b/src/client/shell/endpoint_navigation.rs
+index 6cb8c2c..1e8f44e 100644
+--- a/src/client/shell/endpoint_navigation.rs
++++ b/src/client/shell/endpoint_navigation.rs
+@@ -106,7 +106,16 @@ impl ClientShellState {
+         outcome: &mut ClientShellInput,
+     ) -> bool {
+         use crate::input::KeybindAction;
+-        if !self.multi_endpoint_active() {
++        if matches!(
++            action,
++            KeybindAction::PreviousMachine | KeybindAction::NextMachine
++        ) {
++            self.cycle_machine(action == KeybindAction::NextMachine, outcome);
++            return true;
++        }
++        // The inline tree shows one machine per screen, so Space and agent
++        // navigation stays on that machine; only the machine keys cross over.
++        if !self.multi_endpoint_active() || self.config.spaces.inline_agents {
+             return false;
+         }
+         if matches!(
+@@ -213,6 +222,46 @@ impl ClientShellState {
+         false
+     }
+ 
++    /// Switch this client to the next (or previous) online machine in catalog
++    /// order, wrapping around. Offline machines are skipped; with no other
++    /// online machine the client stays put and says so.
++    pub(super) fn cycle_machine(&mut self, forward: bool, outcome: &mut ClientShellInput) {
++        let count = self.endpoints.len();
++        let current = self
++            .endpoints
++            .iter()
++            .position(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
++            .unwrap_or(0);
++        let candidate = (1..count)
++            .map(|step| {
++                if forward {
++                    (current + step) % count
++                } else {
++                    (current + count - step) % count
++                }
++            })
++            .map(|index| self.endpoints[index].endpoint_id.clone())
++            .find(|endpoint_id| self.endpoint_is_online(endpoint_id));
++        let Some(endpoint_id) = candidate else {
++            let message = if count > 1 {
++                let others = self
++                    .endpoints
++                    .iter()
++                    .filter(|endpoint| endpoint.endpoint_id != self.active_endpoint_id)
++                    .map(|endpoint| endpoint.label.as_str())
++                    .collect::<Vec<_>>()
++                    .join(", ");
++                format!("{others} is not ready")
++            } else {
++                "no other machine is saved".to_owned()
++            };
++            self.receive_endpoint_unavailable(message);
++            outcome.repaint = true;
++            return;
++        };
++        self.activate_endpoint(endpoint_id, outcome);
++    }
++
+     pub(super) fn activate_endpoint(
+         &mut self,
+         endpoint_id: ClientEndpointId,
+diff --git a/src/client/shell/endpoint_sidebar.rs b/src/client/shell/endpoint_sidebar.rs
+index 34d2ccd..40a8fb5 100644
+--- a/src/client/shell/endpoint_sidebar.rs
++++ b/src/client/shell/endpoint_sidebar.rs
+@@ -31,19 +31,16 @@ pub(super) fn render_collapsed(
+             continue;
+         }
+         if let Some(snapshot) = endpoint.snapshot.as_deref() {
++            let keep_visible = state.selected_workspace_id
++                .filter(|target| target.endpoint_id == endpoint.endpoint_id)
++                .map(|target| target.workspace_id.as_str());
++            let entries = super::sidebar::flat_workspace_entries_keeping(snapshot, keep_visible);
+             if reveal {
+-                if let Some(target) = state
+-                    .selected_workspace_id
+-                    .filter(|target| target.endpoint_id == endpoint.endpoint_id)
+-                {
+-                    selected_row = snapshot
+-                        .workspaces
+-                        .iter()
+-                        .position(|workspace| workspace.workspace_id == target.workspace_id)
+-                        .map(|index| total_rows + index);
+-                }
++                selected_row = selected_row.or_else(|| entries.iter()
++                    .position(|entry| Some(snapshot.workspaces[entry.index].workspace_id.as_str()) == keep_visible)
++                    .map(|index| total_rows + index));
+             }
+-            total_rows += snapshot.workspaces.len();
++            total_rows += entries.len();
+         }
+     }
+     let height = usize::from(workspace_area.height);
+@@ -107,7 +104,11 @@ pub(super) fn render_collapsed(
+         let Some(snapshot) = endpoint.snapshot.as_deref() else {
+             continue;
+         };
+-        for workspace in &snapshot.workspaces {
++        let keep_visible = state.selected_workspace_id
++            .filter(|target| target.endpoint_id == endpoint.endpoint_id)
++            .map(|target| target.workspace_id.as_str());
++        for entry in super::sidebar::flat_workspace_entries_keeping(snapshot, keep_visible) {
++            let workspace = &snapshot.workspaces[entry.index];
+             if skip > 0 {
+                 skip -= 1;
+                 continue;
+@@ -263,7 +264,10 @@ pub(super) fn render_expanded(
+             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
+                 .unwrap_or(&empty_collapsed_groups);
+             rows.extend(
+-                super::sidebar::workspace_entries(snapshot, collapsed_groups)
++                super::sidebar::workspace_entries_keeping(snapshot, collapsed_groups,
++                    state.selected_workspace_id
++                        .filter(|target| target.endpoint_id == endpoint.endpoint_id)
++                        .map(|target| target.workspace_id.as_str()))
+                     .into_iter()
+                     .map(|entry| Row::Workspace {
+                         endpoint: endpoint_index,
+diff --git a/src/client/shell/mouse.rs b/src/client/shell/mouse.rs
+index 0b9326d..8ab3c72 100644
+--- a/src/client/shell/mouse.rs
++++ b/src/client/shell/mouse.rs
+@@ -1983,6 +1983,10 @@ impl ClientShellState {
+                 if self.handle_endpoint_machine_click(point, outcome) {
+                     return;
+                 }
++                if super::contains(self.hits.machine_switch, point) {
++                    self.cycle_machine(true, outcome);
++                    return;
++                }
+                 if super::contains(self.hits.global_launcher, point) {
+                     self.toggle_global_menu();
+                     outcome.repaint = true;
+@@ -2049,6 +2053,21 @@ impl ClientShellState {
+                     self.persist_chrome_preferences(outcome);
+                     return;
+                 }
++                // Inline tree: a Space's status counts fold its conversations
++                // without changing focus.
++                if let Some((_, endpoint_id, workspace_id)) = self
++                    .hits
++                    .agent_toggles
++                    .iter()
++                    .find(|(rect, _, _)| super::contains(*rect, point))
++                {
++                    let key = (endpoint_id.clone(), workspace_id.clone());
++                    if !self.collapsed_space_agents.remove(&key) {
++                        self.collapsed_space_agents.insert(key);
++                    }
++                    outcome.repaint = true;
++                    return;
++                }
+                 let workspace_press = self
+                     .hits
+                     .workspaces
+diff --git a/src/client/shell/render.rs b/src/client/shell/render.rs
+index 8038701..37999e9 100644
+--- a/src/client/shell/render.rs
++++ b/src/client/shell/render.rs
+@@ -42,10 +42,17 @@ pub(super) fn render_mode_bar(
+         return None;
+     }
+ 
++    // Prefix mode shows a compact corner indicator instead of a full hint bar,
++    // so the pane's last row stays readable while the prefix is pending.
++    let bar_width = if mode == ClientShellMode::Prefix && endpoint_error.is_none() {
++        pane_area.width.min(8)
++    } else {
++        pane_area.width
++    };
+     let bar = Rect::new(
+         pane_area.x,
+         pane_area.y + pane_area.height.saturating_sub(1),
+-        pane_area.width,
++        bar_width,
+         1,
+     );
+     let base = Style::default().fg(palette.overlay0).bg(palette.panel_bg);
+@@ -84,18 +91,8 @@ pub(super) fn render_mode_bar(
+     } else {
+         match mode {
+             ClientShellMode::Prefix => {
+-                segments.extend([
+-                    (" PREFIX ".to_owned(), mode_style),
+-                    (" ".to_owned(), base),
+-                    ("esc".to_owned(), key),
+-                    (" cancel  ".to_owned(), base),
+-                    (prefix, key),
+-                    (" send prefix  ".to_owned(), base),
+-                    (prefix_rhs(&keybinds.keybinds.workspace_picker), key),
+-                    (" workspace nav  ".to_owned(), base),
+-                    (prefix_rhs(&keybinds.keybinds.help), key),
+-                    (" keybinds".to_owned(), base),
+-                ]);
++                let _ = prefix;
++                segments.push((" PREFIX ".to_owned(), base));
+             }
+             ClientShellMode::Navigate => {
+                 segments.extend([
+@@ -235,6 +232,7 @@ pub(super) struct ShellRenderState<'a> {
+     pub(super) collapsed_endpoints: &'a HashSet<ClientEndpointId>,
+     pub(super) collapsed_groups: &'a HashSet<String>,
+     pub(super) remote_collapsed_groups: &'a HashMap<ClientEndpointId, HashSet<String>>,
++    pub(super) collapsed_space_agents: &'a HashSet<(ClientEndpointId, String)>,
+     pub(super) workspace_scroll: &'a mut usize,
+     pub(super) agent_scroll: &'a mut usize,
+     pub(super) tab_scroll: &'a mut usize,
+@@ -267,7 +265,36 @@ pub(super) fn render_shell(
+         );
+     }
+     if layout.sidebar.width > 0 {
+-        if state.endpoints.len() > 1 {
++        if config.spaces.inline_agents && !state.sidebar_collapsed {
++            super::tree::render_tree(
++                buffer,
++                layout.sidebar,
++                Some(snapshot),
++                config,
++                &mut state,
++                &mut hits,
++            );
++        } else if config.spaces.inline_agents {
++            let machine_label = (state.endpoints.len() > 1).then(|| {
++                state
++                    .endpoints
++                    .iter()
++                    .find(|endpoint| &endpoint.endpoint_id == state.active_endpoint_id)
++                    .map_or("Local", |endpoint| endpoint.label.as_str())
++            });
++            super::tree::render_collapsed_tree(
++                buffer,
++                layout.sidebar,
++                snapshot,
++                config,
++                state.active_endpoint_id,
++                machine_label,
++                state.selected_workspace_id
++                    .filter(|target| &target.endpoint_id == state.active_endpoint_id)
++                    .map(|target| target.workspace_id.as_str()),
++                &mut hits,
++            );
++        } else if state.endpoints.len() > 1 {
+             if state.sidebar_collapsed {
+                 super::endpoint_sidebar::render_collapsed(
+                     buffer,
+@@ -331,6 +358,8 @@ pub(super) fn render_shell(
+         hits.workspaces.clear();
+         hits.agents.clear();
+         hits.endpoint_agents.clear();
++        hits.agent_toggles.clear();
++        hits.machine_switch = Rect::default();
+         hits.tab_scroll_left = Rect::default();
+         hits.tab_scroll_right = Rect::default();
+         hits.new_tab = Rect::default();
+diff --git a/src/client/shell/sidebar.rs b/src/client/shell/sidebar.rs
+index 161aecd..09d89e3 100644
+--- a/src/client/shell/sidebar.rs
++++ b/src/client/shell/sidebar.rs
+@@ -35,12 +35,13 @@ pub(crate) fn render_collapsed_sidebar(
+     let palette = &config.palette;
+     render_sidebar_background(buffer, area, palette);
+     let (workspace_area, divider_y, detail_area) = collapsed_sidebar_sections(area);
+-    for (index, workspace) in snapshot
+-        .workspaces
+-        .iter()
+-        .take(workspace_area.height as usize)
+-        .enumerate()
++    for (index, entry) in
++        flat_workspace_entries_keeping(snapshot, selected_workspace_id)
++            .into_iter()
++            .take(workspace_area.height as usize)
++            .enumerate()
+     {
++        let workspace = &snapshot.workspaces[entry.index];
+         let rect = Rect::new(
+             workspace_area.x,
+             workspace_area.y + index as u16,
+@@ -73,7 +74,7 @@ pub(crate) fn render_collapsed_sidebar(
+             rect.x,
+             rect.y,
+             rect.width.min(2),
+-            &format!("{:<2}", index + 1),
++            &format!("{:<2}", workspace.number),
+             number_style,
+         );
+         let status = workspace.agent_status;
+@@ -210,7 +211,13 @@ pub(crate) fn render_sidebar(
+             .add_modifier(Modifier::BOLD),
+     );
+ 
+-    let entries = workspace_entries(snapshot, state.collapsed_groups);
++    let entries = workspace_entries_keeping(
++        snapshot,
++        state.collapsed_groups,
++        state.selected_workspace_id
++            .filter(|target| &target.endpoint_id == state.active_endpoint_id)
++            .map(|target| target.workspace_id.as_str()),
++    );
+     let body = Rect::new(
+         workspace_area.x,
+         workspace_area.y.saturating_add(WORKSPACE_HEADER_ROWS),
+@@ -439,12 +446,41 @@ pub(crate) fn render_sidebar(
+     );
+ }
+ 
++/// Compact sidebars preserve snapshot order and never fold worktree children.
++pub(crate) fn flat_workspace_entries_keeping(
++    snapshot: &ClientShellSnapshot,
++    keep_visible: Option<&str>,
++) -> Vec<WorkspaceEntry> {
++    snapshot.workspaces.iter().enumerate()
++        .filter(|(_, workspace)| !super::tree::workspace_sidebar_hidden(workspace, keep_visible))
++        .map(|(index, _)| WorkspaceEntry { index, indented: false, last_child: false })
++        .collect()
++}
++
+ pub(crate) fn workspace_entries(
+     snapshot: &ClientShellSnapshot,
+     collapsed_groups: &HashSet<String>,
+ ) -> Vec<WorkspaceEntry> {
++    workspace_entries_keeping(snapshot, collapsed_groups, None)
++}
++
++/// Sidebar entries without Spaces carrying the reserved `sidebar_hidden`
++/// token. Every consumer (rendering, hit-testing, scroll metrics and
++/// visible-order navigation) flows through here, so hidden Spaces drop out of
++/// all of them at once. `keep_visible` names the navigate-mode selection.
++pub(crate) fn workspace_entries_keeping(
++    snapshot: &ClientShellSnapshot,
++    collapsed_groups: &HashSet<String>,
++    keep_visible: Option<&str>,
++) -> Vec<WorkspaceEntry> {
++    let hidden = |workspace: &ClientShellWorkspace| {
++        super::tree::workspace_sidebar_hidden(workspace, keep_visible)
++    };
+     let mut members = HashMap::<&str, Vec<usize>>::new();
+     for (index, workspace) in snapshot.workspaces.iter().enumerate() {
++        if hidden(workspace) {
++            continue;
++        }
+         if let Some(worktree) = &workspace.worktree {
+             members.entry(&worktree.key).or_default().push(index);
+         }
+@@ -465,6 +501,9 @@ pub(crate) fn workspace_entries(
+     let mut emitted = HashSet::<&str>::new();
+     let mut entries = Vec::new();
+     for (index, workspace) in snapshot.workspaces.iter().enumerate() {
++        if hidden(workspace) {
++            continue;
++        }
+         let Some(worktree) = workspace
+             .worktree
+             .as_ref()
+diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
+index 901c5a2..46b6faa 100644
+--- a/src/client/shell/state.rs
++++ b/src/client/shell/state.rs
+@@ -95,6 +95,10 @@ pub(super) struct ShellHitMap {
+     pub(super) pane_splits: Vec<PaneSplitHit>,
+     pub(super) agents: Vec<(Rect, String)>,
+     pub(super) endpoint_agents: Vec<(Rect, ClientEndpointId, String)>,
++    /// Inline-tree Space count suffixes that fold/unfold that Space's conversations.
++    pub(super) agent_toggles: Vec<(Rect, ClientEndpointId, String)>,
++    /// Inline-tree header label naming the machine on screen; click = next machine.
++    pub(super) machine_switch: Rect,
+     pub(super) agent_body: Rect,
+     pub(super) agent_scrollbar: Rect,
+     pub(super) agent_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+@@ -859,6 +863,8 @@ pub(crate) struct ClientShellState {
+     pub(super) tab_press: Option<ClientTabPress>,
+     pub(super) collapsed_groups: HashSet<String>,
+     pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
++    /// Inline-tree Spaces whose conversations are folded; runtime UI state only.
++    pub(super) collapsed_space_agents: HashSet<(ClientEndpointId, String)>,
+     pub(super) workspace_scroll: usize,
+     pub(super) agent_scroll: usize,
+     pub(super) tab_scroll: usize,
+@@ -995,6 +1001,16 @@ impl ClientShellState {
+                 .or_default()
+                 .extend(saved.collapsed_groups);
+         }
++        if config.spaces.inline_agents {
++            remote_collapsed_groups.clear();
++        }
++        // The inline tree starts fully open; saved repository folds belong to the
++        // legacy two-panel layout.
++        let collapsed_groups = if config.spaces.inline_agents {
++            HashSet::new()
++        } else {
++            preferences.collapsed_groups.into_iter().collect()
++        };
+         Self {
+             config,
+             snapshot: None,
+@@ -1019,8 +1035,9 @@ impl ClientShellState {
+             chrome_drag: None,
+             workspace_press: None,
+             tab_press: None,
+-            collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
+             remote_collapsed_groups,
++            collapsed_groups,
++            collapsed_space_agents: HashSet::new(),
+             workspace_scroll: 0,
+             agent_scroll: 0,
+             tab_scroll: 0,
+@@ -1150,15 +1167,67 @@ impl ClientShellState {
+         let empty_collapsed_groups = HashSet::new();
+         if self.mobile_layout_active() {
+             render::workspace_entries(snapshot, &empty_collapsed_groups)
++        } else if self.sidebar_collapsed {
++            sidebar::flat_workspace_entries_keeping(snapshot, self.tree_keep_visible())
++        } else if self.config.spaces.inline_agents {
++            super::tree::navigation_entries(&self.tree_inputs())
+         } else {
+-            render::workspace_entries(
++            sidebar::workspace_entries_keeping(
+                 snapshot,
+                 self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
+                     .unwrap_or(&empty_collapsed_groups),
++                self.tree_keep_visible(),
+             )
+         }
+     }
+ 
++    pub(super) fn tree_keep_visible(&self) -> Option<&str> {
++        self.navigate_workspace_id.as_ref()
++            .filter(|target| self.mode == ClientShellMode::Navigate
++                && target.endpoint_id == self.active_endpoint_id
++                && self.navigation_target_valid(target))
++            .map(|target| target.workspace_id.as_str())
++    }
++
++    pub(super) fn tree_inputs(&self) -> super::tree::TreeInputs<'_> {
++        super::tree::TreeInputs {
++            endpoints: &self.endpoints,
++            collapsed_groups: &self.collapsed_groups,
++            remote_collapsed_groups: &self.remote_collapsed_groups,
++            collapsed_space_agents: &self.collapsed_space_agents,
++            active_endpoint_id: &self.active_endpoint_id,
++            keep_visible: self.tree_keep_visible(),
++            agent_panel_sort: self.config.agent_panel_sort,
++        }
++    }
++
++    /// Inline tree: a focus change opens the enclosing repository and Space so
++    /// the reveal that follows can scroll to the exact conversation.
++    fn tree_reveal_focus(&mut self, snapshot: &ClientShellSnapshot) {
++        if !self.config.spaces.inline_agents {
++            return;
++        }
++        let Some(workspace) = snapshot
++            .focused_workspace_id
++            .as_deref()
++            .and_then(|id| snapshot.workspaces.iter().find(|ws| ws.workspace_id == id))
++        else {
++            return;
++        };
++        if let Some(worktree) = workspace.worktree.as_ref() {
++            if self.group_is_collapsed(&self.active_endpoint_id, &worktree.key) {
++                self.toggle_collapsed_group(&self.active_endpoint_id.clone(), worktree.key.clone());
++            }
++        }
++        if snapshot.focused_pane_id.is_some() {
++            self.collapsed_space_agents.remove(&(
++                self.active_endpoint_id.clone(),
++                workspace.workspace_id.clone(),
++            ));
++        }
++        self.reveal_focused_workspace = true;
++    }
++
+     pub(super) fn reveal_workspace(&mut self, workspace_id: &str) {
+         if self
+             .hits
+@@ -1389,6 +1458,12 @@ impl ClientShellState {
+         {
+             self.reveal_focused_workspace = true;
+         }
++        if self.snapshot.as_deref().is_none_or(|current| {
++            current.focused_workspace_id != snapshot.focused_workspace_id
++                || current.focused_pane_id != snapshot.focused_pane_id
++        }) {
++            self.tree_reveal_focus(&snapshot);
++        }
+         if tab_layout_changed
+             || self
+                 .snapshot
+diff --git a/src/client/shell/tests/keybindings_settings.rs b/src/client/shell/tests/keybindings_settings.rs
+index e1b43a0..549de04 100644
+--- a/src/client/shell/tests/keybindings_settings.rs
++++ b/src/client/shell/tests/keybindings_settings.rs
+@@ -233,7 +233,25 @@ detach = "prefix+x"
+         .collect::<Vec<_>>()
+         .join("\n");
+     assert!(text.contains("PREFIX"), "frame: {text:?}");
+-    assert!(text.contains("ctrl+a"), "frame: {text:?}");
++    // Compact indicator: no hint text, and the bar stops after " PREFIX ".
++    assert!(!text.contains("send prefix"), "frame: {text:?}");
++    let bar_y = usize::from(frame.height) - 1;
++    let bar_x = usize::from(state.hits.panes[0].rect.x);
++    let cell = |x: usize| &frame.cells[bar_y * usize::from(frame.width) + x];
++    assert_eq!(cell(bar_x).symbol, " ");
++    assert_eq!(cell(bar_x + 1).symbol, "P");
++    assert_eq!(
++        cell(bar_x).fg,
++        crate::protocol::color_to_u32(state.config.palette.overlay0)
++    );
++    assert_eq!(
++        cell(bar_x + 7).bg,
++        crate::protocol::color_to_u32(state.config.palette.panel_bg)
++    );
++    assert_ne!(
++        cell(bar_x + 8).bg,
++        crate::protocol::color_to_u32(state.config.palette.panel_bg)
++    );
+ 
+     let detach = state.handle_input_bytes(b"x");
+     assert!(detach.detach);
+diff --git a/src/client/shell/tests/mod.rs b/src/client/shell/tests/mod.rs
+index 787d8a7..7afa676 100644
+--- a/src/client/shell/tests/mod.rs
++++ b/src/client/shell/tests/mod.rs
+@@ -258,3 +258,4 @@ mod mobile;
+ mod mouse_selection;
+ mod popup_focus_projection;
+ mod startup_overlays;
++mod tree;
+diff --git a/src/client/shell/tests/tree.rs b/src/client/shell/tests/tree.rs
+new file mode 100644
+index 0000000..c38b1a6
+--- /dev/null
++++ b/src/client/shell/tests/tree.rs
+@@ -0,0 +1,837 @@
++//! Inline Spaces tree (`ui.sidebar.spaces.inline_agents`): document shape,
++//! `sidebar_hidden` filtering, disclosure, fixed footer and hit-testing.
++use super::*;
++use crate::client::endpoint::{
++    ClientEndpointId, ClientEndpointStatus, ProfileId, SavedSshEndpoint,
++};
++use crate::client::shell::tree::SIDEBAR_HIDDEN_TOKEN;
++
++fn tree_config() -> ClientShellConfig {
++    let mut config = Config::default();
++    config.ui.sidebar.spaces.inline_agents = true;
++    config.ui.sidebar.spaces.rows = vec![vec![crate::config::SpaceSidebarToken::Workspace]];
++    // The deployed config labels conversations by task title; keep the test
++    // rows explicit so the tree's first-row lookup is what is under test.
++    config.ui.sidebar.agents.rows = vec![vec![
++        crate::config::AgentSidebarToken::StateIcon,
++        crate::config::AgentSidebarToken::TerminalTitleStripped,
++    ]];
++    ClientShellConfig::from_config(&config)
++}
++
++fn workspace(number: usize, label: &str, focused: bool) -> ClientShellWorkspace {
++    ClientShellWorkspace {
++        workspace_id: format!("ws_{number}"),
++        active_tab_id: format!("tab_{number}_1"),
++        new_workspace_cwd: "/repo".into(),
++        number,
++        label: label.into(),
++        custom_label: false,
++        branch: None,
++        git_ahead_behind: None,
++        tokens: Vec::new(),
++        worktree: None,
++        focused,
++        agent_status: AgentStatus::Idle,
++    }
++}
++
++fn tab(workspace: usize, index: usize, focused: bool) -> ClientShellTab {
++    ClientShellTab {
++        tab_id: format!("tab_{workspace}_{index}"),
++        workspace_id: format!("ws_{workspace}"),
++        number: index,
++        label: index.to_string(),
++        custom_label: false,
++        zoomed: false,
++        focused,
++        agent_status: AgentStatus::Idle,
++    }
++}
++
++fn agent(workspace: usize, index: usize, title: &str, focused: bool) -> ClientShellAgent {
++    ClientShellAgent {
++        pane_id: format!("pane_{workspace}_{index}"),
++        workspace_id: format!("ws_{workspace}"),
++        tab_id: format!("tab_{workspace}_{index}"),
++        name: None,
++        display_agent: None,
++        agent: Some("pi".into()),
++        title: None,
++        terminal_title: Some(title.into()),
++        terminal_title_stripped: Some(title.into()),
++        agent_status: AgentStatus::Idle,
++        state_change_seq: 0,
++        state_labels: Vec::new(),
++        tokens: Vec::new(),
++        focused,
++    }
++}
++
++fn pane(workspace: usize, index: usize, focused: bool) -> ClientShellPane {
++    ClientShellPane {
++        pane_id: format!("pane_{workspace}_{index}"),
++        workspace_id: format!("ws_{workspace}"),
++        tab_id: format!("tab_{workspace}_{index}"),
++        label: None,
++        cwd: None,
++        foreground_cwd: None,
++        focused,
++        right_click_passthrough: false,
++    }
++}
++
++/// Two Spaces; the first has `tabs` conversations, the second one.
++fn fixture(tabs: usize) -> ClientShellSnapshot {
++    let mut snapshot = snapshot();
++    snapshot.focused_workspace_id = Some("ws_1".into());
++    snapshot.focused_tab_id = Some("tab_1_1".into());
++    snapshot.focused_pane_id = Some("pane_1_1".into());
++    snapshot.workspaces = vec![workspace(1, "beacon", true), workspace(2, "website", false)];
++    snapshot.tabs = (1..=tabs).map(|index| tab(1, index, index == 1)).collect();
++    snapshot.tabs.push(tab(2, 1, false));
++    snapshot.panes = (1..=tabs).map(|index| pane(1, index, index == 1)).collect();
++    snapshot.panes.push(pane(2, 1, false));
++    snapshot.agents = (1..=tabs)
++        .map(|index| agent(1, index, &format!("task {index}"), index == 1))
++        .collect();
++    snapshot.agents.push(agent(2, 1, "site task", false));
++    snapshot
++}
++
++fn tree_state(snapshot: ClientShellSnapshot) -> ClientShellState {
++    let mut state = ClientShellState::new(tree_config());
++    state.set_snapshot(Box::new(snapshot));
++    state.set_pane_surface(surface());
++    state
++}
++
++fn frame_rows(frame: &FrameData) -> Vec<String> {
++    frame
++        .cells
++        .chunks(frame.width as usize)
++        .map(|row| {
++            row.iter()
++                .map(|cell| cell.symbol.as_str())
++                .collect::<String>()
++                .trim_end()
++                .to_owned()
++        })
++        .collect()
++}
++
++fn sidebar_rows(state: &mut ClientShellState) -> Vec<String> {
++    let frame = state.compose(106, 14).expect("composed frame");
++    // Drop the separator column and any scrollbar track / toggle glyph.
++    let width = usize::from(state.sidebar_width.saturating_sub(1));
++    frame_rows(&frame)
++        .into_iter()
++        .map(|row| {
++            row.chars()
++                .take(width)
++                .collect::<String>()
++                .trim_end_matches(['▕', '«', '»'])
++                .trim_end()
++                .to_owned()
++        })
++        .collect()
++}
++
++fn click(state: &mut ClientShellState, column: u16, row: u16) -> ClientShellInput {
++    let mut outcome =
++        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
++            kind: MouseEventKind::Down(MouseButton::Left),
++            column,
++            row,
++            modifiers: KeyModifiers::empty(),
++        })]);
++    let release =
++        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
++            kind: MouseEventKind::Up(MouseButton::Left),
++            column,
++            row,
++            modifiers: KeyModifiers::empty(),
++        })]);
++    outcome.actions.extend(release.actions);
++    outcome.repaint |= release.repaint;
++    outcome
++}
++
++fn focus_requests(outcome: &ClientShellInput) -> Vec<String> {
++    outcome
++        .actions
++        .iter()
++        .filter_map(|action| match action {
++            ClientShellAction::Endpoint { request, .. } => match &request.method {
++                crate::api::schema::Method::WorkspaceFocus(target) => {
++                    Some(format!("workspace:{}", target.workspace_id))
++                }
++                crate::api::schema::Method::PaneFocus(target) => {
++                    Some(format!("pane:{}", target.pane_id))
++                }
++                _ => None,
++            },
++            _ => None,
++        })
++        .collect()
++}
++
++fn workspace_row(state: &ClientShellState, workspace_id: &str) -> Option<u16> {
++    state
++        .hits
++        .workspaces
++        .iter()
++        .find(|hit| hit.workspace_id == workspace_id && hit.group_toggle.is_none())
++        .map(|hit| hit.rect.y)
++}
++
++fn agent_row(state: &ClientShellState, pane_id: &str) -> Option<u16> {
++    state
++        .hits
++        .agents
++        .iter()
++        .find(|(_, id)| id == pane_id)
++        .map(|(rect, _)| rect.y)
++}
++
++#[test]
++fn tree_renders_spaces_and_conversations_with_one_gap_between_groups() {
++    let mut state = tree_state(fixture(2));
++    let rows = sidebar_rows(&mut state);
++    assert_eq!(rows[0], " spaces");
++    assert!(rows[2].starts_with(" beacon"), "{:?}", rows[2]);
++    assert!(
++        rows[2].ends_with("○ 2"),
++        "Space counts on the right: {:?}",
++        rows[2]
++    );
++    assert_eq!(rows[3], " ├─ ○ task 1");
++    assert_eq!(rows[4], " └─ ○ task 2");
++    assert_eq!(rows[5], "", "one blank gap row between Space groups");
++    assert!(rows[6].starts_with(" website"));
++    assert!(rows[6].ends_with("○ 1"));
++    assert_eq!(rows[7], " └─ ○ site task");
++    assert_eq!(rows[8], "", "no trailing gap");
++    // Status counts sit on the Space row's right edge and are hit targets.
++    assert_eq!(state.hits.agent_toggles.len(), 2);
++    assert!(state.hits.agent_sort_toggle.is_empty());
++    assert!(state.hits.sidebar_section_divider.is_empty());
++    assert!(state.hits.agent_body.is_empty(), "no Agents panel");
++    assert!(state.hits.new_workspace.is_empty(), "no New button");
++}
++
++#[test]
++fn count_suffix_folds_conversations_without_focus_and_rows_reflow() {
++    let mut state = tree_state(fixture(2));
++    sidebar_rows(&mut state);
++    let toggle = state.hits.agent_toggles[0].0;
++    assert_eq!(state.hits.agent_toggles[0].2, "ws_1");
++    let outcome = click(&mut state, toggle.x, toggle.y);
++    assert!(outcome.repaint);
++    assert!(focus_requests(&outcome).is_empty());
++    let rows = sidebar_rows(&mut state);
++    assert!(rows[2].contains("beacon"));
++    assert_eq!(
++        rows[3], "",
++        "collapsed Space is followed directly by the gap"
++    );
++    assert!(rows[4].contains("website"));
++    assert_eq!(agent_row(&state, "pane_1_2"), None);
++    assert_eq!(workspace_row(&state, "ws_2"), Some(4));
++
++    // Reopen, then click a child: exact pane focus.
++    let toggle = state.hits.agent_toggles[0].0;
++    click(&mut state, toggle.x, toggle.y);
++    sidebar_rows(&mut state);
++    let row = agent_row(&state, "pane_1_2").expect("second conversation row");
++    let outcome = click(&mut state, 8, row);
++    assert_eq!(focus_requests(&outcome), vec!["pane:pane_1_2"]);
++}
++
++#[test]
++fn space_name_click_selects_space_and_gap_row_is_inert() {
++    let mut state = tree_state(fixture(2));
++    sidebar_rows(&mut state);
++    let gap_row = 5;
++    let outcome = click(&mut state, 4, gap_row);
++    assert!(focus_requests(&outcome).is_empty());
++    assert!(!state
++        .hits
++        .workspaces
++        .iter()
++        .any(|hit| hit.rect.y == gap_row));
++    assert!(!state.hits.agents.iter().any(|(rect, _)| rect.y == gap_row));
++
++    let row = workspace_row(&state, "ws_2").expect("website row");
++    let outcome = click(&mut state, 4, row);
++    assert_eq!(focus_requests(&outcome), vec!["workspace:ws_2"]);
++}
++
++#[test]
++fn repository_header_folds_children_and_counts_stay_visible() {
++    let mut snapshot = fixture(2);
++    for (index, workspace) in snapshot.workspaces.iter_mut().enumerate() {
++        workspace.worktree = Some(ClientShellWorktree {
++            key: "repo".into(),
++            label: "repo".into(),
++            is_linked_worktree: index != 0,
++        });
++        workspace.branch = Some(if index == 0 { "main" } else { "worktree/site" }.into());
++    }
++    let mut state = tree_state(snapshot);
++    let rows = sidebar_rows(&mut state);
++    assert!(rows[2].starts_with(" repo"), "{:?}", rows[2]);
++    assert!(rows[2].contains("2 spaces"));
++    assert!(
++        rows[2].contains("○ 3"),
++        "repository totals count each conversation once"
++    );
++    assert!(rows[3].starts_with(" ├─ main"), "{:?}", rows[3]);
++    assert!(
++        rows[3].ends_with("○ 2"),
++        "Space counts cover only that checkout"
++    );
++    assert_eq!(rows[4], " │  ├─ ○ task 1");
++    assert_eq!(rows[5], " │  └─ ○ task 2");
++    assert_eq!(
++        rows[6], " │",
++        "gap inside a repository keeps the trunk connector"
++    );
++    assert!(rows[7].starts_with(" └─ site"), "{:?}", rows[7]);
++    assert!(rows[7].ends_with("○ 1"));
++    assert_eq!(rows[8], "    └─ ○ site task");
++
++    let header = state.hits.workspaces[0].rect;
++    assert!(state.hits.workspaces[0].group_toggle.is_some());
++    let outcome = click(&mut state, header.x + 2, header.y);
++    assert!(focus_requests(&outcome).is_empty());
++    assert!(state.collapsed_groups.contains("repo"));
++    let rows = sidebar_rows(&mut state);
++    assert!(rows[2].contains("2 spaces"));
++    assert!(
++        rows[2].contains("○ 3"),
++        "counts remain visible when collapsed"
++    );
++    assert_eq!(rows[3], "");
++    assert_eq!(state.hits.workspaces.len(), 1);
++    // Visible-order navigation treats the collapsed repository as one Space.
++    let entries = state.navigation_workspace_entries(state.snapshot.as_deref().unwrap());
++    assert_eq!(entries.len(), 1);
++    assert_eq!(entries[0].index, 0);
++
++    click(&mut state, header.x + 2, header.y);
++    assert!(!state.collapsed_groups.contains("repo"));
++    sidebar_rows(&mut state);
++    let entries = state.navigation_workspace_entries(state.snapshot.as_deref().unwrap());
++    assert_eq!(
++        entries.iter().map(|entry| entry.index).collect::<Vec<_>>(),
++        vec![0, 1]
++    );
++}
++
++#[test]
++fn sidebar_hidden_token_hides_spaces_except_focused_or_selected() {
++    let mut snapshot = fixture(1);
++    snapshot.workspaces.push(workspace(3, "third", false));
++    snapshot.workspaces[1]
++        .tokens
++        .push((SIDEBAR_HIDDEN_TOKEN.into(), "1".into()));
++    let mut state = tree_state(snapshot);
++    let rows = sidebar_rows(&mut state);
++    assert!(rows.iter().all(|row| !row.contains("website")));
++    assert!(rows.iter().any(|row| row.contains("third")));
++    assert_eq!(
++        state
++            .hits
++            .workspaces
++            .iter()
++            .map(|hit| hit.workspace_id.as_str())
++            .collect::<Vec<_>>(),
++        vec!["ws_1", "ws_3"]
++    );
++    let entries = state.navigation_workspace_entries(state.snapshot.as_deref().unwrap());
++    assert_eq!(
++        entries.iter().map(|entry| entry.index).collect::<Vec<_>>(),
++        vec![0, 2]
++    );
++
++    // The focused Space can never be hidden out from under focus.
++    let mut update = state.snapshot.as_deref().unwrap().clone();
++    update.revision = 2;
++    update.focused_workspace_id = Some("ws_2".into());
++    for workspace in &mut update.workspaces {
++        workspace.focused = workspace.workspace_id == "ws_2";
++    }
++    let mut update_surface = surface();
++    update_surface.projection_revision = 2;
++    state.set_snapshot(Box::new(update));
++    state.set_pane_surface(update_surface);
++    let rows = sidebar_rows(&mut state);
++    assert!(rows.iter().any(|row| row.contains("website")));
++
++    // An empty value means not hidden.
++    let mut update = state.snapshot.as_deref().unwrap().clone();
++    update.revision = 3;
++    update.focused_workspace_id = Some("ws_1".into());
++    for workspace in &mut update.workspaces {
++        workspace.focused = workspace.workspace_id == "ws_1";
++    }
++    update.workspaces[1].tokens = vec![(SIDEBAR_HIDDEN_TOKEN.into(), String::new())];
++    let mut update_surface = surface();
++    update_surface.projection_revision = 3;
++    state.set_snapshot(Box::new(update));
++    state.set_pane_surface(update_surface);
++    let rows = sidebar_rows(&mut state);
++    assert!(rows.iter().any(|row| row.contains("website")));
++
++    // Navigate-mode selection stays visible too, and hidden Spaces are skipped.
++    let mut update = state.snapshot.as_deref().unwrap().clone();
++    update.revision = 4;
++    update.workspaces[1].tokens = vec![(SIDEBAR_HIDDEN_TOKEN.into(), "1".into())];
++    let mut update_surface = surface();
++    update_surface.projection_revision = 4;
++    state.set_snapshot(Box::new(update));
++    state.set_pane_surface(update_surface);
++    state.mode = ClientShellMode::Navigate;
++    state.navigate_workspace_id = state.navigation_target(&ClientEndpointId::Local, "ws_2");
++    let rows = sidebar_rows(&mut state);
++    assert!(rows.iter().any(|row| row.contains("website")));
++    state.navigate_workspace_id = state.navigation_target(&ClientEndpointId::Local, "ws_1");
++    let entries = state.navigation_workspace_entries(state.snapshot.as_deref().unwrap());
++    assert_eq!(
++        entries.iter().map(|entry| entry.index).collect::<Vec<_>>(),
++        vec![0, 2]
++    );
++}
++
++#[test]
++fn legacy_two_panel_layout_also_filters_hidden_spaces() {
++    let mut snapshot = fixture(1);
++    snapshot.workspaces[1]
++        .tokens
++        .push((SIDEBAR_HIDDEN_TOKEN.into(), "1".into()));
++    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
++    state.set_snapshot(Box::new(snapshot));
++    state.set_pane_surface(surface());
++    state.compose(106, 20).expect("legacy sidebar");
++    assert_eq!(
++        state
++            .hits
++            .workspaces
++            .iter()
++            .map(|hit| hit.workspace_id.as_str())
++            .collect::<Vec<_>>(),
++        vec!["ws_1"]
++    );
++}
++
++#[test]
++fn collapsed_sidebar_lists_filtered_spaces_with_real_numbers_and_view_badge() {
++    let mut snapshot = fixture(1);
++    snapshot.workspaces.push(workspace(3, "third", false));
++    snapshot.workspaces[1]
++        .tokens
++        .push((SIDEBAR_HIDDEN_TOKEN.into(), "1".into()));
++    snapshot.agent_view_label = Some("Personal".into());
++    let mut state = tree_state(snapshot);
++    state.sidebar_collapsed = true;
++    let frame = state.compose(106, 12).expect("collapsed sidebar");
++    let rows = frame_rows(&frame);
++    assert!(rows[0].starts_with("1 "));
++    assert!(
++        rows[1].starts_with("3 "),
++        "hidden Space skipped; real numbers kept: {:?}",
++        rows[1]
++    );
++    assert_eq!(
++        state
++            .hits
++            .workspaces
++            .iter()
++            .map(|hit| hit.workspace_id.as_str())
++            .collect::<Vec<_>>(),
++        vec!["ws_1", "ws_3"]
++    );
++    assert!(
++        state.hits.agents.is_empty(),
++        "no agent rows in the collapsed tree"
++    );
++    assert!(
++        rows[10].starts_with('P'),
++        "view badge on the divider: {:?}",
++        rows[10]
++    );
++    assert_eq!(state.hits.sidebar_toggle.y, 11);
++}
++
++#[test]
++fn footer_label_is_inert_menu_opens_and_scrolling_does_not_move_them() {
++    let mut snapshot = fixture(30);
++    // A view label means the plugin owns the agent order (spaces-env filter).
++    snapshot.agent_view_label = Some("Personal".into());
++    snapshot.agent_order = snapshot
++        .agents
++        .iter()
++        .map(|agent| agent.pane_id.clone())
++        .collect();
++    let mut state = tree_state(snapshot);
++    let rows = sidebar_rows(&mut state);
++    let footer_y = 13;
++    assert!(
++        rows[footer_y].starts_with(" Personal"),
++        "{:?}",
++        rows[footer_y]
++    );
++    assert!(rows[footer_y].ends_with("menu"), "{:?}", rows[footer_y]);
++    assert!(state.hits.workspace_max_scroll > 0);
++    let outcome = click(&mut state, 2, footer_y as u16);
++    assert!(focus_requests(&outcome).is_empty());
++    assert!(state.overlay.is_none());
++    assert!(!state
++        .hits
++        .workspaces
++        .iter()
++        .any(|hit| hit.rect.y == footer_y as u16));
++
++    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
++        kind: MouseEventKind::ScrollDown,
++        column: 5,
++        row: 6,
++        modifiers: KeyModifiers::empty(),
++    })]);
++    assert_eq!(state.workspace_scroll, 1);
++    let rows = sidebar_rows(&mut state);
++    assert!(rows[footer_y].starts_with(" Personal"));
++    assert!(state.hits.workspace_scrollbar.height > 0);
++
++    let menu = state.hits.global_launcher;
++    assert_eq!(menu.y, footer_y as u16);
++    click(&mut state, menu.x, menu.y);
++    assert!(matches!(
++        state.overlay,
++        Some(ClientShellOverlay::GlobalMenu(_))
++    ));
++}
++
++#[test]
++fn focus_change_opens_folds_and_reveals_the_deep_conversation() {
++    let mut state = tree_state(fixture(30));
++    sidebar_rows(&mut state);
++    let toggle = state.hits.agent_toggles[0].0;
++    click(&mut state, toggle.x, toggle.y);
++    assert!(state
++        .collapsed_space_agents
++        .contains(&(ClientEndpointId::Local, "ws_1".into())));
++
++    let mut update = state.snapshot.as_deref().unwrap().clone();
++    update.revision = 2;
++    update.focused_pane_id = Some("pane_1_29".into());
++    update.focused_tab_id = Some("tab_1_29".into());
++    for pane in &mut update.panes {
++        pane.focused = pane.pane_id == "pane_1_29";
++    }
++    for agent in &mut update.agents {
++        agent.focused = agent.pane_id == "pane_1_29";
++    }
++    let mut update_surface = surface();
++    update_surface.projection_revision = 2;
++    state.set_snapshot(Box::new(update));
++    state.set_pane_surface(update_surface);
++    assert!(state.collapsed_space_agents.is_empty());
++    sidebar_rows(&mut state);
++    assert!(agent_row(&state, "pane_1_29").is_some());
++    assert!(state.workspace_scroll > 0);
++}
++
++#[test]
++fn inline_tree_startup_ignores_saved_repository_folds() {
++    let mut config = Config::default();
++    config.ui.sidebar.spaces.inline_agents = true;
++    let mut shell = ClientShellConfig::from_config(&config);
++    shell.preferences.collapsed_groups = vec!["saved-fold".into()];
++    let state = ClientShellState::new(shell);
++    assert!(state.collapsed_groups.is_empty());
++
++    let mut legacy = ClientShellConfig::from_config(&Config::default());
++    legacy.preferences.collapsed_groups = vec!["saved-fold".into()];
++    let state = ClientShellState::new(legacy);
++    assert!(state.collapsed_groups.contains("saved-fold"));
++}
++
++fn remote_profile() -> SavedSshEndpoint {
++    SavedSshEndpoint {
++        id: ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
++        label: "home".into(),
++        target: "eric@home.example".into(),
++        session: "agents".into(),
++        enabled: true,
++    }
++}
++
++fn two_machine_state() -> (ClientShellState, ClientEndpointId) {
++    let mut state = ClientShellState::new(tree_config());
++    let profile = remote_profile();
++    let remote_id = ClientEndpointId::Ssh(profile.id.clone());
++    state.set_endpoint_catalog(&[profile]);
++    state.set_endpoint_status(&remote_id, ClientEndpointStatus::Online);
++    state.set_snapshot(Box::new(fixture(1)));
++    state.set_pane_surface(surface());
++    let mut remote = fixture(1);
++    remote.boot_id = "remote-boot".into();
++    remote.workspaces[0].label = "remote-beacon".into();
++    remote.workspaces[1].label = "remote-website".into();
++    remote.agents[0].terminal_title_stripped = Some("remote task".into());
++    state.set_endpoint_snapshot(&remote_id, Box::new(remote));
++    (state, remote_id)
++}
++
++#[test]
++fn each_machine_is_its_own_screen_named_in_the_header() {
++    let (mut state, remote_id) = two_machine_state();
++
++    // Local screen: only Local's tree, no machine rows, header names the machine.
++    let rows = sidebar_rows(&mut state);
++    assert!(rows[0].starts_with(" spaces"), "{:?}", rows[0]);
++    assert!(rows[0].ends_with("Local"), "{:?}", rows[0]);
++    assert!(rows[2].starts_with(" beacon"));
++    assert_eq!(rows[3], " └─ ○ task 1");
++    assert_eq!(rows[4], "");
++    assert!(rows[5].starts_with(" website"));
++    assert_eq!(rows[6], " └─ ○ site task");
++    assert_eq!(rows[7], "", "nothing from the other machine follows");
++    assert!(rows.iter().all(|row| !row.contains("remote")));
++    assert!(state.hits.machines.is_empty());
++    assert!(state.hits.endpoint_agents.is_empty());
++    assert_eq!(state.hits.agents.len(), 2);
++    assert!(state
++        .hits
++        .workspaces
++        .iter()
++        .all(|hit| hit.endpoint_id.is_local()));
++
++    // The header label is a click target for the next online machine.
++    let label = state.hits.machine_switch;
++    assert!(label.width > 0 && label.y == 0);
++    let outcome = click(&mut state, label.x, label.y);
++    assert!(matches!(
++        &outcome.actions[..],
++        [ClientShellAction::ActivateEndpoint { endpoint_id, target: None }] if endpoint_id == &remote_id
++    ));
++
++    // home screen: the remote tree alone, and its own environment label.
++    state.active_endpoint_id = remote_id.clone();
++    let remote_snapshot = state
++        .endpoints
++        .iter()
++        .find(|endpoint| endpoint.endpoint_id == remote_id)
++        .and_then(|endpoint| endpoint.snapshot.clone())
++        .expect("remote snapshot");
++    state.apply_active_snapshot(remote_snapshot, None);
++    let mut remote_surface = surface();
++    remote_surface.boot_id = "remote-boot".into();
++    state.set_pane_surface(remote_surface);
++    let rows = sidebar_rows(&mut state);
++    assert!(rows[0].ends_with("home"), "{:?}", rows[0]);
++    assert!(rows[2].starts_with(" remote-beacon"), "{:?}", rows[2]);
++    assert_eq!(rows[3], " └─ ○ remote task");
++    assert!(rows
++        .iter()
++        .skip(1)
++        .all(|row| !row.contains("beacon") || row.contains("remote")));
++    assert!(state
++        .hits
++        .workspaces
++        .iter()
++        .all(|hit| hit.endpoint_id == remote_id));
++    let row = agent_row(&state, "pane_1_1").expect("remote conversation row");
++    let outcome = click(&mut state, 8, row);
++    assert_eq!(focus_requests(&outcome), vec!["pane:pane_1_1"]);
++
++    // Collapsed: the active machine's Spaces and its initial beside the view badge.
++    state.sidebar_collapsed = true;
++    let frame = state.compose(106, 12).expect("collapsed sidebar");
++    let rows = frame_rows(&frame);
++    assert!(rows[0].starts_with("1 "));
++    assert_eq!(state.hits.workspaces.len(), 2);
++    assert!(state
++        .hits
++        .workspaces
++        .iter()
++        .all(|hit| hit.endpoint_id == remote_id));
++    assert!(
++        rows[10].trim_end_matches('│').ends_with('H'),
++        "machine initial on the divider: {:?}",
++        rows[10]
++    );
++}
++
++#[test]
++fn space_and_agent_keys_stay_on_the_machine_on_screen() {
++    let (mut state, _remote_id) = two_machine_state();
++    sidebar_rows(&mut state);
++    for (action, expected) in [
++        (crate::input::KeybindAction::NextWorkspace, "workspace:ws_2"),
++        (
++            crate::input::KeybindAction::PreviousWorkspace,
++            "workspace:ws_2",
++        ),
++        (crate::input::KeybindAction::NextAgent, "pane:pane_2_1"),
++        (crate::input::KeybindAction::PreviousAgent, "pane:pane_2_1"),
++        (crate::input::KeybindAction::FocusAgent(1), "pane:pane_2_1"),
++    ] {
++        let mut outcome = ClientShellInput::default();
++        state.record_binding(crate::input::KeybindMatch::Action(action), &mut outcome);
++        assert_eq!(focus_requests(&outcome), vec![expected], "{action:?}");
++        assert!(
++            !outcome
++                .actions
++                .iter()
++                .any(|action| matches!(action, ClientShellAction::ActivateEndpoint { .. })),
++            "{action:?} must not switch machines"
++        );
++    }
++}
++
++#[test]
++fn machine_toggle_alternates_online_machines_and_reports_offline_ones() {
++    let mut state = ClientShellState::new(tree_config());
++    let profile = remote_profile();
++    let remote_id = ClientEndpointId::Ssh(profile.id.clone());
++    state.set_endpoint_catalog(&[profile]);
++    state.set_snapshot(Box::new(fixture(1)));
++    state.set_pane_surface(surface());
++    let next = crate::input::KeybindMatch::Action(crate::input::KeybindAction::NextMachine);
++    let previous = crate::input::KeybindMatch::Action(crate::input::KeybindAction::PreviousMachine);
++
++    // Saved but still connecting: stay put and say so, without asking the server.
++    let mut outcome = ClientShellInput::default();
++    state.record_binding(next.clone(), &mut outcome);
++    assert!(outcome.actions.is_empty());
++    assert!(outcome.repaint);
++    assert!(state
++        .visible_endpoint_notice
++        .as_ref()
++        .is_some_and(|notice| notice.body == "home is not ready"));
++
++    // Online: the key alternates Local ↔ home in both directions.
++    state.set_endpoint_status(&remote_id, ClientEndpointStatus::Online);
++    let mut remote = fixture(1);
++    remote.boot_id = "remote-boot".into();
++    state.set_endpoint_snapshot(&remote_id, Box::new(remote));
++    let mut outcome = ClientShellInput::default();
++    state.record_binding(next.clone(), &mut outcome);
++    assert!(matches!(
++        &outcome.actions[..],
++        [ClientShellAction::ActivateEndpoint { endpoint_id, target: None }] if endpoint_id == &remote_id
++    ));
++    state.active_endpoint_id = remote_id.clone();
++    let mut outcome = ClientShellInput::default();
++    state.record_binding(next.clone(), &mut outcome);
++    assert!(matches!(
++        &outcome.actions[..],
++        [ClientShellAction::ActivateEndpoint { endpoint_id, target: None }] if endpoint_id.is_local()
++    ));
++    let mut outcome = ClientShellInput::default();
++    state.record_binding(previous, &mut outcome);
++    assert!(matches!(
++        &outcome.actions[..],
++        [ClientShellAction::ActivateEndpoint { endpoint_id, target: None }] if endpoint_id.is_local()
++    ));
++
++    // Only Local saved: nothing to switch to, and nothing reaches the server.
++    let mut alone = ClientShellState::new(tree_config());
++    alone.set_snapshot(Box::new(fixture(1)));
++    alone.set_pane_surface(surface());
++    let mut outcome = ClientShellInput::default();
++    alone.record_binding(next, &mut outcome);
++    assert!(outcome.actions.is_empty());
++    assert!(alone
++        .visible_endpoint_notice
++        .as_ref()
++        .is_some_and(|notice| notice.body == "no other machine is saved"));
++}
++
++#[test]
++fn navigate_preview_stays_machine_local_and_skips_hidden_spaces() {
++    for collapsed in [false, true] {
++        let (mut state, _) = two_machine_state();
++        let mut local = fixture(1);
++        local.workspaces[1].tokens.push((SIDEBAR_HIDDEN_TOKEN.into(), "hidden".into()));
++        state.set_snapshot(Box::new(local));
++        state.set_pane_surface(surface());
++        state.sidebar_collapsed = collapsed;
++        sidebar_rows(&mut state);
++        state.mode = ClientShellMode::Navigate;
++        state.navigate_workspace_id = state.focused_navigation_target();
++        for delta in [1, 1, -1, -1] {
++            state.move_navigate_workspace(delta);
++            let target = state.navigate_workspace_id.as_ref().unwrap();
++            assert!(target.endpoint_id.is_local());
++            assert_eq!(target.workspace_id, "ws_1");
++        }
++    }
++}
++
++#[test]
++fn navigate_preview_reveals_deep_space_without_moving_focus() {
++    let mut state = tree_state(fixture(30));
++    sidebar_rows(&mut state);
++    state.mode = ClientShellMode::Navigate;
++    state.navigate_workspace_id = state.focused_navigation_target();
++    state.move_navigate_workspace(1);
++    sidebar_rows(&mut state);
++    assert_eq!(state.navigate_workspace_id.as_ref().unwrap().workspace_id, "ws_2");
++    assert!(workspace_row(&state, "ws_2").is_some());
++    assert_eq!(state.snapshot.as_ref().unwrap().focused_workspace_id.as_deref(), Some("ws_1"));
++}
++
++#[test]
++fn tree_survives_missing_surface_during_resize() {
++    let mut state = tree_state(fixture(1));
++    state.pane_surface = None;
++    let rows = sidebar_rows(&mut state);
++    assert!(rows.iter().any(|row| row.contains("task 1")));
++    assert!(state.hits.agent_body.is_empty());
++    assert!(state.hits.new_workspace.is_empty());
++}
++
++#[test]
++fn repository_folds_are_scoped_to_the_machine() {
++    let (mut state, remote_id) = two_machine_state();
++    state.toggle_collapsed_group(&ClientEndpointId::Local, "shared-key".into());
++    let inputs = state.tree_inputs();
++    assert!(inputs.group_collapsed(&ClientEndpointId::Local, "shared-key"));
++    assert!(!inputs.group_collapsed(&remote_id, "shared-key"));
++    state.toggle_collapsed_group(&remote_id, "remote-key".into());
++    let inputs = state.tree_inputs();
++    assert!(inputs.group_collapsed(&remote_id, "remote-key"));
++    assert!(!inputs.group_collapsed(&ClientEndpointId::Local, "remote-key"));
++}
++
++#[test]
++fn machine_keys_parse_and_appear_in_help() {
++    let config: Config = toml::from_str(
++        "[keys]\nnext_machine = \"prefix+'\"\nprevious_machine = \"prefix+shift+'\"\n",
++    )
++    .expect("config parses");
++    let shell = ClientShellConfig::from_config(&config);
++    let keybinds = &shell.keybinds.keybinds;
++    assert!(keybinds.next_machine.label().is_some());
++    assert!(keybinds.previous_machine.label().is_some());
++    let key = crate::input::TerminalKey::new(
++        crossterm::event::KeyCode::Char('\''),
++        crossterm::event::KeyModifiers::empty(),
++    );
++    assert!(matches!(
++        crate::input::resolve_prefix_binding(keybinds, &key),
++        Some(crate::input::KeybindMatch::Action(
++            crate::input::KeybindAction::NextMachine
++        ))
++    ));
++    assert!(
++        crate::input::keybind_help_groups(keybinds, shell.keybinds.prefix)
++            .iter()
++            .flat_map(|(_, entries)| entries.iter())
++            .any(|(_, description)| description == "next machine")
++    );
++}
+diff --git a/src/client/shell/tree.rs b/src/client/shell/tree.rs
+new file mode 100644
+index 0000000..f3533c2
+--- /dev/null
++++ b/src/client/shell/tree.rs
+@@ -0,0 +1,1149 @@
++//! Inline Spaces tree (`ui.sidebar.spaces.inline_agents`).
++//!
++//! One row document shared by rendering, scrolling, disclosure and hit-testing:
++//! repository → checkout/Space → conversation. The tree always shows exactly
++//! one machine — the active endpoint — so switching machines swaps the whole
++//! sidebar the way Personal/Work swaps Spaces; the header names the machine
++//! whenever more than one is saved. Repository headers are navigation groups,
++//! not duplicate Space cards. A blank gap row separates consecutive Space
++//! groups, never leading or trailing; gap rows are inert.
++use super::render::{display_width, put_right_text, put_text, ShellRenderState};
++use super::*;
++use ratatui::{
++    text::{Line, Span},
++    widgets::{Paragraph, Widget},
++};
++
++/// Reserved workspace metadata token: any source may set it non-empty via
++/// `workspace.report_metadata` to hide that Space from the sidebar. The focused
++/// Space (and, while navigating, the selected one) always stays visible so
++/// focus and selection can never point at a hidden row.
++pub(crate) const SIDEBAR_HIDDEN_TOKEN: &str = "sidebar_hidden";
++
++pub(super) fn workspace_sidebar_hidden(
++    workspace: &ClientShellWorkspace,
++    keep_visible: Option<&str>,
++) -> bool {
++    if workspace.focused || keep_visible == Some(workspace.workspace_id.as_str()) {
++        return false;
++    }
++    workspace
++        .tokens
++        .iter()
++        .any(|(key, value)| key == SIDEBAR_HIDDEN_TOKEN && !value.is_empty())
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(super) enum TreeRow {
++    Repository {
++        endpoint: usize,
++        index: usize,
++        key: String,
++    },
++    Space {
++        endpoint: usize,
++        index: usize,
++        indented: bool,
++    },
++    Agent {
++        endpoint: usize,
++        index: usize,
++        pane_id: String,
++        indented: bool,
++    },
++    /// Blank separator. `depth` is the level of the group that follows, so
++    /// branch continuations stay connected inside a repository and stop before
++    /// the next top-level entry.
++    Gap { depth: usize },
++}
++
++impl TreeRow {
++    fn depth(&self) -> usize {
++        match self {
++            Self::Repository { .. } => 0,
++            Self::Space { indented, .. } => usize::from(*indented),
++            Self::Agent { indented, .. } => 1 + usize::from(*indented),
++            Self::Gap { depth } => *depth,
++        }
++    }
++
++    fn endpoint(&self) -> Option<usize> {
++        match self {
++            Self::Repository { endpoint, .. }
++            | Self::Space { endpoint, .. }
++            | Self::Agent { endpoint, .. } => Some(*endpoint),
++            Self::Gap { .. } => None,
++        }
++    }
++}
++
++pub(super) struct TreeInputs<'a> {
++    pub(super) endpoints: &'a [ClientShellEndpoint],
++    pub(super) collapsed_groups: &'a HashSet<String>,
++    pub(super) remote_collapsed_groups: &'a HashMap<ClientEndpointId, HashSet<String>>,
++    pub(super) collapsed_space_agents: &'a HashSet<(ClientEndpointId, String)>,
++    pub(super) active_endpoint_id: &'a ClientEndpointId,
++    /// Navigate-mode selection on the active endpoint; never hidden.
++    pub(super) keep_visible: Option<&'a str>,
++    pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
++}
++
++impl TreeInputs<'_> {
++    pub(super) fn group_collapsed(&self, endpoint_id: &ClientEndpointId, key: &str) -> bool {
++        if endpoint_id.is_local() {
++            self.collapsed_groups.contains(key)
++        } else {
++            self.remote_collapsed_groups.get(endpoint_id)
++                .is_some_and(|groups| groups.contains(key))
++        }
++    }
++}
++
++fn visible_workspaces(snapshot: &ClientShellSnapshot, keep_visible: Option<&str>) -> Vec<usize> {
++    snapshot
++        .workspaces
++        .iter()
++        .enumerate()
++        .filter(|(_, workspace)| !workspace_sidebar_hidden(workspace, keep_visible))
++        .map(|(index, _)| index)
++        .collect()
++}
++
++/// Visible members of a worktree group: the main checkout first, then linked
++/// worktrees in snapshot order.
++fn group_members(snapshot: &ClientShellSnapshot, visible: &[usize], key: &str) -> Vec<usize> {
++    let mut members = visible
++        .iter()
++        .copied()
++        .filter(|index| {
++            snapshot.workspaces[*index]
++                .worktree
++                .as_ref()
++                .is_some_and(|worktree| worktree.key == key)
++        })
++        .collect::<Vec<_>>();
++    members.sort_by_key(|index| {
++        snapshot.workspaces[*index]
++            .worktree
++            .as_ref()
++            .is_some_and(|worktree| worktree.is_linked_worktree)
++    });
++    members
++}
++
++/// Agents in panel order, each with its workspace id.
++fn ordered_agents(
++    snapshot: &ClientShellSnapshot,
++    sort: crate::config::AgentPanelSortConfig,
++) -> Vec<(String, String)> {
++    super::agent_sidebar::ordered_agent_pane_ids(snapshot, sort)
++        .into_iter()
++        .filter_map(|pane_id| {
++            let agent = snapshot
++                .agents
++                .iter()
++                .find(|agent| agent.pane_id == pane_id)?;
++            Some((pane_id, agent.workspace_id.clone()))
++        })
++        .collect()
++}
++
++pub(super) fn space_agents_expanded(
++    inputs: &TreeInputs<'_>,
++    endpoint_id: &ClientEndpointId,
++    workspace_id: &str,
++) -> bool {
++    !inputs
++        .collapsed_space_agents
++        .contains(&(endpoint_id.clone(), workspace_id.to_owned()))
++}
++
++fn push_space(
++    rows: &mut Vec<TreeRow>,
++    inputs: &TreeInputs<'_>,
++    endpoint: usize,
++    snapshot: &ClientShellSnapshot,
++    agents: &[(String, String)],
++    index: usize,
++    indented: bool,
++) {
++    rows.push(TreeRow::Space {
++        endpoint,
++        index,
++        indented,
++    });
++    let workspace = &snapshot.workspaces[index];
++    if space_agents_expanded(
++        inputs,
++        &inputs.endpoints[endpoint].endpoint_id,
++        &workspace.workspace_id,
++    ) {
++        for (pane_id, workspace_id) in agents {
++            if workspace_id == &workspace.workspace_id {
++                rows.push(TreeRow::Agent {
++                    endpoint,
++                    index,
++                    pane_id: pane_id.clone(),
++                    indented,
++                });
++            }
++        }
++    }
++}
++
++fn endpoint_rows(rows: &mut Vec<TreeRow>, inputs: &TreeInputs<'_>, endpoint: usize) {
++    let Some(snapshot) = inputs.endpoints[endpoint].snapshot.as_deref() else {
++        return;
++    };
++    let keep_visible = if &inputs.endpoints[endpoint].endpoint_id == inputs.active_endpoint_id {
++        inputs.keep_visible
++    } else {
++        None
++    };
++    let visible = visible_workspaces(snapshot, keep_visible);
++    let agents = ordered_agents(snapshot, inputs.agent_panel_sort);
++    let mut emitted = HashSet::new();
++    let start = rows.len();
++    for &index in &visible {
++        if !emitted.insert(index) {
++            continue;
++        }
++        if rows.len() > start {
++            rows.push(TreeRow::Gap { depth: 0 });
++        }
++        let members = snapshot.workspaces[index]
++            .worktree
++            .as_ref()
++            .map_or_else(Vec::new, |worktree| {
++                group_members(snapshot, &visible, &worktree.key)
++            });
++        // A linked checkout still belongs under its repository when the main
++        // checkout is closed or in the other environment. Never invent a Space.
++        let grouped = members.len() > 1
++            || members.iter().any(|member| {
++                snapshot.workspaces[*member]
++                    .worktree
++                    .as_ref()
++                    .is_some_and(|worktree| worktree.is_linked_worktree)
++            });
++        if grouped {
++            emitted.extend(members.iter().copied());
++            let key = snapshot.workspaces[index]
++                .worktree
++                .as_ref()
++                .map(|worktree| worktree.key.clone())
++                .unwrap_or_default();
++            rows.push(TreeRow::Repository {
++                endpoint,
++                index: members[0],
++                key: key.clone(),
++            });
++            if !inputs.group_collapsed(&inputs.endpoints[endpoint].endpoint_id, &key) {
++                for (position, member) in members.into_iter().enumerate() {
++                    if position > 0 {
++                        rows.push(TreeRow::Gap { depth: 1 });
++                    }
++                    push_space(rows, inputs, endpoint, snapshot, &agents, member, true);
++                }
++            }
++        } else {
++            push_space(rows, inputs, endpoint, snapshot, &agents, index, false);
++        }
++    }
++}
++
++pub(super) fn active_endpoint_index(inputs: &TreeInputs<'_>) -> Option<usize> {
++    inputs
++        .endpoints
++        .iter()
++        .position(|endpoint| &endpoint.endpoint_id == inputs.active_endpoint_id)
++}
++
++/// The active machine's tree. Other machines are separate screens reached with
++/// the machine keys or the header label; they never share this document.
++pub(super) fn document(inputs: &TreeInputs<'_>) -> Vec<TreeRow> {
++    let mut rows = Vec::new();
++    if let Some(endpoint) = active_endpoint_index(inputs) {
++        endpoint_rows(&mut rows, inputs, endpoint);
++    }
++    rows
++}
++
++/// Space order used by visible-order navigation: Space rows plus collapsed
++/// repository headers, exactly as rendered.
++pub(super) fn navigation_entries(inputs: &TreeInputs<'_>) -> Vec<WorkspaceEntry> {
++    let rows = document(inputs);
++    rows.iter()
++        .enumerate()
++        .filter_map(|(position, row)| match row {
++            TreeRow::Space {
++                index, indented, ..
++            } => Some(WorkspaceEntry {
++                index: *index,
++                indented: *indented,
++                last_child: false,
++            }),
++            TreeRow::Repository { index, .. }
++                if rows.get(position + 1).is_none_or(|next| next.depth() == 0) =>
++            {
++                Some(WorkspaceEntry {
++                    index: *index,
++                    indented: false,
++                    last_child: false,
++                })
++            }
++            _ => None,
++        })
++        .collect()
++}
++
++// Tree continuations depend on the complete document, not just the viewport.
++// A gap row only carries continuation bars: it is never a branch of its own.
++fn branch_prefix(rows: &[TreeRow], position: usize) -> String {
++    let row = &rows[position];
++    let depth = row.depth();
++    let branch = !matches!(row, TreeRow::Gap { .. });
++    let mut prefix = String::from(" ");
++    for level in 1..=depth {
++        let has_next = rows[position + 1..]
++            .iter()
++            .find(|row| row.depth() <= level)
++            .is_some_and(|row| row.depth() == level);
++        prefix.push_str(match (branch && level == depth, has_next) {
++            (true, true) => "├─ ",
++            (true, false) => "└─ ",
++            (false, true) => "│  ",
++            (false, false) => "   ",
++        });
++    }
++    prefix
++}
++
++// Ledger metadata wins over the reported status, just like the pane chrome.
++fn attention(agent: &crate::protocol::ClientShellAgent) -> usize {
++    for (rank, token) in ["dot_blocked", "dot_review", "dot_working", "dot_idle"]
++        .iter()
++        .enumerate()
++    {
++        if agent
++            .tokens
++            .iter()
++            .any(|(key, value)| key == token && !value.is_empty())
++        {
++            return rank;
++        }
++    }
++    use crate::api::schema::AgentStatus;
++    match agent.agent_status {
++        AgentStatus::Blocked => 0,
++        AgentStatus::Done => 1,
++        AgentStatus::Working => 2,
++        AgentStatus::Idle | AgentStatus::Unknown => 3,
++    }
++}
++
++fn glyph(palette: &Palette, rank: usize) -> (&'static str, ratatui::style::Color) {
++    match rank {
++        0 => ("◆", palette.red),
++        1 => ("●", palette.peach),
++        2 => ("◐", palette.blue),
++        _ => ("○", palette.overlay0),
++    }
++}
++
++fn counts(
++    snapshot: &ClientShellSnapshot,
++    agents: &[(String, String)],
++    keep_visible: Option<&str>,
++    row: &TreeRow,
++) -> [usize; 4] {
++    let mut counts = [0; 4];
++    let (index, repository) = match row {
++        TreeRow::Repository { index, .. } => (*index, true),
++        TreeRow::Space { index, .. } => (*index, false),
++        _ => return counts,
++    };
++    let key = snapshot.workspaces[index]
++        .worktree
++        .as_ref()
++        .map(|worktree| worktree.key.as_str());
++    for (pane_id, workspace_id) in agents {
++        let Some(workspace) = snapshot
++            .workspaces
++            .iter()
++            .find(|workspace| &workspace.workspace_id == workspace_id)
++        else {
++            continue;
++        };
++        if workspace_sidebar_hidden(workspace, keep_visible) {
++            continue;
++        }
++        let member = if repository {
++            key.is_some()
++                && workspace
++                    .worktree
++                    .as_ref()
++                    .map(|worktree| worktree.key.as_str())
++                    == key
++        } else {
++            &workspace.workspace_id == &snapshot.workspaces[index].workspace_id
++        };
++        if !member {
++            continue;
++        }
++        if let Some(agent) = snapshot
++            .agents
++            .iter()
++            .find(|agent| &agent.pane_id == pane_id)
++        {
++            counts[attention(agent)] += 1;
++        }
++    }
++    counts
++}
++
++fn row_suffix(
++    palette: &Palette,
++    snapshot: &ClientShellSnapshot,
++    agents: &[(String, String)],
++    keep_visible: Option<&str>,
++    row: &TreeRow,
++    width: usize,
++) -> Vec<Span<'static>> {
++    let mut spans = Vec::new();
++    if let TreeRow::Repository { key, .. } = row {
++        let n = group_members(snapshot, &visible_workspaces(snapshot, keep_visible), key).len();
++        spans.push(Span::styled(
++            format!(" {n} {}", if n == 1 { "space" } else { "spaces" }),
++            Style::default().fg(palette.overlay0),
++        ));
++    }
++    for (rank, count) in counts(snapshot, agents, keep_visible, row)
++        .into_iter()
++        .enumerate()
++        .filter(|(_, count)| *count > 0)
++    {
++        let (symbol, color) = glyph(palette, rank);
++        spans.push(Span::styled(
++            format!(" {symbol} {count}"),
++            Style::default().fg(color),
++        ));
++    }
++    // Same budget for render and hit-testing. Protect the label in narrow views.
++    let budget = width.saturating_sub(1 + row.depth() * 3 + 8);
++    let mut used = 0;
++    spans
++        .into_iter()
++        .take_while(|span| {
++            used += unicode_width::UnicodeWidthStr::width(span.content.as_ref());
++            used <= budget
++        })
++        .collect()
++}
++
++fn suffix_rect(rect: Rect, spans: &[Span<'_>]) -> Rect {
++    let width = spans
++        .iter()
++        .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
++        .sum::<usize>()
++        .min(rect.width as usize) as u16;
++    Rect::new(rect.right() - width, rect.y, width, rect.height)
++}
++
++fn agent_label(
++    config: &ClientShellConfig,
++    snapshot: &ClientShellSnapshot,
++    agent: &crate::protocol::ClientShellAgent,
++) -> String {
++    use crate::config::AgentSidebarToken;
++    let canonical_agent = agent
++        .agent
++        .as_deref()
++        .and_then(crate::detect::parse_agent_label);
++    let tokens = agent.tokens.iter().cloned().collect::<HashMap<_, _>>();
++    let pane_label = agent.title.clone().or_else(|| {
++        snapshot
++            .panes
++            .iter()
++            .find(|pane| pane.pane_id == agent.pane_id)
++            .and_then(|pane| pane.label.clone())
++    });
++    let tab_label = snapshot
++        .tabs
++        .iter()
++        .find(|tab| tab.tab_id == agent.tab_id)
++        .filter(|tab| {
++            tab.custom_label
++                || snapshot
++                    .tabs
++                    .iter()
++                    .filter(|candidate| candidate.workspace_id == agent.workspace_id)
++                    .count()
++                    > 1
++        })
++        .map(|tab| tab.label.clone());
++    config
++        .agents
++        .rows_for_agent(canonical_agent)
++        .iter()
++        .find_map(|row| {
++            let labels = row
++                .iter()
++                .filter_map(|token| match token.parts().0 {
++                    AgentSidebarToken::Custom(name) if !name.starts_with("dot_") => {
++                        tokens.get(name).map(String::as_str)
++                    }
++                    AgentSidebarToken::TerminalTitle => agent.terminal_title.as_deref(),
++                    AgentSidebarToken::TerminalTitleStripped => {
++                        agent.terminal_title_stripped.as_deref()
++                    }
++                    AgentSidebarToken::Pane => pane_label.as_deref(),
++                    _ => None,
++                })
++                .filter(|label| !label.trim().is_empty())
++                .collect::<Vec<_>>();
++            (!labels.is_empty()).then(|| labels.join(" · "))
++        })
++        .or(pane_label)
++        .or(tab_label)
++        .unwrap_or_else(|| "New conversation".to_owned())
++}
++
++fn space_label(workspace: &ClientShellWorkspace, indented: bool) -> String {
++    if !indented {
++        return workspace.label.clone();
++    }
++    // Keep meaningful custom Space names, but do not repeat the repository
++    // heading when a branch identifies the checkout.
++    let custom = workspace.custom_label
++        && workspace
++            .worktree
++            .as_ref()
++            .is_none_or(|worktree| worktree.label != workspace.label);
++    if custom {
++        return workspace.label.clone();
++    }
++    workspace
++        .branch
++        .as_deref()
++        .map(|branch| branch.strip_prefix("worktree/").unwrap_or(branch))
++        .unwrap_or(&workspace.label)
++        .to_owned()
++}
++
++/// Rows in view for one composed frame, with their absolute document positions.
++struct Viewport {
++    body: Rect,
++    content_width: u16,
++    metrics: crate::pane::ScrollMetrics,
++    start: usize,
++}
++
++fn viewport(rows: &[TreeRow], body: Rect, requested_start: usize) -> Viewport {
++    let heights = vec![1u16; rows.len()];
++    let gaps = vec![0u16; rows.len()];
++    let metrics = super::scroll::list_scroll_metrics(&heights, &gaps, body.height, requested_start);
++    let show_scrollbar = metrics.max_offset_from_bottom > 0 && body.width > 1;
++    Viewport {
++        body,
++        content_width: body.width.saturating_sub(u16::from(show_scrollbar)),
++        metrics,
++        start: metrics
++            .max_offset_from_bottom
++            .saturating_sub(metrics.offset_from_bottom),
++    }
++}
++
++fn reveal_target(inputs: &TreeInputs<'_>, rows: &[TreeRow]) -> Option<usize> {
++    let endpoint = active_endpoint_index(inputs)?;
++    let snapshot = inputs.endpoints[endpoint].snapshot.as_deref()?;
++    let focused_pane = inputs.keep_visible.is_none().then_some(snapshot.focused_pane_id.as_deref()).flatten();
++    let focused_workspace = inputs.keep_visible.or(snapshot.focused_workspace_id.as_deref());
++    rows.iter()
++        .position(|row| {
++            matches!(row, TreeRow::Agent { endpoint: row_endpoint, pane_id, .. }
++                if *row_endpoint == endpoint && Some(pane_id.as_str()) == focused_pane)
++        })
++        .or_else(|| {
++            rows.iter().position(|row| match row {
++                TreeRow::Space {
++                    endpoint: row_endpoint,
++                    index,
++                    ..
++                }
++                | TreeRow::Repository {
++                    endpoint: row_endpoint,
++                    index,
++                    ..
++                } => {
++                    *row_endpoint == endpoint
++                        && Some(snapshot.workspaces[*index].workspace_id.as_str())
++                            == focused_workspace
++                }
++                _ => false,
++            })
++        })
++}
++
++#[allow(clippy::too_many_arguments)]
++pub(super) fn render_tree(
++    buffer: &mut Buffer,
++    area: Rect,
++    active_snapshot: Option<&ClientShellSnapshot>,
++    config: &ClientShellConfig,
++    state: &mut ShellRenderState<'_>,
++    hits: &mut ShellHitMap,
++) {
++    let palette = &config.palette;
++    super::render::render_sidebar_background(buffer, area, palette);
++    hits.sidebar_divider = if area.is_empty() {
++        Rect::default()
++    } else {
++        Rect::new(area.right().saturating_sub(1), area.y, 1, area.height)
++    };
++    let (workspace_area, _) = crate::ui::expanded_sidebar_sections(area, 1.0);
++    hits.sidebar_section_divider = Rect::default();
++    put_text(
++        buffer,
++        workspace_area.x,
++        workspace_area.y,
++        workspace_area.width,
++        " spaces",
++        Style::default()
++            .fg(palette.overlay0)
++            .add_modifier(Modifier::BOLD),
++    );
++    // With more than one saved machine the header names the one on screen;
++    // clicking it switches to the next online machine, like the machine key.
++    if state.endpoints.len() > 1 {
++        let label = state
++            .endpoints
++            .iter()
++            .find(|endpoint| &endpoint.endpoint_id == state.active_endpoint_id)
++            .map_or("Local", |endpoint| endpoint.label.as_str());
++        let label =
++            crate::ui::truncate_end(label, usize::from(workspace_area.width.saturating_sub(9)));
++        let width = display_width(&label).min(workspace_area.width);
++        let rect = Rect::new(
++            workspace_area.right().saturating_sub(width),
++            workspace_area.y,
++            width,
++            u16::from(workspace_area.height > 0 && width > 0),
++        );
++        put_text(
++            buffer,
++            rect.x,
++            rect.y,
++            rect.width,
++            &label,
++            Style::default()
++                .fg(palette.accent)
++                .add_modifier(Modifier::BOLD),
++        );
++        if config.mouse_capture {
++            hits.machine_switch = rect;
++        }
++    }
++
++    let inputs = TreeInputs {
++        endpoints: state.endpoints,
++        collapsed_groups: state.collapsed_groups,
++        remote_collapsed_groups: state.remote_collapsed_groups,
++        collapsed_space_agents: state.collapsed_space_agents,
++        active_endpoint_id: state.active_endpoint_id,
++        keep_visible: state.selected_workspace_id
++            .filter(|target| &target.endpoint_id == state.active_endpoint_id)
++            .map(|target| target.workspace_id.as_str()),
++        agent_panel_sort: config.agent_panel_sort,
++    };
++    let rows = document(&inputs);
++    let body = Rect::new(
++        workspace_area.x,
++        workspace_area.y.saturating_add(WORKSPACE_HEADER_ROWS),
++        workspace_area.width,
++        workspace_area
++            .height
++            .saturating_sub(WORKSPACE_HEADER_ROWS + 1),
++    );
++    hits.workspace_body = body;
++    let mut view = viewport(&rows, body, *state.workspace_scroll);
++    let reveal_focus = std::mem::take(state.reveal_focused_workspace);
++    let reveal_navigation = std::mem::take(state.reveal_navigation_workspace);
++    if !body.is_empty() && (reveal_focus || reveal_navigation) {
++        if let Some(target) = reveal_target(&inputs, &rows) {
++            let heights = vec![1u16; rows.len()];
++            let gaps = vec![0u16; rows.len()];
++            let start = super::scroll::list_scroll_start_to_reveal(
++                &heights,
++                &gaps,
++                body.height,
++                view.start,
++                target,
++            );
++            view = viewport(&rows, body, start);
++        }
++    }
++    hits.workspace_max_scroll = view.metrics.max_offset_from_bottom;
++    hits.workspace_scroll_metrics = Some(view.metrics);
++    *state.workspace_scroll = view.start;
++
++    // Per-endpoint agent lists are cheap to rebuild once per frame.
++    let endpoint_agents = state
++        .endpoints
++        .iter()
++        .map(|endpoint| {
++            endpoint
++                .snapshot
++                .as_deref()
++                .map_or_else(Vec::new, |snapshot| {
++                    ordered_agents(snapshot, config.agent_panel_sort)
++                })
++        })
++        .collect::<Vec<_>>();
++
++    for (offset, position) in (view.start..rows.len())
++        .take(usize::from(view.body.height))
++        .enumerate()
++    {
++        let row = &rows[position];
++        let rect = Rect::new(
++            view.body.x,
++            view.body.y + offset as u16,
++            view.content_width,
++            1,
++        );
++        let Some(endpoint_index) = row.endpoint() else {
++            // Gap: only the branch continuation, no label, counts, or highlight.
++            let prefix = branch_prefix(&rows, position);
++            put_text(
++                buffer,
++                rect.x,
++                rect.y,
++                rect.width,
++                &prefix,
++                Style::default().fg(palette.overlay0),
++            );
++            continue;
++        };
++        let endpoint = &state.endpoints[endpoint_index];
++        let endpoint_active = &endpoint.endpoint_id == state.active_endpoint_id;
++        let stale = endpoint.status != ClientEndpointStatus::Online;
++        let Some(snapshot) = endpoint.snapshot.as_deref() else {
++            continue;
++        };
++        let keep_visible = inputs.keep_visible;
++        let agents = &endpoint_agents[endpoint_index];
++        let prefix = branch_prefix(&rows, position);
++        let prefix_width = display_width(&prefix);
++        let right = row_suffix(
++            palette,
++            snapshot,
++            agents,
++            keep_visible,
++            row,
++            usize::from(rect.width),
++        );
++        let suffix = suffix_rect(rect, &right);
++        let label_width = usize::from(rect.width.saturating_sub(prefix_width + suffix.width));
++        let mut spans = vec![Span::styled(prefix, Style::default().fg(palette.overlay0))];
++        let mut style = Style::default();
++        match row {
++            TreeRow::Repository { index, key, .. } => {
++                let workspace = &snapshot.workspaces[*index];
++                let label = workspace
++                    .worktree
++                    .as_ref()
++                    .map_or(workspace.label.as_str(), |worktree| worktree.label.as_str());
++                if inputs.group_collapsed(&endpoint.endpoint_id, key) {
++                    let belongs = |workspace: &ClientShellWorkspace| {
++                        workspace
++                            .worktree
++                            .as_ref()
++                            .is_some_and(|worktree| &worktree.key == key)
++                    };
++                    let active = endpoint_active
++                        && snapshot
++                            .workspaces
++                            .iter()
++                            .any(|workspace| workspace.focused && belongs(workspace));
++                    let selected = endpoint_active
++                        && snapshot.workspaces.iter().any(|workspace| {
++                            keep_visible == Some(workspace.workspace_id.as_str())
++                                && belongs(workspace)
++                        });
++                    if selected {
++                        style = style.bg(palette.selection_bg);
++                    } else if active {
++                        style = style.bg(palette.active_row_bg);
++                    }
++                }
++                spans.push(Span::styled(
++                    crate::ui::truncate_end(label, label_width),
++                    Style::default()
++                        .fg(palette.accent)
++                        .add_modifier(Modifier::BOLD),
++                ));
++                hits.workspaces.push(WorkspaceHit {
++                    rect,
++                    endpoint_id: endpoint.endpoint_id.clone(),
++                    workspace_id: workspace.workspace_id.clone(),
++                    indented: false,
++                    group_toggle: Some((rect, key.clone())),
++                });
++            }
++            TreeRow::Space {
++                index, indented, ..
++            } => {
++                let workspace = &snapshot.workspaces[*index];
++                let active = endpoint_active && workspace.focused;
++                let selected = endpoint_active
++                    && keep_visible == Some(workspace.workspace_id.as_str());
++                let dragged = endpoint_active
++                    && state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
++                if selected {
++                    style = style.bg(palette.selection_bg);
++                } else if dragged {
++                    style = style.bg(palette.surface1);
++                } else if active {
++                    style = style.bg(palette.active_row_bg);
++                }
++                let label = space_label(workspace, *indented);
++                let status = workspace.agent_status;
++                let token_values = workspace.tokens.iter().cloned().collect::<HashMap<_, _>>();
++                let token_rows = crate::ui::sidebar_space_rows(
++                    &config.spaces,
++                    crate::ui::SpaceTokenContext {
++                        workspace: &label,
++                        branch: workspace.branch.as_deref(),
++                        state_text: status_text(status),
++                        ahead_behind: workspace.git_ahead_behind,
++                        tokens: &token_values,
++                        suppress_git_details: *indented,
++                    },
++                );
++                if let Some(token_row) = token_rows.first() {
++                    let token_row = token_row
++                        .iter()
++                        .filter(|token| {
++                            !matches!(token.kind, crate::ui::ResolvedTokenKind::StateIcon)
++                        })
++                        .cloned()
++                        .collect::<Vec<_>>();
++                    spans.extend(crate::ui::resolved_token_spans(
++                        &token_row,
++                        (
++                            status_icon(status, config.status_indicators),
++                            Style::default().fg(status_color(status, palette)),
++                        ),
++                        Style::default().fg(palette.overlay0),
++                        Style::default()
++                            .fg(if active || selected || dragged {
++                                palette.text
++                            } else {
++                                palette.subtext0
++                            })
++                            .add_modifier(Modifier::BOLD),
++                        Style::default().fg(palette.mauve),
++                        Style::default().fg(palette.overlay0),
++                        palette,
++                        label_width,
++                    ));
++                }
++                hits.workspaces.push(WorkspaceHit {
++                    rect,
++                    endpoint_id: endpoint.endpoint_id.clone(),
++                    workspace_id: workspace.workspace_id.clone(),
++                    indented: *indented,
++                    group_toggle: None,
++                });
++                if suffix.width > 0 {
++                    hits.agent_toggles.push((
++                        suffix,
++                        endpoint.endpoint_id.clone(),
++                        workspace.workspace_id.clone(),
++                    ));
++                }
++            }
++            TreeRow::Agent { pane_id, .. } => {
++                let Some(agent) = snapshot
++                    .agents
++                    .iter()
++                    .find(|agent| &agent.pane_id == pane_id)
++                else {
++                    continue;
++                };
++                let (symbol, color) = glyph(palette, attention(agent));
++                if endpoint_active && agent.focused {
++                    style = style.bg(palette.active_row_bg);
++                }
++                spans.push(Span::styled(
++                    format!("{symbol} "),
++                    Style::default().fg(color),
++                ));
++                spans.push(Span::styled(
++                    crate::ui::truncate_end(
++                        &agent_label(config, snapshot, agent),
++                        label_width.saturating_sub(2),
++                    ),
++                    Style::default().fg(palette.text),
++                ));
++                hits.agents.push((rect, pane_id.clone()));
++            }
++            TreeRow::Gap { .. } => unreachable!("handled above"),
++        }
++        if stale {
++            style = style.fg(palette.overlay0).add_modifier(Modifier::DIM);
++        }
++        Paragraph::new(Line::from(spans))
++            .style(style)
++            .render(rect, buffer);
++        if suffix.width > 0 {
++            Paragraph::new(Line::from(right))
++                .style(style)
++                .render(suffix, buffer);
++        }
++    }
++
++    if view.metrics.max_offset_from_bottom > 0 && body.width > 1 {
++        let track = Rect::new(body.right().saturating_sub(1), body.y, 1, body.height);
++        hits.workspace_scrollbar = track;
++        super::scroll::render_list_scrollbar(buffer, track, view.metrics, palette);
++    }
++
++    if let Some(row) = state.workspace_drop_indicator_row.filter(|row| {
++        *row >= workspace_area.y.saturating_add(1)
++            && *row < workspace_area.bottom().saturating_sub(1)
++    }) {
++        put_text(
++            buffer,
++            body.x,
++            row,
++            body.width,
++            &"─".repeat(body.width as usize),
++            Style::default().fg(palette.accent),
++        );
++    }
++
++    // Fixed footer: the informational view label at left, Menu at right. There
++    // is no New button; a zero-size rect keeps the footer row known to drag
++    // targeting without creating a hit.
++    // The footer shares its row with the sidebar collapse toggle.
++    let footer_y = workspace_area.bottom().saturating_sub(1);
++    let footer = Rect::new(
++        workspace_area.x,
++        footer_y,
++        workspace_area.width.saturating_sub(2),
++        u16::from(workspace_area.height > 0),
++    );
++    hits.new_workspace = Rect::new(footer.x, footer_y, 0, 0);
++    let attention = active_snapshot.is_some_and(super::global_menu::global_menu_attention);
++    let launcher_width = if config.mouse_capture {
++        if attention { 8 } else { 6 }.min(footer.width)
++    } else {
++        0
++    };
++    hits.global_launcher = Rect::new(
++        footer.right().saturating_sub(launcher_width),
++        footer_y,
++        launcher_width,
++        u16::from(footer.height > 0 && launcher_width > 0),
++    );
++    if let Some(label) = active_snapshot.and_then(|snapshot| snapshot.agent_view_label.as_deref()) {
++        let label_width = footer
++            .width
++            .saturating_sub(launcher_width)
++            .saturating_sub(1);
++        put_text(
++            buffer,
++            footer.x,
++            footer_y,
++            label_width.saturating_add(1),
++            &format!(
++                " {}",
++                crate::ui::truncate_end(label, usize::from(label_width))
++            ),
++            Style::default().fg(palette.accent),
++        );
++    }
++    if config.mouse_capture {
++        put_right_text(
++            buffer,
++            footer,
++            footer_y,
++            if attention { "● menu" } else { "menu" },
++            Style::default().fg(if attention {
++                palette.accent
++            } else {
++                palette.overlay0
++            }),
++        );
++    }
++
++    hits.sidebar_toggle = Rect::new(
++        area.right().saturating_sub(2),
++        area.bottom().saturating_sub(1),
++        u16::from(area.width > 1),
++        u16::from(area.height > 0),
++    );
++    put_text(
++        buffer,
++        hits.sidebar_toggle.x,
++        hits.sidebar_toggle.y,
++        hits.sidebar_toggle.width,
++        "«",
++        Style::default().fg(palette.overlay0),
++    );
++}
++
++/// Collapsed sidebar in tree mode: the active machine's filtered Space
++/// indicators only, one active view marker (and machine initial) above the
++/// toggle, and no Agents section.
++pub(super) fn render_collapsed_tree(
++    buffer: &mut Buffer,
++    area: Rect,
++    snapshot: &ClientShellSnapshot,
++    config: &ClientShellConfig,
++    active_endpoint_id: &ClientEndpointId,
++    machine_label: Option<&str>,
++    selected_workspace_id: Option<&str>,
++    hits: &mut ShellHitMap,
++) {
++    let palette = &config.palette;
++    super::render::render_sidebar_background(buffer, area, palette);
++    let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
++    let workspace_area = Rect::new(
++        content.x,
++        content.y,
++        content.width,
++        content.height.saturating_sub(2),
++    );
++    let divider_y = (content.height >= 2).then(|| content.bottom().saturating_sub(2));
++    for (row, entry) in
++        super::sidebar::flat_workspace_entries_keeping(snapshot, selected_workspace_id)
++            .into_iter()
++            .take(workspace_area.height as usize)
++            .enumerate()
++    {
++        let Some(workspace) = snapshot.workspaces.get(entry.index) else {
++            continue;
++        };
++        let rect = Rect::new(
++            workspace_area.x,
++            workspace_area.y + row as u16,
++            workspace_area.width,
++            1,
++        );
++        let selected = selected_workspace_id == Some(workspace.workspace_id.as_str());
++        let selection_background =
++            if workspace.focused && palette.selection_bg == ratatui::style::Color::Reset {
++                palette.active_row_bg
++            } else {
++                palette.selection_bg
++            };
++        if selected {
++            buffer.set_style(rect, Style::default().bg(selection_background));
++        } else if workspace.focused {
++            buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
++        }
++        let number_style = if selected {
++            Style::default()
++                .fg(palette.overlay1)
++                .bg(selection_background)
++        } else if workspace.focused {
++            Style::default().fg(palette.text).bg(palette.active_row_bg)
++        } else {
++            Style::default().fg(palette.overlay0)
++        };
++        put_text(
++            buffer,
++            rect.x,
++            rect.y,
++            rect.width.min(2),
++            &format!("{:<2}", workspace.number),
++            number_style,
++        );
++        let status = workspace.agent_status;
++        put_text(
++            buffer,
++            rect.x.saturating_add(2),
++            rect.y,
++            rect.width.saturating_sub(2),
++            status_icon(status, config.status_indicators),
++            Style::default().fg(status_color(status, palette)),
++        );
++        hits.workspaces.push(WorkspaceHit {
++            rect,
++            endpoint_id: active_endpoint_id.clone(),
++            workspace_id: workspace.workspace_id.clone(),
++            indented: false,
++            group_toggle: None,
++        });
++    }
++    if let Some(divider_y) = divider_y {
++        put_text(
++            buffer,
++            workspace_area.x,
++            divider_y,
++            workspace_area.width,
++            &"─".repeat(workspace_area.width as usize),
++            Style::default().fg(palette.surface_dim),
++        );
++        if let Some(badge) = snapshot
++            .agent_view_label
++            .as_deref()
++            .and_then(|label| label.chars().next())
++            .map(|initial| initial.to_ascii_uppercase().to_string())
++        {
++            put_text(
++                buffer,
++                workspace_area.x,
++                divider_y,
++                1,
++                &badge,
++                Style::default()
++                    .fg(palette.accent)
++                    .add_modifier(Modifier::BOLD),
++            );
++        }
++        if let Some(initial) = machine_label
++            .and_then(|label| label.chars().next())
++            .map(|initial| initial.to_ascii_uppercase().to_string())
++            .filter(|_| workspace_area.width >= 3)
++        {
++            put_text(
++                buffer,
++                workspace_area.right().saturating_sub(1),
++                divider_y,
++                1,
++                &initial,
++                Style::default()
++                    .fg(palette.text)
++                    .add_modifier(Modifier::BOLD),
++            );
++        }
++    }
++    hits.sidebar_toggle = if area.is_empty() || workspace_area.width == 0 {
++        Rect::default()
++    } else {
++        Rect::new(
++            workspace_area.x + workspace_area.width / 2,
++            area.bottom().saturating_sub(1),
++            1,
++            1,
++        )
++    };
++    put_text(
++        buffer,
++        hits.sidebar_toggle.x,
++        hits.sidebar_toggle.y,
++        hits.sidebar_toggle.width,
++        "»",
++        if super::global_menu::global_menu_attention(snapshot) {
++            Style::default()
++                .fg(palette.accent)
++                .add_modifier(Modifier::BOLD)
++        } else {
++            Style::default().fg(palette.overlay0)
++        },
++    );
++}
+diff --git a/src/client/shell/workspace_navigation.rs b/src/client/shell/workspace_navigation.rs
+index 6139fe0..fbf7028 100644
+--- a/src/client/shell/workspace_navigation.rs
++++ b/src/client/shell/workspace_navigation.rs
+@@ -66,23 +66,21 @@ impl ClientShellState {
+         let empty_collapsed_groups = HashSet::new();
+         let mut targets = Vec::new();
+         for endpoint in &self.endpoints {
+-            if endpoint.status != ClientEndpointStatus::Online {
++            if endpoint.status != ClientEndpointStatus::Online
++                || (self.config.spaces.inline_agents && endpoint.endpoint_id != self.active_endpoint_id)
++            {
+                 continue;
+             }
+             let Some(snapshot) = endpoint.snapshot.as_deref() else {
+                 continue;
+             };
+-            let entries = if self.sidebar_collapsed && !mobile && surface_available {
+-                snapshot
+-                    .workspaces
+-                    .iter()
+-                    .enumerate()
+-                    .map(|(index, _)| WorkspaceEntry {
+-                        index,
+-                        indented: false,
+-                        last_child: false,
+-                    })
+-                    .collect()
++            let entries = if self.config.spaces.inline_agents && !self.sidebar_collapsed && !mobile {
++                super::tree::navigation_entries(&self.tree_inputs())
++            } else if self.sidebar_collapsed && !mobile && surface_available {
++                sidebar::flat_workspace_entries_keeping(snapshot,
++                    self.navigate_workspace_id.as_ref()
++                        .filter(|target| target.endpoint_id == endpoint.endpoint_id && self.navigation_target_valid(target))
++                        .map(|target| target.workspace_id.as_str()))
+             } else {
+                 let collapsed_groups = if mobile && surface_available {
+                     &empty_collapsed_groups
+diff --git a/src/config/keybinds.rs b/src/config/keybinds.rs
+index bec1af6..f16c27a 100644
+--- a/src/config/keybinds.rs
++++ b/src/config/keybinds.rs
+@@ -335,6 +335,8 @@ pub struct Keybinds {
+     pub next_workspace: ActionKeybinds,
+     pub previous_agent: ActionKeybinds,
+     pub next_agent: ActionKeybinds,
++    pub previous_machine: ActionKeybinds,
++    pub next_machine: ActionKeybinds,
+     pub focus_agent: Vec<IndexedKeybind>,
+     pub new_tab: ActionKeybinds,
+     pub rename_tab: ActionKeybinds,
+@@ -503,6 +505,8 @@ impl Config {
+             next_workspace: empty_action!(),
+             previous_agent: empty_action!(),
+             next_agent: empty_action!(),
++            previous_machine: empty_action!(),
++            next_machine: empty_action!(),
+             focus_agent: Vec::new(),
+             new_tab: empty_action!(),
+             rename_tab: empty_action!(),
+@@ -635,6 +639,8 @@ impl Config {
+             apply_action!(keybinds.next_workspace, next_workspace, source);
+             apply_action!(keybinds.previous_agent, previous_agent, source);
+             apply_action!(keybinds.next_agent, next_agent, source);
++            apply_action!(keybinds.previous_machine, previous_machine, source);
++            apply_action!(keybinds.next_machine, next_machine, source);
+             apply_indexed!(
+                 keybinds.focus_agent,
+                 focus_agent,
+diff --git a/src/config/model.rs b/src/config/model.rs
+index 6ef6274..929521a 100644
+--- a/src/config/model.rs
++++ b/src/config/model.rs
+@@ -11,6 +11,20 @@ use super::{
+ 
+ pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
+ 
++fn deserialize_pane_opacity<'de, D>(deserializer: D) -> Result<f32, D::Error>
++where
++    D: Deserializer<'de>,
++{
++    let value = f32::deserialize(deserializer)?;
++    if value.is_finite() && (0.0..=1.0).contains(&value) {
++        Ok(value)
++    } else {
++        Err(de::Error::custom(
++            "ui.unfocused_pane_opacity must be between 0.0 and 1.0",
++        ))
++    }
++}
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+ #[serde(rename_all = "lowercase")]
+ pub enum UpdateChannelConfig {
+@@ -379,6 +393,10 @@ pub struct KeysConfig {
+     pub previous_agent: BindingConfig,
+     /// Focus the next agent shown in the agent panel. Unset by default.
+     pub next_agent: BindingConfig,
++    /// Switch the client to the previous online machine. Unset by default.
++    pub previous_machine: BindingConfig,
++    /// Switch the client to the next online machine. Unset by default.
++    pub next_machine: BindingConfig,
+     /// Focus an agent by index 1-9. Unset by default.
+     pub focus_agent: BindingConfig,
+     /// Local-client shortcut that sends a clipboard image to a remote Herdr session. Default: "ctrl+v".
+@@ -511,6 +529,10 @@ pub(crate) struct KeysConfigOverlay {
+     #[serde(skip_serializing_if = "Option::is_none")]
+     next_agent: Option<BindingConfig>,
+     #[serde(skip_serializing_if = "Option::is_none")]
++    previous_machine: Option<BindingConfig>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    next_machine: Option<BindingConfig>,
++    #[serde(skip_serializing_if = "Option::is_none")]
+     focus_agent: Option<BindingConfig>,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     remote_image_paste: Option<String>,
+@@ -633,6 +655,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
+         apply_field!(next_workspace);
+         apply_field!(previous_agent);
+         apply_field!(next_agent);
++        apply_field!(previous_machine);
++        apply_field!(next_machine);
+         apply_field!(focus_agent);
+         apply_field!(remote_image_paste);
+         apply_field!(new_tab);
+@@ -737,6 +761,8 @@ impl KeysConfig {
+         copy_effective_action_field!(next_workspace, keybinds.next_workspace);
+         copy_effective_action_field!(previous_agent, keybinds.previous_agent);
+         copy_effective_action_field!(next_agent, keybinds.next_agent);
++        copy_effective_action_field!(previous_machine, keybinds.previous_machine);
++        copy_effective_action_field!(next_machine, keybinds.next_machine);
+         copy_effective_indexed_field!(focus_agent, keybinds.focus_agent);
+         copy_user_field!(remote_image_paste);
+         copy_effective_action_field!(new_tab, keybinds.new_tab);
+@@ -938,12 +964,19 @@ pub struct UiConfig {
+     pub pane_borders: PaneBordersConfig,
+     /// Draw borders along the outside edge of the pane area. Default: true.
+     pub pane_outer_borders: bool,
++    /// Use heavy box-drawing glyphs for the focused pane border. Default: false.
++    pub focused_pane_heavy_borders: bool,
+     /// Draw interactive scrollbars beside terminal panes. Default: true.
+     pub pane_scrollbars: bool,
+     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
+     pub pane_gaps: bool,
+     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
+     pub show_agent_labels_on_pane_borders: bool,
++    /// Dim unfocused pane content in split layouts. Default: false.
++    pub dim_unfocused_panes: bool,
++    /// Fraction of unfocused pane colour retained when dimming. Default: 0.5.
++    #[serde(deserialize_with = "deserialize_pane_opacity")]
++    pub unfocused_pane_opacity: f32,
+     /// Hide the tab row when the workspace has one tab. Default: false.
+     pub hide_tab_bar_when_single_tab: bool,
+     /// Desktop tab row placement. Default: top.
+@@ -1105,6 +1138,8 @@ impl Default for KeysConfig {
+             next_workspace: BindingConfig::empty(),
+             previous_agent: BindingConfig::empty(),
+             next_agent: BindingConfig::empty(),
++            previous_machine: BindingConfig::empty(),
++            next_machine: BindingConfig::empty(),
+             focus_agent: BindingConfig::empty(),
+             remote_image_paste: "ctrl+v".into(),
+             new_tab: BindingConfig::one("prefix+c"),
+@@ -1175,9 +1210,12 @@ impl Default for UiConfig {
+             prompt_new_workspace_name: false,
+             pane_borders: PaneBordersConfig::Auto,
+             pane_outer_borders: true,
++            focused_pane_heavy_borders: false,
+             pane_scrollbars: true,
+             pane_gaps: true,
+             show_agent_labels_on_pane_borders: false,
++            dim_unfocused_panes: false,
++            unfocused_pane_opacity: 0.5,
+             hide_tab_bar_when_single_tab: false,
+             tab_bar_position: TabBarPositionConfig::Top,
+             tab_bar_right: Vec::new(),
+@@ -1477,9 +1515,12 @@ status_indicators = "symbols"
+         let default_config = Config::default();
+         assert_eq!(default_config.ui.pane_borders, PaneBordersConfig::Auto);
+         assert!(default_config.ui.pane_outer_borders);
++        assert!(!default_config.ui.focused_pane_heavy_borders);
+         assert!(default_config.ui.pane_scrollbars);
+         assert!(default_config.ui.pane_gaps);
+         assert!(!default_config.ui.show_agent_labels_on_pane_borders);
++        assert!(!default_config.ui.dim_unfocused_panes);
++        assert_eq!(default_config.ui.unfocused_pane_opacity, 0.5);
+         assert!(!default_config.ui.hide_tab_bar_when_single_tab);
+         assert_eq!(
+             default_config.ui.tab_bar_position,
+@@ -1492,9 +1533,12 @@ status_indicators = "symbols"
+ [ui]
+ pane_borders = "always"
+ pane_outer_borders = false
++focused_pane_heavy_borders = true
+ pane_scrollbars = false
+ pane_gaps = true
+ show_agent_labels_on_pane_borders = true
++dim_unfocused_panes = true
++unfocused_pane_opacity = 0.25
+ hide_tab_bar_when_single_tab = true
+ tab_bar_position = "bottom"
+ tab_bar_right = [
+@@ -1509,9 +1553,12 @@ tab_bar_right_separator = " · "
+         let config: Config = toml::from_str(toml).unwrap();
+         assert_eq!(config.ui.pane_borders, PaneBordersConfig::Always);
+         assert!(!config.ui.pane_outer_borders);
++        assert!(config.ui.focused_pane_heavy_borders);
+         assert!(!config.ui.pane_scrollbars);
+         assert!(config.ui.pane_gaps);
+         assert!(config.ui.show_agent_labels_on_pane_borders);
++        assert!(config.ui.dim_unfocused_panes);
++        assert_eq!(config.ui.unfocused_pane_opacity, 0.25);
+         assert!(config.ui.hide_tab_bar_when_single_tab);
+         assert_eq!(config.ui.tab_bar_position, TabBarPositionConfig::Bottom);
+         assert_eq!(config.ui.tab_bar_right.len(), 5);
+@@ -1522,6 +1569,18 @@ tab_bar_right_separator = " · "
+         assert_eq!(config.ui.tab_bar_right_separator, " · ");
+     }
+ 
++    #[test]
++    fn unfocused_pane_opacity_rejects_values_outside_unit_interval() {
++        for value in ["-0.1", "1.1", "nan"] {
++            let toml = format!("[ui]\nunfocused_pane_opacity = {value}\n");
++            let error = toml::from_str::<Config>(&toml).unwrap_err().to_string();
++            assert!(
++                error.contains("ui.unfocused_pane_opacity must be between 0.0 and 1.0"),
++                "value {value}: {error}"
++            );
++        }
++    }
++
+     #[test]
+     fn worktrees_directory_defaults_and_parses() {
+         let default_config = Config::default();
+diff --git a/src/config/sidebar.rs b/src/config/sidebar.rs
+index 9a4cb5e..f27445f 100644
+--- a/src/config/sidebar.rs
++++ b/src/config/sidebar.rs
+@@ -458,6 +458,9 @@ impl Default for AgentsSidebarConfig {
+ #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+ #[serde(default)]
+ pub struct SpacesSidebarConfig {
++    /// Compact repository / Space / agent tree with a fixed footer, no Agents panel.
++    /// Uses only the first Space label row and ignores row_gap in tree mode.
++    pub inline_agents: bool,
+     #[serde(deserialize_with = "deserialize_sidebar_rows")]
+     pub rows: SpaceSidebarRows,
+     pub row_gap: u16,
+@@ -466,6 +469,7 @@ pub struct SpacesSidebarConfig {
+ impl Default for SpacesSidebarConfig {
+     fn default() -> Self {
+         Self {
++            inline_agents: false,
+             rows: vec![
+                 vec![SpaceSidebarToken::StateIcon, SpaceSidebarToken::Workspace],
+                 vec![SpaceSidebarToken::Branch, SpaceSidebarToken::GitStatus],
+diff --git a/src/input/keybind_help.rs b/src/input/keybind_help.rs
+index e9462b9..e5f0243 100644
+--- a/src/input/keybind_help.rs
++++ b/src/input/keybind_help.rs
+@@ -138,6 +138,11 @@ pub(crate) fn keybind_help_groups(
+                 ),
+                 entry(binding_label(&keybinds.previous_agent), "previous agent"),
+                 entry(binding_label(&keybinds.next_agent), "next agent"),
++                entry(
++                    binding_label(&keybinds.previous_machine),
++                    "previous machine",
++                ),
++                entry(binding_label(&keybinds.next_machine), "next machine"),
+                 entry(indexed_label(&keybinds.focus_agent), "focus agent 1-9"),
+                 entry(binding_label(&keybinds.new_tab), "new tab"),
+                 entry(binding_label(&keybinds.rename_tab), "rename tab"),
+diff --git a/src/input/keybindings.rs b/src/input/keybindings.rs
+index d56de80..500e284 100644
+--- a/src/input/keybindings.rs
++++ b/src/input/keybindings.rs
+@@ -32,6 +32,8 @@ pub(crate) enum KeybindAction {
+     NextWorkspace,
+     PreviousAgent,
+     NextAgent,
++    PreviousMachine,
++    NextMachine,
+     NewTab,
+     RenameTab,
+     PreviousTab,
+@@ -111,6 +113,8 @@ pub(crate) fn resolve_non_indexed_action(
+         (&keybinds.next_workspace, KeybindAction::NextWorkspace),
+         (&keybinds.previous_agent, KeybindAction::PreviousAgent),
+         (&keybinds.next_agent, KeybindAction::NextAgent),
++        (&keybinds.previous_machine, KeybindAction::PreviousMachine),
++        (&keybinds.next_machine, KeybindAction::NextMachine),
+         (&keybinds.new_tab, KeybindAction::NewTab),
+         (&keybinds.rename_tab, KeybindAction::RenameTab),
+         (&keybinds.previous_tab, KeybindAction::PreviousTab),
+diff --git a/src/layout.rs b/src/layout.rs
+index c46a075..400c0b3 100644
+--- a/src/layout.rs
++++ b/src/layout.rs
+@@ -7,6 +7,15 @@ use ratatui::{
+     widgets::Borders,
+ };
+ 
++/// Minimum terminal content kept in each pane created by a split.
++///
++/// The layout check reserves room for the normal pane chrome and one-cell gap
++/// so these are content dimensions, not merely the outer rectangle size.
++pub const MIN_READABLE_PANE_COLS: u16 = 10;
++pub const MIN_READABLE_PANE_ROWS: u16 = 4;
++const MIN_PANE_OUTER_WIDTH: u16 = MIN_READABLE_PANE_COLS + 3;
++const MIN_PANE_OUTER_HEIGHT: u16 = MIN_READABLE_PANE_ROWS + 2;
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+ pub struct PaneId(u32);
+ 
+@@ -129,6 +138,28 @@ impl TileLayout {
+         result
+     }
+ 
++    /// Return whether splitting `target` would leave both new panes readable.
++    pub fn can_split_pane(
++        &self,
++        target: PaneId,
++        direction: Direction,
++        ratio: f32,
++        area: Rect,
++    ) -> bool {
++        let Some(target_rect) = self
++            .panes(area)
++            .into_iter()
++            .find(|pane| pane.id == target)
++            .map(|pane| pane.rect)
++        else {
++            return false;
++        };
++        let (first, second) = split_rect(target_rect, direction, valid_split_ratio(ratio));
++        [first, second]
++            .into_iter()
++            .all(|rect| rect.width >= MIN_PANE_OUTER_WIDTH && rect.height >= MIN_PANE_OUTER_HEIGHT)
++    }
++
+     /// Collect all split boundaries for mouse drag resize.
+     pub fn splits(&self, area: Rect) -> Vec<SplitBorder> {
+         let mut result = Vec::new();
+@@ -1138,6 +1169,30 @@ mod tests {
+         assert_eq!(layout.pane_ids(), ids);
+     }
+ 
++    #[test]
++    fn split_is_rejected_when_either_new_pane_would_be_unreadable() {
++        let (layout, root) = TileLayout::new();
++
++        assert!(layout.can_split_pane(
++            root,
++            Direction::Horizontal,
++            0.5,
++            Rect::new(0, 0, MIN_PANE_OUTER_WIDTH * 2, 20),
++        ));
++        assert!(!layout.can_split_pane(
++            root,
++            Direction::Horizontal,
++            0.5,
++            Rect::new(0, 0, MIN_PANE_OUTER_WIDTH * 2 - 1, 20),
++        ));
++        assert!(!layout.can_split_pane(
++            root,
++            Direction::Vertical,
++            0.5,
++            Rect::new(0, 0, 40, MIN_PANE_OUTER_HEIGHT * 2 - 1),
++        ));
++    }
++
+     #[test]
+     fn insert_pane_near_unfocused_keeps_focus_and_history() {
+         let mut layout = sample_layout();
+diff --git a/src/main.rs b/src/main.rs
+index 8cfe9b0..4e42f50 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -159,6 +159,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+ # next_workspace = ""     # optional, unset by default
+ # previous_agent = ""     # optional, unset by default
+ # next_agent = ""         # optional, unset by default
++# Switch this client between online machines (Local and saved SSH machines).
++# previous_machine = ""   # optional, unset by default
++# next_machine = ""       # optional, unset by default
+ # focus_agent = ""        # optional indexed binding, e.g. "prefix+alt+1..9"
+ # remote_image_paste = "ctrl+v" # only active in herdr --remote; empty disables raw-key image paste
+ # new_tab = "prefix+c"
+@@ -295,6 +298,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+ # Disable for tmux-style internal splitters without an outside frame.
+ # pane_outer_borders = true
+ 
++# Use heavy box-drawing glyphs for the focused pane border.
++# focused_pane_heavy_borders = false
++
+ # Draw interactive scrollbars beside terminal panes.
+ # Set false to reclaim the scrollbar column and keep it out of terminal-native selections.
+ # pane_scrollbars = true
+@@ -305,6 +311,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+ # Show detected/reported agent labels in split pane borders when no manual pane name is set.
+ # show_agent_labels_on_pane_borders = false
+ 
++# Fade unfocused pane content toward the terminal background.
++# dim_unfocused_panes = false
++# Fraction of the original colour to retain (0.0 fully faded, 1.0 unchanged).
++# unfocused_pane_opacity = 0.5
++
+ # Hide the tab row when a workspace has exactly one tab.
+ # New tabs can still be created with the configured keybinding.
+ # hide_tab_bar_when_single_tab = false
+diff --git a/src/metadata_tokens.rs b/src/metadata_tokens.rs
+index f79e8ae..9af6285 100644
+--- a/src/metadata_tokens.rs
++++ b/src/metadata_tokens.rs
+@@ -88,6 +88,10 @@ impl MetadataTokens {
+             .collect()
+     }
+ 
++    pub(crate) fn get(&self, key: &str) -> Option<&str> {
++        self.entries.get(key).map(|token| token.value.as_str())
++    }
++
+     pub(crate) fn next_expiry(&self) -> Option<Instant> {
+         self.entries
+             .values()
+diff --git a/src/protocol/wire.rs b/src/protocol/wire.rs
+index aba166d..64f29e5 100644
+--- a/src/protocol/wire.rs
++++ b/src/protocol/wire.rs
+@@ -1500,7 +1500,7 @@ pub(crate) fn color_to_u32(color: ratatui::style::Color) -> u32 {
+ }
+ 
+ /// Converts a packed u32 back to a ratatui `Color`.
+-fn u32_to_color(val: u32) -> ratatui::style::Color {
++pub(crate) fn u32_to_color(val: u32) -> ratatui::style::Color {
+     match val >> 24 {
+         0x00 => match val & 0xFF {
+             0x00 => ratatui::style::Color::Reset,
+diff --git a/src/server/headless/retained_surface.rs b/src/server/headless/retained_surface.rs
+index 2a637ea..237746b 100644
+--- a/src/server/headless/retained_surface.rs
++++ b/src/server/headless/retained_surface.rs
+@@ -323,7 +323,7 @@ impl HeadlessServer {
+             let Some(snapshot) = runtime.collect_dirty_patch_snapshot(width, height) else {
+                 fallback!("terminal_snapshot");
+             };
+-            let patch = match snapshot.patch {
++            let mut patch = match snapshot.patch {
+                 crate::pane::TerminalDirtyPatchOutcome::Clean => {
+                     crate::render_prof::event("retained_surface.pane_clean");
+                     crate::pane::TerminalDirtyPatch { rows: Vec::new() }
+@@ -333,6 +333,32 @@ impl HeadlessServer {
+                     fallback!("terminal_patch");
+                 }
+             };
++            // Dirty-row patches bypass the pane renderer, so apply the same
++            // unfocused fade here or animated output would flash undimmed.
++            if self.app.state.dim_unfocused_panes {
++                let unfocused_multi_pane = self
++                    .app
++                    .state
++                    .workspaces
++                    .get(workspace_index)
++                    .and_then(|ws| {
++                        let tab = ws.active_tab()?;
++                        Some(tab.layout.pane_count() > 1 && ws.focused_pane_id() != Some(pane_id))
++                    })
++                    .unwrap_or(false);
++                if unfocused_multi_pane {
++                    let opacity = crate::ui::pane_unfocused_opacity(
++                        &self.app.state,
++                        workspace_index,
++                        pane_id,
++                    );
++                    for (_, cells) in &mut patch.rows {
++                        for cell in cells {
++                            crate::ui::fade_unfocused_cell_data(&self.app.state, cell, opacity);
++                        }
++                    }
++                }
++            }
+             collected.push(CollectedPanePatch {
+                 pane_id: public_pane_id,
+                 patch,
+diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
+index 60f89d6..88b43e4 100644
+--- a/src/server/headless/tests/mod.rs
++++ b/src/server/headless/tests/mod.rs
+@@ -1811,6 +1811,144 @@ async fn deferred_worktree_response_moves_only_its_source_client() {
+     shutdown_test_runtimes(&mut server);
+ }
+ 
++#[tokio::test]
++async fn client_navigation_emits_plugin_focus_events_only_for_changed_panes() {
++    for route in [
++        "workspace",
++        "tab",
++        "pane-workspace",
++        "pane-tab",
++        "pane-split",
++    ] {
++        let event_hub = api::EventHub::default();
++        let mut server = test_headless_server_with_event_hub(event_hub.clone());
++        let mut workspace = crate::workspace::Workspace::test_new("click-origin");
++        let origin_pane = workspace.tabs[0].root_pane;
++        let (target_ws, target_tab, target_pane) = if route.ends_with("split") {
++            let pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
++            workspace.tabs[0].layout.focus_pane(origin_pane);
++            (0, 0, pane)
++        } else if route.ends_with("tab") {
++            let tab = workspace.test_add_tab(Some("target"));
++            (0, tab, workspace.tabs[tab].root_pane)
++        } else {
++            (1, 0, origin_pane) // replaced by the new workspace's root below
++        };
++        server.app.state.workspaces = vec![workspace];
++        let target_pane = if target_ws == 1 {
++            let target = crate::workspace::Workspace::test_new("click-target");
++            let pane = target.tabs[0].root_pane;
++            server.app.state.workspaces.push(target);
++            pane
++        } else {
++            target_pane
++        };
++        server.app.state.ensure_test_terminals();
++        server.app.state.active = Some(0);
++        server.app.state.selected = 0;
++        server.app.state.mode = crate::app::Mode::Terminal;
++        let origin_id = server.app.public_pane_id(0, origin_pane).unwrap();
++        let target_id = server.app.public_pane_id(target_ws, target_pane).unwrap();
++        let origin_tab_id = server.app.public_tab_id(0, 0).unwrap();
++        let target_tab_id = server.app.public_tab_id(target_ws, target_tab).unwrap();
++        let (first_control, _) = connect_matching_test_shell(&mut server, 61);
++        let (second_control, _) = connect_matching_test_shell(&mut server, 62);
++        let _ = first_control.recv().unwrap();
++        let _ = second_control.recv().unwrap();
++        let focused = || {
++            event_hub
++                .events_after(0)
++                .into_iter()
++                .filter_map(|(_, event)| {
++                    if let api::schema::EventData::PaneFocused { pane_id, .. } = event.data {
++                        Some(pane_id)
++                    } else {
++                        None
++                    }
++                })
++                .collect::<Vec<_>>()
++        };
++        let baseline = focused().len();
++        let request = |server: &mut HeadlessServer, client_id, method| {
++            let (respond_to, response_rx) = std::sync::mpsc::channel();
++            server.handle_client_shell_api_request(
++                client_id,
++                api::ApiRequestMessage {
++                    request: api::schema::Request {
++                        id: "click-focus".into(),
++                        method,
++                    },
++                    respond_to,
++                    response_write_complete: None,
++                    stream_active: None,
++                },
++            );
++            let _ = response_rx.recv().unwrap();
++            server.app.sync_focus_events(); // must not duplicate the plugin event
++        };
++        let method = match route {
++            "workspace" => api::schema::Method::WorkspaceFocus(api::schema::WorkspaceTarget {
++                workspace_id: server.app.public_workspace_id(target_ws),
++            }),
++            "tab" => api::schema::Method::TabFocus(api::schema::TabTarget {
++                tab_id: target_tab_id.clone(),
++            }),
++            _ => api::schema::Method::PaneFocus(api::schema::PaneTarget {
++                pane_id: target_id.clone(),
++            }),
++        };
++        request(&mut server, 61, method);
++        assert_eq!(&focused()[baseline..], &[target_id.clone()], "{route}");
++        if target_ws != 0 || target_tab != 0 {
++            assert_eq!(
++                server.shell_tab_id_for_client(62).as_deref(),
++                Some(origin_tab_id.as_str())
++            );
++            // A request from the other client's unchanged location changes the global
++            // default but must not acknowledge another conversation.
++            request(
++                &mut server,
++                62,
++                api::schema::Method::TabFocus(api::schema::TabTarget {
++                    tab_id: origin_tab_id.clone(),
++                }),
++            );
++        }
++        request(
++            &mut server,
++            61,
++            api::schema::Method::PaneFocus(api::schema::PaneTarget {
++                pane_id: target_id.clone(),
++            }),
++        );
++        request(
++            &mut server,
++            61,
++            api::schema::Method::PaneFocus(api::schema::PaneTarget {
++                pane_id: "missing-pane".into(),
++            }),
++        );
++        assert_eq!(
++            &focused()[baseline..],
++            &[target_id.clone()],
++            "no-op/failed {route}"
++        );
++        request(
++            &mut server,
++            61,
++            api::schema::Method::PaneFocus(api::schema::PaneTarget {
++                pane_id: origin_id.clone(),
++            }),
++        );
++        assert_eq!(
++            &focused()[baseline..],
++            &[target_id, origin_id],
++            "return {route}"
++        );
++        shutdown_test_runtimes(&mut server);
++    }
++}
++
+ #[tokio::test]
+ async fn client_local_navigation_does_not_emit_global_focus_transitions() {
+     let mut server = test_headless_server();
+@@ -6911,3 +7049,139 @@ fn no_handle_internal_event_bypass_in_module() {
+         bypass_lines.join("\n  ")
+     );
+ }
++
++fn dimmed_unfocused_test_server(
++    attention_token: Option<&str>,
++) -> (
++    HeadlessServer,
++    std::sync::mpsc::Receiver<Vec<u8>>,
++    crate::layout::PaneId,
++) {
++    let mut server = test_headless_server();
++    let mut workspace = crate::workspace::Workspace::test_new("dimmed");
++    let focused_pane = workspace.focused_pane_id().expect("focused pane");
++    workspace.insert_test_runtime(
++        focused_pane,
++        crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 23, b"focused"),
++    );
++    let unfocused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
++    workspace.insert_test_runtime(
++        unfocused_pane,
++        crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 23, b"idle"),
++    );
++    workspace
++        .active_tab_mut()
++        .expect("active tab")
++        .layout
++        .focus_pane(focused_pane);
++    let unfocused_terminal_id = workspace
++        .terminal_id(unfocused_pane)
++        .expect("unfocused terminal")
++        .clone();
++    if let Some(token) = attention_token {
++        let mut terminal =
++            crate::terminal::TerminalState::new(unfocused_terminal_id.clone(), "/tmp".into());
++        terminal.metadata_tokens.patch(
++            HashMap::from([(token.to_string(), Some("attention".to_string()))]),
++            None,
++            std::time::Instant::now(),
++        );
++        server
++            .app
++            .state
++            .terminals
++            .insert(unfocused_terminal_id, terminal);
++    }
++    server.app.state.workspaces = vec![workspace];
++    server.app.state.active = Some(0);
++    server.app.state.selected = 0;
++    server.app.state.mode = crate::app::Mode::Terminal;
++    server.app.state.dim_unfocused_panes = true;
++    server.app.state.unfocused_pane_opacity = 0.25;
++    let (control, render) = connect_matching_test_shell(&mut server, 7);
++    let _ = control.recv().expect("snapshot");
++    // The host theme is per client and synced from the foreground shell.
++    let theme = crate::terminal_theme::TerminalTheme::default().with_color(
++        crate::terminal_theme::DefaultColorKind::Background,
++        crate::terminal_theme::RgbColor {
++            r: 20,
++            g: 40,
++            b: 60,
++        },
++    );
++    server
++        .clients
++        .get_mut(&7)
++        .expect("shell client")
++        .host_terminal_theme = theme;
++    server.app.set_host_terminal_theme(theme);
++    server.render_and_stream();
++    let _ = recv_pane_surface(&render, "baseline");
++    (server, render, unfocused_pane)
++}
++
++fn retained_patch_cell_fg(patch: &crate::protocol::PaneSurfacePatch, symbol: &str) -> u32 {
++    patch
++        .rows
++        .iter()
++        .flat_map(|row| row.cells.iter())
++        .find(|cell| cell.symbol == symbol)
++        .unwrap_or_else(|| panic!("patched cell {symbol:?}"))
++        .fg
++}
++
++#[tokio::test]
++async fn retained_pty_update_keeps_unfocused_pane_faded() {
++    let (mut server, render, unfocused_pane) = dimmed_unfocused_test_server(None);
++    write_shared_test_pane(
++        &mut server,
++        unfocused_pane,
++        b"\r\x1b[38;2;220;120;60mZ\x1b[0m",
++    );
++    assert!(server.render_retained_pane_surface_and_stream(&HashSet::from([unfocused_pane])));
++    let patch = recv_pane_surface_patch(&render, "faded patch");
++    assert_eq!(
++        retained_patch_cell_fg(&patch, "Z"),
++        crate::protocol::color_to_u32(ratatui::style::Color::Rgb(70, 60, 60))
++    );
++
++    shutdown_test_runtimes(&mut server);
++
++    // A complete render must agree with the retained path.
++    let (mut full_server, full_render, full_pane) = dimmed_unfocused_test_server(None);
++    write_shared_test_pane(
++        &mut full_server,
++        full_pane,
++        b"\r\x1b[38;2;220;120;60mZ\x1b[0m",
++    );
++    full_server.render_and_stream();
++    let full = recv_pane_surface(&full_render, "full surface");
++    let cell = full
++        .frame
++        .cells
++        .iter()
++        .find(|cell| cell.symbol == "Z")
++        .expect("full-render cell");
++    assert_eq!(
++        cell.fg,
++        crate::protocol::color_to_u32(ratatui::style::Color::Rgb(70, 60, 60))
++    );
++    shutdown_test_runtimes(&mut full_server);
++}
++
++#[tokio::test]
++async fn retained_pty_update_keeps_attention_pane_at_midpoint_opacity() {
++    let (mut server, render, unfocused_pane) = dimmed_unfocused_test_server(Some("dot_review"));
++    write_shared_test_pane(
++        &mut server,
++        unfocused_pane,
++        b"\r\x1b[38;2;220;120;60mZ\x1b[0m",
++    );
++    assert!(server.render_retained_pane_surface_and_stream(&HashSet::from([unfocused_pane])));
++    let patch = recv_pane_surface_patch(&render, "attention patch");
++    assert_eq!(
++        retained_patch_cell_fg(&patch, "Z"),
++        crate::protocol::color_to_u32(ratatui::style::Color::Rgb(145, 90, 60))
++    );
++    shutdown_test_runtimes(&mut server);
++}
+diff --git a/src/terminal/title.rs b/src/terminal/title.rs
+index 89b4fed..472ac6c 100644
+--- a/src/terminal/title.rs
++++ b/src/terminal/title.rs
+@@ -2,6 +2,9 @@ const CLAUDE_ACTIVITY_GLYPHS: &str = "·✢✳✶✻✽◐◓◑◒";
+ 
+ pub(crate) fn stripped_terminal_title(title: &str) -> Option<String> {
+     let title = crate::platform::terminal_title_for_presentation(title).trim();
++    // OMP uses this stable product marker before its useful task title. It is
++    // presentation chrome, not part of the conversation summary.
++    let title = title.strip_prefix("π > ").unwrap_or(title);
+     if title.is_empty() {
+         return None;
+     }
+@@ -47,6 +50,14 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn strips_omp_task_prefix() {
++        assert_eq!(
++            stripped_terminal_title("π > Explain the deployment").as_deref(),
++            Some("Explain the deployment")
++        );
++    }
++
+     #[test]
+     fn preserves_unrecognized_or_unbounded_symbols() {
+         for (title, expected) in [
+diff --git a/src/ui.rs b/src/ui.rs
+index 141e09d..518412b 100644
+--- a/src/ui.rs
++++ b/src/ui.rs
+@@ -19,7 +19,8 @@ pub(crate) use self::onboarding::{
+ pub(crate) use self::panes::popup_pane_rects;
+ use self::panes::resize_popup_pane;
+ pub(crate) use self::panes::{
+-    apply_pane_chrome, pane_inner_rect, pane_is_scrolled_back, render_selection_highlight,
++    apply_pane_chrome, fade_unfocused_cell_data, pane_inner_rect, pane_is_scrolled_back,
++    pane_unfocused_opacity, render_selection_highlight,
+ };
+ pub(crate) use self::release_notes::{
+     product_announcement_display_lines, product_announcement_scroll_metrics,
+diff --git a/src/ui/panes.rs b/src/ui/panes.rs
+index ab3e352..9ef44ab 100644
+--- a/src/ui/panes.rs
++++ b/src/ui/panes.rs
+@@ -81,19 +81,32 @@ fn pane_below<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo
+     })
+ }
+ 
+-fn shrink_for_one_cell_gap(size: u16) -> u16 {
+-    if size > 1 {
+-        size - 1
++fn shrink_for_gap(size: u16, gap: u16) -> u16 {
++    if size > gap {
++        size - gap
+     } else {
+         size
+     }
+ }
+ 
++fn columns_per_row(cell_size: crate::kitty_graphics::HostCellSize) -> u16 {
++    // Herdr suppresses host pixels unless Kitty graphics is enabled. Preserve
++    // independent gaps in Alacritty, but prefer the thinner side of the
++    // rectangular-cell approximation rather than widening panes to three columns.
++    if !cell_size.is_known() {
++        return 2;
++    }
++    let width = cell_size.width_px;
++    let rounded_ratio = cell_size.height_px.saturating_add(width / 2) / width;
++    rounded_ratio.clamp(1, u32::from(u16::MAX)) as u16
++}
++
+ pub(crate) fn apply_pane_chrome(
+     panes: Vec<PaneInfo>,
+     pane_borders: crate::config::PaneBordersConfig,
+     pane_gaps: bool,
+     pane_outer_borders: bool,
++    cell_size: crate::kitty_graphics::HostCellSize,
+ ) -> Vec<PaneInfo> {
+     let multi_pane = panes.len() > 1;
+     let bordered = pane_borders.shows_borders(multi_pane);
+@@ -116,12 +129,19 @@ pub(crate) fn apply_pane_chrome(
+             let right_neighbor = multi_pane.then(|| pane_to_right(&info, &panes)).flatten();
+             let below_neighbor = multi_pane.then(|| pane_below(&info, &panes)).flatten();
+ 
+-            if multi_pane && pane_gaps && !pane_borders.draws_borders() {
++            if multi_pane && pane_gaps {
++                // A terminal row is usually about twice as tall as a column is
++                // wide. Compensate in columns so independently bordered panes
++                // retain a slight gap without horizontal splits looking much
++                // farther apart than vertical splits.
++                let horizontal_gap =
++                    columns_per_row(cell_size).saturating_sub(if bordered { 1 } else { 0 });
++                let vertical_gap = if bordered { 0 } else { 1 };
+                 if right_neighbor.is_some() {
+-                    info.rect.width = shrink_for_one_cell_gap(info.rect.width);
++                    info.rect.width = shrink_for_gap(info.rect.width, horizontal_gap);
+                 }
+                 if below_neighbor.is_some() {
+-                    info.rect.height = shrink_for_one_cell_gap(info.rect.height);
++                    info.rect.height = shrink_for_gap(info.rect.height, vertical_gap);
+                 }
+             }
+ 
+@@ -244,6 +264,7 @@ pub(super) fn resize_tab_panes(
+         app.pane_borders,
+         app.pane_gaps,
+         app.pane_outer_borders,
++        cell_size,
+     ) {
+         let pane_inner = pane_inner_rect(info.rect, info.borders);
+ 
+@@ -324,6 +345,7 @@ pub(super) fn compute_pane_infos_for_tab(
+         app.pane_borders,
+         app.pane_gaps,
+         app.pane_outer_borders,
++        cell_size,
+     );
+ 
+     for info in &mut pane_infos {
+@@ -384,6 +406,203 @@ fn compute_pane_infos(
+     )
+ }
+ 
++fn indexed_color_to_rgb(index: u8) -> Rgb {
++    const ANSI: [Rgb; 16] = [
++        (0, 0, 0),
++        (128, 0, 0),
++        (0, 128, 0),
++        (128, 128, 0),
++        (0, 0, 128),
++        (128, 0, 128),
++        (0, 128, 128),
++        (192, 192, 192),
++        (128, 128, 128),
++        (255, 0, 0),
++        (0, 255, 0),
++        (255, 255, 0),
++        (0, 0, 255),
++        (255, 0, 255),
++        (0, 255, 255),
++        (255, 255, 255),
++    ];
++    match index {
++        0..=15 => ANSI[index as usize],
++        16..=231 => {
++            const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
++            let offset = index - 16;
++            (
++                LEVELS[(offset / 36) as usize],
++                LEVELS[((offset % 36) / 6) as usize],
++                LEVELS[(offset % 6) as usize],
++            )
++        }
++        232..=255 => {
++            let level = 8 + (index - 232) * 10;
++            (level, level, level)
++        }
++    }
++}
++
++fn terminal_color_to_rgb(color: Color, app: &AppState) -> Option<Rgb> {
++    let palette_index = match color {
++        Color::Black => Some(0),
++        Color::Red => Some(1),
++        Color::Green => Some(2),
++        Color::Yellow => Some(3),
++        Color::Blue => Some(4),
++        Color::Magenta => Some(5),
++        Color::Cyan => Some(6),
++        Color::Gray => Some(7),
++        Color::DarkGray => Some(8),
++        Color::LightRed => Some(9),
++        Color::LightGreen => Some(10),
++        Color::LightYellow => Some(11),
++        Color::LightBlue => Some(12),
++        Color::LightMagenta => Some(13),
++        Color::LightCyan => Some(14),
++        Color::White => Some(15),
++        Color::Indexed(index) => Some(index),
++        Color::Rgb(r, g, b) => return Some((r, g, b)),
++        Color::Reset => return None,
++    };
++    let index = palette_index?;
++    app.host_terminal_theme.palette[index as usize]
++        .map(|color| (color.r, color.g, color.b))
++        .or_else(|| Some(indexed_color_to_rgb(index)))
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum PaneAttention {
++    Review,
++    Blocked,
++}
++
++impl PaneAttention {
++    fn border_color(self, palette: &Palette) -> Color {
++        match self {
++            Self::Review => palette.peach,
++            Self::Blocked => palette.red,
++        }
++    }
++
++    fn priority(self) -> u8 {
++        match self {
++            Self::Review => 1,
++            Self::Blocked => 2,
++        }
++    }
++}
++
++fn pane_attention(
++    app: &AppState,
++    ws: &crate::workspace::Workspace,
++    pane_id: crate::layout::PaneId,
++) -> Option<PaneAttention> {
++    let terminal = ws
++        .pane_state(pane_id)
++        .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))?;
++    if terminal.metadata_tokens.get("dot_blocked").is_some() {
++        Some(PaneAttention::Blocked)
++    } else if terminal.metadata_tokens.get("dot_review").is_some() {
++        Some(PaneAttention::Review)
++    } else {
++        None
++    }
++}
++
++fn attention_pane_opacity(unfocused_opacity: f32) -> f32 {
++    unfocused_opacity + (1.0 - unfocused_opacity) / 2.0
++}
++
++pub(crate) fn pane_unfocused_opacity(
++    app: &AppState,
++    workspace_index: usize,
++    pane_id: crate::layout::PaneId,
++) -> f32 {
++    app.workspaces
++        .get(workspace_index)
++        .and_then(|ws| pane_attention(app, ws, pane_id))
++        .map_or(app.unfocused_pane_opacity, |_| {
++            attention_pane_opacity(app.unfocused_pane_opacity)
++        })
++}
++
++fn blend_toward(source: Rgb, target: Rgb, opacity: f32) -> Rgb {
++    let blend = |source: u8, target: u8| {
++        (f32::from(source) * opacity + f32::from(target) * (1.0 - opacity)).round() as u8
++    };
++    (
++        blend(source.0, target.0),
++        blend(source.1, target.1),
++        blend(source.2, target.2),
++    )
++}
++
++fn faded_unfocused_style(style: Style, app: &AppState, opacity: f32) -> Style {
++    let backdrop = app
++        .host_terminal_theme
++        .background
++        .map(|color| (color.r, color.g, color.b))
++        .or_else(|| terminal_color_to_rgb(app.palette.surface_dim, app))
++        .unwrap_or((0, 0, 0));
++    let default_fg = app
++        .host_terminal_theme
++        .foreground
++        .map(|color| (color.r, color.g, color.b))
++        .or_else(|| terminal_color_to_rgb(app.palette.text, app))
++        .unwrap_or((192, 192, 192));
++    let fg = style
++        .fg
++        .and_then(|color| terminal_color_to_rgb(color, app))
++        .unwrap_or(default_fg);
++    let bg = style
++        .bg
++        .and_then(|color| terminal_color_to_rgb(color, app))
++        .unwrap_or(backdrop);
++
++    let (fg_r, fg_g, fg_b) = blend_toward(fg, backdrop, opacity);
++    let (bg_r, bg_g, bg_b) = blend_toward(bg, backdrop, opacity);
++    let mut faded = style
++        .fg(Color::Rgb(fg_r, fg_g, fg_b))
++        .bg(Color::Rgb(bg_r, bg_g, bg_b));
++    if let Some(underline) = style
++        .underline_color
++        .and_then(|color| terminal_color_to_rgb(color, app))
++    {
++        let (r, g, b) = blend_toward(underline, backdrop, opacity);
++        faded = faded.underline_color(Color::Rgb(r, g, b));
++    }
++    faded
++}
++
++/// Apply the same fade as a full pane render to one retained-render cell.
++///
++/// PTY dirty-row patches bypass the ratatui pane buffer, so they must be
++/// transformed before replacing cells in the previous frame. Otherwise every
++/// animated update in an unfocused pane briefly restores its undimmed colours.
++pub(crate) fn fade_unfocused_cell_data(
++    app: &AppState,
++    cell: &mut crate::protocol::CellData,
++    opacity: f32,
++) {
++    let style = Style::default()
++        .fg(crate::protocol::u32_to_color(cell.fg))
++        .bg(crate::protocol::u32_to_color(cell.bg));
++    let faded = faded_unfocused_style(style, app, opacity);
++    cell.fg = crate::protocol::color_to_u32(faded.fg.unwrap_or(Color::Reset));
++    cell.bg = crate::protocol::color_to_u32(faded.bg.unwrap_or(Color::Reset));
++}
++
++fn fade_unfocused_pane(app: &AppState, frame: &mut Frame, area: Rect, opacity: f32) {
++    let buf = frame.buffer_mut();
++    for y in area.y..area.y + area.height {
++        for x in area.x..area.x + area.width {
++            let cell = &mut buf[(x, y)];
++            cell.set_style(faded_unfocused_style(cell.style(), app, opacity));
++        }
++    }
++}
++
+ pub(super) fn render_panes(
+     app: &AppState,
+     terminal_runtimes: &TerminalRuntimeRegistry,
+@@ -406,6 +625,15 @@ pub(super) fn render_panes(
+                 && app.pane_exposes_host_cursor(ws_idx, info.id);
+             rt.render(frame, info.inner_rect, show_cursor);
+             render_pane_scrollbar(app, frame, info, rt);
++
++            if app.dim_unfocused_panes && !info.is_focused && pane_infos.len() > 1 {
++                fade_unfocused_pane(
++                    app,
++                    frame,
++                    info.inner_rect,
++                    pane_unfocused_opacity(app, ws_idx, info.id),
++                );
++            }
+         }
+     }
+ 
+@@ -467,6 +695,10 @@ fn render_pane_borders(
+         add_pane_border_cells(&mut cells, info);
+     }
+     add_split_border_cells(app.pane_gaps, split_borders, &mut cells);
++    let attention_by_pane = pane_infos
++        .iter()
++        .filter_map(|info| pane_attention(app, ws, info.id).map(|attention| (info.id, attention)))
++        .collect::<std::collections::HashMap<_, _>>();
+ 
+     let buf = frame.buffer_mut();
+     let area = buf.area;
+@@ -481,14 +713,21 @@ fn render_pane_borders(
+         let focused = pane_infos
+             .iter()
+             .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
+-        let symbol = line_cell_symbol(line);
++        let symbol = line_cell_symbol(line, focused && app.focused_pane_heavy_borders);
+         if symbol.is_empty() {
+             continue;
+         }
+         let cell = &mut buf[(x, y)];
+         cell.set_symbol(symbol);
++        let attention = pane_infos
++            .iter()
++            .filter(|info| line_touches_pane(x, y, info, app.pane_gaps))
++            .filter_map(|info| attention_by_pane.get(&info.id).copied())
++            .max_by_key(|attention| attention.priority());
+         let color = if focused {
+             app.palette.accent
++        } else if let Some(attention) = attention {
++            attention.border_color(&app.palette)
+         } else {
+             app.palette.overlay0
+         };
+@@ -656,6 +895,8 @@ fn render_pane_border_titles(
+         }
+         let color = if info.is_focused {
+             app.palette.accent
++        } else if let Some(attention) = pane_attention(app, ws, info.id) {
++            attention.border_color(&app.palette)
+         } else {
+             app.palette.overlay0
+         };
+@@ -673,23 +914,38 @@ fn render_pane_border_titles(
+     }
+ }
+ 
+-fn line_cell_symbol(line: LineCell) -> &'static str {
+-    match (line.up, line.down, line.left, line.right) {
+-        (true, true, true, true) => "┼",
+-        (true, true, true, false) => "┤",
+-        (true, true, false, true) => "├",
+-        (true, false, true, true) => "┴",
+-        (false, true, true, true) => "┬",
+-        (true, true, false, false) | (true, false, false, false) | (false, true, false, false) => {
+-            "│"
+-        }
+-        (false, false, true, true) | (false, false, true, false) | (false, false, false, true) => {
+-            "─"
+-        }
+-        (false, true, false, true) => "┌",
+-        (false, true, true, false) => "┐",
+-        (true, false, false, true) => "└",
+-        (true, false, true, false) => "┘",
++fn line_cell_symbol(line: LineCell, heavy: bool) -> &'static str {
++    match (line.up, line.down, line.left, line.right, heavy) {
++        (true, true, true, true, false) => "┼",
++        (true, true, true, true, true) => "╋",
++        (true, true, true, false, false) => "┤",
++        (true, true, true, false, true) => "┫",
++        (true, true, false, true, false) => "├",
++        (true, true, false, true, true) => "┣",
++        (true, false, true, true, false) => "┴",
++        (true, false, true, true, true) => "┻",
++        (false, true, true, true, false) => "┬",
++        (false, true, true, true, true) => "┳",
++        (true, true, false, false, false)
++        | (true, false, false, false, false)
++        | (false, true, false, false, false) => "│",
++        (true, true, false, false, true)
++        | (true, false, false, false, true)
++        | (false, true, false, false, true) => "┃",
++        (false, false, true, true, false)
++        | (false, false, true, false, false)
++        | (false, false, false, true, false) => "─",
++        (false, false, true, true, true)
++        | (false, false, true, false, true)
++        | (false, false, false, true, true) => "━",
++        (false, true, false, true, false) => "┌",
++        (false, true, false, true, true) => "┏",
++        (false, true, true, false, false) => "┐",
++        (false, true, true, false, true) => "┓",
++        (true, false, false, true, false) => "└",
++        (true, false, false, true, true) => "┗",
++        (true, false, true, false, false) => "┘",
++        (true, false, true, false, true) => "┛",
+         _ => "",
+     }
+ }
+@@ -909,6 +1165,36 @@ mod tests {
+         assert_eq!(buffer[(6, 0)].symbol(), "块");
+     }
+ 
++    fn test_cell_size() -> crate::kitty_graphics::HostCellSize {
++        crate::kitty_graphics::HostCellSize {
++            width_px: 8,
++            height_px: 16,
++        }
++    }
++
++    #[test]
++    fn missing_host_cell_size_keeps_a_thin_independent_gap() {
++        let mut workspace = Workspace::test_new("test");
++        let left_id = workspace.tabs[0].root_pane;
++        let right_id = workspace.test_split(ratatui::layout::Direction::Horizontal);
++        let infos = apply_pane_chrome(
++            workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
++            PaneBordersConfig::Auto,
++            true,
++            true,
++            crate::kitty_graphics::HostCellSize::default(),
++        );
++        let left = infos.iter().find(|info| info.id == left_id).unwrap();
++        let right = infos.iter().find(|info| info.id == right_id).unwrap();
++
++        assert_eq!(
++            right.rect.x - (left.rect.x + left.rect.width.saturating_sub(1)),
++            2
++        );
++        assert_eq!(left.borders, Borders::ALL);
++        assert_eq!(right.borders, Borders::ALL);
++    }
++
+     #[test]
+     fn default_horizontal_split_uses_one_shared_divider_column() {
+         let mut workspace = Workspace::test_new("test");
+@@ -921,6 +1207,7 @@ mod tests {
+             PaneBordersConfig::Auto,
+             false,
+             true,
++            test_cell_size(),
+         );
+         let left = infos.iter().find(|info| info.id == root).unwrap();
+         let right = infos.iter().find(|info| info.id == right).unwrap();
+@@ -942,6 +1229,7 @@ mod tests {
+             PaneBordersConfig::Auto,
+             false,
+             true,
++            test_cell_size(),
+         );
+         let top = infos.iter().find(|info| info.id == root).unwrap();
+         let bottom = infos.iter().find(|info| info.id == bottom).unwrap();
+@@ -963,6 +1251,7 @@ mod tests {
+             PaneBordersConfig::Auto,
+             false,
+             false,
++            test_cell_size(),
+         );
+         let left = infos.iter().find(|info| info.id == root).unwrap();
+         let right = infos.iter().find(|info| info.id == right).unwrap();
+@@ -972,28 +1261,60 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn pane_gaps_keep_independent_bordered_panes() {
+-        let mut workspace = Workspace::test_new("test");
+-        let root = workspace.tabs[0].root_pane;
+-        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+-        workspace.tabs[0].layout.focus_pane(root);
++    fn pane_gaps_compensate_for_rectangular_terminal_cells() {
++        let mut horizontal = Workspace::test_new("horizontal");
++        let left_id = horizontal.tabs[0].root_pane;
++        let right_id = horizontal.test_split(ratatui::layout::Direction::Horizontal);
++        let horizontal_infos = apply_pane_chrome(
++            horizontal.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
++            PaneBordersConfig::Auto,
++            true,
++            true,
++            test_cell_size(),
++        );
++        let left = horizontal_infos
++            .iter()
++            .find(|info| info.id == left_id)
++            .unwrap();
++        let right = horizontal_infos
++            .iter()
++            .find(|info| info.id == right_id)
++            .unwrap();
+ 
+-        let infos = apply_pane_chrome(
+-            workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
++        let mut vertical = Workspace::test_new("vertical");
++        let top_id = vertical.tabs[0].root_pane;
++        let bottom_id = vertical.test_split(ratatui::layout::Direction::Vertical);
++        let vertical_infos = apply_pane_chrome(
++            vertical.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
+             PaneBordersConfig::Auto,
+             true,
+             true,
++            test_cell_size(),
+         );
+-        let left = infos.iter().find(|info| info.id == root).unwrap();
+-        let right = infos.iter().find(|info| info.id == right).unwrap();
++        let top = vertical_infos
++            .iter()
++            .find(|info| info.id == top_id)
++            .unwrap();
++        let bottom = vertical_infos
++            .iter()
++            .find(|info| info.id == bottom_id)
++            .unwrap();
+ 
+-        assert_eq!(left.rect.x + left.rect.width, right.rect.x);
++        let horizontal_border_distance_px =
++            u32::from(right.rect.x - (left.rect.x + left.rect.width.saturating_sub(1)))
++                * test_cell_size().width_px;
++        let vertical_border_distance_px =
++            u32::from(bottom.rect.y - (top.rect.y + top.rect.height.saturating_sub(1)))
++                * test_cell_size().height_px;
++        assert_eq!(horizontal_border_distance_px, vertical_border_distance_px);
+         assert_eq!(left.borders, Borders::ALL);
+         assert_eq!(right.borders, Borders::ALL);
++        assert_eq!(top.borders, Borders::ALL);
++        assert_eq!(bottom.borders, Borders::ALL);
+     }
+ 
+     #[test]
+-    fn borderless_pane_gaps_add_one_empty_cell_between_panes() {
++    fn borderless_pane_gaps_balance_pixel_spacing() {
+         let mut workspace = Workspace::test_new("test");
+         let root = workspace.tabs[0].root_pane;
+         let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+@@ -1004,11 +1325,12 @@ mod tests {
+             PaneBordersConfig::Off,
+             true,
+             true,
++            test_cell_size(),
+         );
+         let left = infos.iter().find(|info| info.id == root).unwrap();
+         let right = infos.iter().find(|info| info.id == right).unwrap();
+ 
+-        assert_eq!(left.rect, Rect::new(0, 0, 49, 20));
++        assert_eq!(left.rect, Rect::new(0, 0, 48, 20));
+         assert_eq!(right.rect, Rect::new(50, 0, 50, 20));
+         assert!(left.borders.is_empty());
+         assert!(right.borders.is_empty());
+@@ -1024,6 +1346,7 @@ mod tests {
+             PaneBordersConfig::Off,
+             false,
+             true,
++            test_cell_size(),
+         );
+ 
+         for info in infos {
+@@ -1042,6 +1365,7 @@ mod tests {
+             PaneBordersConfig::Auto,
+             false,
+             true,
++            test_cell_size(),
+         );
+         assert_eq!(default_infos[0].borders, Borders::NONE);
+ 
+@@ -1050,6 +1374,7 @@ mod tests {
+             PaneBordersConfig::Always,
+             false,
+             true,
++            test_cell_size(),
+         );
+         assert_eq!(framed_infos[0].borders, Borders::ALL);
+ 
+@@ -1058,13 +1383,15 @@ mod tests {
+             PaneBordersConfig::Always,
+             false,
+             false,
++            test_cell_size(),
+         );
+         assert_eq!(no_outer_infos[0].borders, Borders::NONE);
+     }
+ 
+     #[test]
+-    fn global_pane_border_renderer_composes_junctions_and_focus_style() {
++    fn global_pane_border_renderer_composes_heavy_focused_junctions() {
+         let mut app = AppState::test_new();
++        app.focused_pane_heavy_borders = true;
+         app.view.terminal_area = Rect::new(0, 0, 4, 4);
+         app.view.pane_infos = vec![
+             PaneInfo {
+@@ -1125,12 +1452,112 @@ mod tests {
+             .unwrap();
+ 
+         let buffer = terminal.backend().buffer();
+-        assert_eq!(buffer[(2, 2)].symbol(), "┼");
++        assert_eq!(buffer[(2, 2)].symbol(), "╋");
+         assert_eq!(buffer[(2, 2)].style().fg, Some(app.palette.accent));
+-        assert_eq!(buffer[(2, 1)].symbol(), "│");
++        assert_eq!(buffer[(2, 1)].symbol(), "┃");
+         assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.accent));
+     }
+ 
++    #[test]
++    fn agent_attention_uses_theme_border_colours_and_midpoint_opacity() {
++        let mut app = AppState::test_new();
++        app.mode = crate::app::Mode::Terminal;
++        app.pane_gaps = true;
++        app.unfocused_pane_opacity = 0.4;
++        let mut workspace = Workspace::test_new("test");
++        let focused_pane = workspace.tabs[0].root_pane;
++        let attention_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
++        workspace.tabs[0].layout.focus_pane(focused_pane);
++        app.view.pane_infos = apply_pane_chrome(
++            workspace.tabs[0].layout.panes(Rect::new(0, 0, 12, 4)),
++            PaneBordersConfig::Auto,
++            true,
++            true,
++            test_cell_size(),
++        );
++        let attention_rect = app
++            .view
++            .pane_infos
++            .iter()
++            .find(|info| info.id == attention_pane)
++            .expect("attention pane")
++            .rect;
++        let terminal_id = workspace
++            .terminal_id(attention_pane)
++            .expect("attention terminal")
++            .clone();
++        let mut terminal_state = TerminalState::new(terminal_id.clone(), "/tmp".into());
++        terminal_state.metadata_tokens.patch(
++            std::collections::HashMap::from([("dot_blocked".to_string(), Some("◆".to_string()))]),
++            None,
++            std::time::Instant::now(),
++        );
++        app.terminals.insert(terminal_id.clone(), terminal_state);
++        app.workspaces = vec![workspace];
++        app.active = Some(0);
++
++        let attention_opacity = pane_unfocused_opacity(&app, 0, attention_pane);
++        assert!(
++            (attention_opacity - 0.7).abs() < 0.000_001,
++            "attention should sit halfway between 0.4 and full opacity; got {attention_opacity}"
++        );
++
++        let mut terminal =
++            ratatui::Terminal::new(ratatui::backend::TestBackend::new(12, 4)).unwrap();
++        terminal
++            .draw(|frame| render_view_pane_borders(&app, &app.workspaces[0], &[], frame))
++            .unwrap();
++        assert_eq!(
++            terminal.backend().buffer()[(attention_rect.x, attention_rect.y + 1)]
++                .style()
++                .fg,
++            Some(app.palette.red)
++        );
++
++        app.terminals
++            .get_mut(&terminal_id)
++            .expect("attention terminal")
++            .metadata_tokens
++            .patch(
++                std::collections::HashMap::from([
++                    ("dot_blocked".to_string(), None),
++                    ("dot_review".to_string(), Some("●".to_string())),
++                ]),
++                None,
++                std::time::Instant::now(),
++            );
++        terminal
++            .draw(|frame| render_view_pane_borders(&app, &app.workspaces[0], &[], frame))
++            .unwrap();
++        assert_eq!(
++            terminal.backend().buffer()[(attention_rect.x, attention_rect.y + 1)]
++                .style()
++                .fg,
++            Some(app.palette.peach)
++        );
++    }
++
++    #[test]
++    fn unfocused_opacity_blends_all_cell_colours_toward_host_background() {
++        let mut app = AppState::test_new();
++        app.unfocused_pane_opacity = 0.25;
++        app.host_terminal_theme.background = Some(crate::terminal_theme::RgbColor {
++            r: 20,
++            g: 40,
++            b: 60,
++        });
++        let style = Style::default()
++            .fg(Color::Rgb(220, 120, 60))
++            .bg(Color::Rgb(100, 80, 60))
++            .underline_color(Color::Rgb(20, 240, 160));
++
++        let faded = faded_unfocused_style(style, &app, app.unfocused_pane_opacity);
++
++        assert_eq!(faded.fg, Some(Color::Rgb(70, 60, 60)));
++        assert_eq!(faded.bg, Some(Color::Rgb(40, 50, 60)));
++        assert_eq!(faded.underline_color, Some(Color::Rgb(20, 90, 85)));
++    }
++
+     #[test]
+     fn gapped_pane_focus_does_not_color_neighbor_border() {
+         let mut app = AppState::test_new();
+diff --git a/src/ui/sidebar.rs b/src/ui/sidebar.rs
+index cbf6f1a..825f65b 100644
+--- a/src/ui/sidebar.rs
++++ b/src/ui/sidebar.rs
+@@ -31,6 +31,10 @@ fn sidebar_section_heights(total_height: u16, split_ratio: f32) -> (u16, u16) {
+     if total_height == 0 {
+         return (0, 0);
+     }
++    // The inline Spaces tree owns the whole sidebar: no Agents section.
++    if split_ratio >= 1.0 {
++        return (total_height, 0);
++    }
+     if total_height < 6 {
+         let workspace_height = total_height.div_ceil(2);
+         return (
+@@ -67,7 +71,7 @@ pub(crate) fn expanded_sidebar_sections(area: Rect, split_ratio: f32) -> (Rect,
+ 
+ pub(crate) fn sidebar_section_divider_rect(area: Rect, split_ratio: f32) -> Rect {
+     let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
+-    if content.width == 0 || content.height < 6 {
++    if content.width == 0 || content.height < 6 || split_ratio >= 1.0 {
+         return Rect::default();
+     }
+ 
+diff --git a/src/update.rs b/src/update.rs
+index 4c128c5..6ba1afb 100644
+--- a/src/update.rs
++++ b/src/update.rs
+@@ -2110,6 +2110,11 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
+ 
+ /// Manual self-update command (`herdr update`).
+ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
++    // Stock release assets cannot preserve this source patch. Refuse before
++    // network, release-note writes, downloads, or any server handoff planning.
++    if crate::build_info::channel() == "dotfiles" {
++        return Err("self-update is disabled for the dotfiles custom build; run `install-herdr-focus` to install the audited version. New upstream releases require a port of the pinned patch; your binary, config and running sessions were left unchanged.".into());
++    }
+     let channel = UpdateChannel::configured();
+ 
+     if is_homebrew_managed_install() {
+@@ -2797,6 +2802,16 @@ mod tests {
+         assert!(!running_inside_herdr_env(Some("0")));
+     }
+ 
++    #[test]
++    fn dotfiles_build_refuses_stock_updates_even_with_handoff() {
++        assert_eq!(crate::build_info::channel(), "dotfiles");
++        for args in [vec![], vec!["--handoff".to_owned()]] {
++            let error = self_update(parse_self_update_args(&args).unwrap()).unwrap_err();
++            assert!(error.starts_with("self-update is disabled for the dotfiles custom build"));
++            assert!(error.contains("install-herdr-focus"));
++        }
++    }
++
+     #[test]
+     fn self_update_args_gate_live_handoff() {
+         assert_eq!(
