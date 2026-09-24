@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { commandEnvironment } from "./omp-compat.ts";
 
 const TOKEN_CACHE_MS = 60_000;
 const MAX_OUTPUT_BYTES = 64 * 1024;
@@ -13,6 +14,8 @@ function runOmpTokenCommand(signal?: AbortSignal): Promise<string> {
       {
         encoding: "utf8",
         maxBuffer: MAX_OUTPUT_BYTES,
+        timeout: 15_000,
+        env: commandEnvironment(),
         signal,
       },
       (error, stdout) => {

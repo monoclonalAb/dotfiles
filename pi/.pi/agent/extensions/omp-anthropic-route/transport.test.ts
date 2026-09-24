@@ -5,6 +5,7 @@ import {
   CLAUDE_CODE_SYSTEM_INSTRUCTION,
   CLAUDE_CODE_VERSION,
   createOmpAnthropicFetch,
+  inspectOmpRoutedRequest,
   xxhash64,
 } from "./transport.ts";
 
@@ -149,6 +150,7 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   assert.match(headers.get("anthropic-beta") ?? "", /oauth-2025-04-20/);
   assert.match(headers.get("anthropic-beta") ?? "", /effort-2025-11-24/);
   assert.doesNotMatch(headers.get("anthropic-beta") ?? "", /server-side-fallback/);
+  assert.doesNotMatch(headers.get("anthropic-beta") ?? "", /mid-conversation-output-config|thinking-binding-controls/);
 
   assert.equal(typeof capturedInit.body, "string");
   const bodyText = capturedInit.body as string;
@@ -165,7 +167,9 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   assert.equal(cch, low20Hash(restored));
 
   assert.equal(body.max_tokens, 64_000);
-  assert.equal(body.system[0].text.startsWith("x-anthropic-billing-header:"), true);
+  // OMP 18.3.0 switched SHA-256 to Bun; these fixed vectors keep Node's
+  // implementation byte-compatible with the reviewed upstream calculation.
+  assert.match(body.system[0].text, /^x-anthropic-billing-header: cc_version=2\.1\.280\.01e;/);
   assert.doesNotMatch(body.system[0].text, /cch=00000/);
   assert.equal(body.system[0].cache_control, undefined);
   assert.equal(body.system[1].text, CLAUDE_CODE_SYSTEM_INSTRUCTION);
@@ -177,7 +181,7 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   assert.doesNotMatch(body.system[2].text, /Pi documentation/);
   assert.equal(body.system[2].cache_control, undefined);
   assert.equal(body.tools[0].name, "_read");
-  assert.equal(body.tools[0].cache_control, undefined);
+  assert.deepEqual(body.tools[0].cache_control, { type: "ephemeral" });
   assert.equal(body.messages[1].content[0].name, "_read");
   assert.deepEqual(body.context_management, {
     edits: [{ type: "clear_thinking_20251015", keep: "all" }],
@@ -191,12 +195,109 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   const metadata = JSON.parse(body.metadata.user_id);
   assert.equal(metadata.account_uuid, accountId);
   assert.equal(metadata.session_id, sessionId);
-  assert.match(metadata.device_id, /^[0-9a-f]{64}$/);
+  assert.equal(metadata.device_id, "09b34d0a373565ef4c91564b0a1efe3389b3687a12fba350c54dd4c108c1bf8b");
 
   const responseText = await response.text();
   assert.match(responseText, /"name":"read"/);
   assert.doesNotMatch(responseText, /"name":"_read"/);
 });
+
+test("OMP 18.3.0 retains the utility profile without opting into compaction or user profiles", async () => {
+  const result = await inspectOmpRoutedRequest("https://api.anthropic.com/v1/messages", {
+    headers: {
+      authorization: "Bearer sk-ant-oat-test",
+      "anthropic-beta": "compact-2026-09-04,user-profiles-2026-09-04",
+    },
+    body: JSON.stringify({ model: "claude-opus-5-5", messages: [{ role: "user", content: "Synthetic" }], max_tokens: 512 }),
+  }, {
+    installId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", modelId: "claude-opus-5-5",
+    messages: [], identityResolver: new AnthropicIdentityResolver(),
+  });
+  assert.equal(result.headers!.get("user-agent"), "claude-cli/2.1.280 (external, cli)");
+  assert.equal(result.headers!.get("x-stainless-package-version"), "0.112.1");
+  assert.equal(result.headers!.get("x-stainless-runtime-version"), "v26.3.0");
+  assert.deepEqual(result.headers!.get("anthropic-beta")!.split(","), [
+    "oauth-2025-04-20", "interleaved-thinking-2025-05-14", "thinking-token-count-2026-05-13",
+    "context-management-2025-06-27", "prompt-caching-scope-2026-01-05", "structured-outputs-2025-12-15",
+  ]);
+  const body = JSON.parse(result.body!);
+  assert.equal(JSON.parse(body.metadata.user_id).device_id, "6b324f4745d86b980fcb0f70bef69ccf83a0b8ae2b4164ed23d79e4598ad2a63");
+  assert.equal(body.compaction, undefined);
+  assert.equal(body.context_management, undefined);
+  assert.equal(body.max_tokens, 512);
+});
+
+test("native per-message effort retains its required betas without forwarding unrelated betas", async () => {
+  const outputConfigBeta = "mid-conversation-output-config-2026-07-01";
+  const bindingBeta = "thinking-binding-controls-2026-08-01";
+  const messages = [
+    { role: "user", content: "First question" },
+    { role: "system", content: [], output_config: { effort: "low" } },
+    { role: "assistant", content: [{ type: "text", text: "Prior answer" }] },
+    { role: "user", content: "Follow-up question" },
+    { role: "system", content: [], output_config: { effort: "max" } },
+  ];
+  const thinking = {
+    type: "adaptive",
+    display: "summarized",
+    block_binding: { prefix_mismatch_behavior: "drop_block" },
+  };
+  const result = await inspectOmpRoutedRequest("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer sk-ant-oat-test-token",
+      "anthropic-beta": ` ${outputConfigBeta},${bindingBeta},${outputConfigBeta},server-side-fallback-2026-06-01,unreviewed-beta`,
+    },
+    body: JSON.stringify({
+      model: "claude-fable-5", messages, thinking,
+      output_config: { effort: "high" },
+      fallbacks: [{ model: "claude-opus-4-8" }],
+    }),
+  }, {
+    installId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    modelId: "claude-fable-5",
+    messages: [],
+    identityResolver: new AnthropicIdentityResolver(),
+  });
+  const betas = result.headers!.get("anthropic-beta")!.split(",");
+  assert.equal(betas.filter((beta) => beta === outputConfigBeta).length, 1);
+  assert.equal(betas.filter((beta) => beta === bindingBeta).length, 1);
+  assert.ok(!betas.includes("server-side-fallback-2026-06-01"));
+  assert.ok(!betas.includes("unreviewed-beta"));
+  const body = JSON.parse(result.body!);
+  assert.deepEqual(body.messages.filter((message: any) => message.output_config),
+    messages.filter((message) => message.output_config));
+  assert.deepEqual(body.thinking, thinking);
+  assert.deepEqual(body.output_config, { effort: "high" });
+});
+
+test("reviewed long-cache beta and tool head anchor stay within four breakpoints", async () => {
+  const result = await inspectOmpRoutedRequest("https://api.anthropic.com/v1/messages", {
+    headers: { authorization: "Bearer sk-ant-oat-test" },
+    body: JSON.stringify({ model: "claude-opus-5-5", messages: [
+      { role: "user", content: "first" }, { role: "assistant", content: "answer" }, { role: "user", content: "next" },
+    ], system: [{ type: "text", text: "Synthetic", cache_control: { type: "ephemeral", ttl: "1h" } }],
+    tools: [{ name: "first" }, { name: "second" }, { name: "deferred", defer_loading: true }] }),
+  }, { installId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", modelId: "claude-opus-5-5", messages: [], identityResolver: new AnthropicIdentityResolver() });
+  assert.match(result.headers!.get("anthropic-beta")!, /extended-cache-ttl-2025-04-11/);
+  const body = JSON.parse(result.body!);
+  assert.equal(body.tools[0].cache_control, undefined);
+  assert.deepEqual(body.tools[1].cache_control, { type: "ephemeral", ttl: "1h" });
+  assert.equal(body.tools[2].cache_control, undefined);
+  assert.equal((result.body!.match(/"cache_control":/g) ?? []).length, 4);
+});
+
+for (const origin of ["http://api.anthropic.com", "https://api.anthropic.com:8443", "https://proxy.invalid"]) {
+  test(`OAuth alignment bypasses non-official origin ${origin}`, async () => {
+    const input = `${origin}/v1/messages`;
+    const init = { headers: { authorization: "Bearer sk-ant-oat-caller" }, body: '{"model":"claude-opus-5-5"}' };
+    let calls = 0;
+    const routed = createOmpAnthropicFetch(async (url, options) => {
+      calls++; assert.equal(url, input); assert.equal(options, init); return new Response("ok");
+    }, { installId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", modelId: "claude-opus-5-5", messages: [], identityResolver: new AnthropicIdentityResolver() });
+    await routed(input, init); assert.equal(calls, 1, "must not bootstrap");
+  });
+}
 
 test("API-key requests pass through without bootstrap or mutation", async () => {
   const input = "https://api.anthropic.com/v1/messages";

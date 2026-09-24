@@ -3,16 +3,20 @@ import { closeSync, constants, mkdirSync, openSync, readFileSync, unlinkSync, wr
 import { dirname } from "node:path";
 
 /**
- * Anthropic OAuth request alignment adapted from Oh My Pi v18.1.5
- * (https://github.com/can1357/oh-my-pi/tree/v18.1.5), MIT licensed.
+ * Anthropic OAuth request alignment reviewed against Oh My Pi v18.3.0
+ * (https://github.com/can1357/oh-my-pi/tree/62bc57be1b03ef0802a33cf7f5f530e534527531), MIT licensed.
  *
  * This module intentionally operates at the fetch boundary. Pi's native
  * Anthropic adapter still owns message conversion and stream parsing; this
  * layer only aligns the OAuth request/response wire shape with OMP.
  */
 
-export const OMP_TARGET_VERSION = "18.1.5";
-export const CLAUDE_CODE_VERSION = "2.1.257";
+// Advance this reviewed pair together; startup never rewrites source or adopts
+// arbitrary versions from server error text. Hash covers the entire tap formula
+// at can1357/homebrew-tap df2b98981928d9cae80124f4263479dcdebf6b28.
+export const OMP_TARGET_VERSION = "18.3.0";
+export const OMP_FORMULA_SHA256 = "e9cdbb5bfba8d0690c729871c3c896742b438a9e1f6901f39efe7003cab22a23";
+export const CLAUDE_CODE_VERSION = "2.1.280";
 export const CLAUDE_CODE_SDK_VERSION = "0.112.1";
 export const CLAUDE_CODE_SYSTEM_INSTRUCTION =
   "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -48,6 +52,16 @@ const OAUTH_AGENT_BETAS = [
   "prompt-caching-scope-2026-01-05",
   "mid-conversation-system-2026-04-07",
 ] as const;
+
+// Pi 0.87's native serializer emits per-message effort, thinking binding controls
+// and tool transitions. Keep their opt-ins alongside OMP's base betas; retaining
+// the fields while dropping these headers causes 400s. Do not forward arbitrary
+// upstream betas (notably the removed server fallback).
+const NATIVE_PROTOCOL_BETAS = new Set([
+  "mid-conversation-output-config-2026-07-01",
+  "thinking-binding-controls-2026-08-01",
+  "mid-conversation-tool-changes-2026-07-01",
+]);
 
 const ENFORCED_HEADERS = new Set(
   [
@@ -382,8 +396,7 @@ function isOfficialMessagesUrl(input: RequestInfo | URL): boolean {
   try {
     const rawUrl = input instanceof Request ? input.url : String(input);
     const url = new URL(rawUrl);
-    return url.protocol === "https:" &&
-      url.hostname === "api.anthropic.com" &&
+    return url.origin === "https://api.anthropic.com" &&
       url.pathname.replace(/\/+$/, "") === "/v1/messages";
   } catch {
     return false;
@@ -572,6 +585,15 @@ function rewritePayloadToolNames(payload: JsonRecord, tools: readonly { name: st
         if (block.type === "tool_use") {
           return { ...block, name: rewriteToolName(block.name, names) };
         }
+        if (
+          (block.type === "tool_addition" || block.type === "tool_removal") &&
+          isRecord(block.tool) && block.tool.type === "tool_reference"
+        ) {
+          return {
+            ...block,
+            tool: { ...block.tool, name: rewriteToolName(block.tool.name, names) },
+          };
+        }
         if (block.type === "tool_reference") {
           return {
             ...block,
@@ -659,7 +681,7 @@ function alignSystemBlocks(
   ];
 }
 
-function buildOAuthBetas(payload: JsonRecord): string {
+function buildOAuthBetas(payload: JsonRecord, originalHeaders: Headers): string {
   const hasTools = Array.isArray(payload.tools) && payload.tools.length > 0;
   const thinking = isRecord(payload.thinking) &&
     (payload.thinking.type === "adaptive" || payload.thinking.type === "enabled");
@@ -667,8 +689,13 @@ function buildOAuthBetas(payload: JsonRecord): string {
   const betas: string[] = [...(agentRequest ? OAUTH_AGENT_BETAS : OAUTH_UTILITY_BETAS)];
   if (agentRequest && thinking) betas.push("effort-2025-11-24");
   if (agentRequest) betas.push("fallback-credit-2026-06-01");
+  if (cacheControlFromPayload(payload).ttl === "1h") betas.push("extended-cache-ttl-2025-04-11");
   if (Array.isArray(payload.fallbacks) && payload.fallbacks.length > 0) {
     betas.push("server-side-fallback-2026-06-01");
+  }
+  for (const beta of (originalHeaders.get("anthropic-beta") ?? "").split(",")) {
+    const name = beta.trim();
+    if (NATIVE_PROTOCOL_BETAS.has(name)) betas.push(name);
   }
   return [...new Set(betas)].join(",");
 }
@@ -687,6 +714,12 @@ function buildAlignedPayload(
     applyMessageCacheWindow(payload.messages, cacheControl);
   }
   rewritePayloadToolNames(payload, route.tools);
+  // OMP anchors the last non-deferred tool as well as the identity
+  // system block. With two tail anchors this stays within the four-block cap.
+  if (Array.isArray(payload.tools)) {
+    const lastTool = [...payload.tools].reverse().find(tool => isRecord(tool) && !tool.defer_loading);
+    if (isRecord(lastTool)) lastTool.cache_control = { ...cacheControl };
+  }
   alignSystemBlocks(
     payload,
     firstUserMessageText(route.messages),
@@ -912,7 +945,7 @@ export function createOmpAnthropicFetch(
       originalHeaders,
       `Bearer ${accessToken}`,
       requestSessionId,
-      buildOAuthBetas(payload),
+      buildOAuthBetas(payload, originalHeaders),
     );
     const response = await baseFetch(withBetaQuery(input), { ...init, headers, body });
     return rewriteAnthropicSse(response);

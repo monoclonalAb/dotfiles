@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { commandEnvironment } from "./omp-compat.ts";
 
 interface BridgeResponse {
   status: number;
@@ -35,6 +36,7 @@ export function createBunFetch(bridgePath: string): typeof globalThis.fetch {
     return new Promise<Response>((resolve, reject) => {
       const child = spawn("bun", [bridgePath], {
         stdio: ["pipe", "pipe", "ignore"],
+        env: commandEnvironment(),
       });
       let metadataBuffer = Buffer.alloc(0);
       let metadataReceived = false;

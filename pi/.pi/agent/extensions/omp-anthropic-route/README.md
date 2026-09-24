@@ -1,64 +1,82 @@
 # OMP-style Anthropic route for Pi
 
-This global Pi extension wraps Pi's native Anthropic provider and aligns **direct
-Anthropic OAuth** requests with the request route used by Oh My Pi v18.1.5.
-When Pi's Anthropic OAuth mode is selected, the extension resolves the current
-access token from the logged-in OMP account with `omp token anthropic`. API-key
-requests and non-Anthropic proxy URLs pass through unchanged.
+This global extension wraps Pi's native Anthropic provider so that **direct
+Anthropic OAuth** requests match the route used by Oh My Pi (OMP) v18.3.0. The
+access token comes from the logged-in OMP account (`omp token anthropic`); only the
+HTTPS `api.anthropic.com` origin uses it. API keys, proxies and other providers keep
+Pi's own credentials and transport.
 
-It keeps Pi's model catalogue, tools, session handling, and stream parser. At
-the final HTTP boundary it aligns the parts of OMP's Claude Code route that
-affect request attribution and protocol compatibility:
+Pi keeps its model catalogue, tools, sessions and stream parser. At the HTTP
+boundary the route adds OMP's Claude Code shape:
 
-- `Authorization: Bearer` OAuth transport to `/v1/messages?beta=true` through
-  a streaming Bun subprocess with OMP's TLS settings;
-- OMP's pinned Claude Code and Stainless headers/beta set;
-- Claude Code billing-header body attestation (`cch`);
-- stable install/session metadata and best-effort account bootstrap identity;
-- Claude Code system block, 64K OAuth output cap, context-management request,
-  cache breakpoints, and `_`-prefixed tool names;
-- removal of Pi's built-in `Pi documentation (read only...)` locator block,
-  which Anthropic classifies as third-party traffic; project instructions,
-  user-authored system content, and the rest of Pi's prompt are preserved;
-- response-side tool-name decoding back to Pi's registered names.
+- `Authorization: Bearer` to `/v1/messages?beta=true` through a streaming Bun
+  subprocess with OMP's TLS settings;
+- OMP's pinned Claude Code/Stainless headers and base betas, plus only the
+  reviewed `NATIVE_PROTOCOL_BETAS` that Pi's serializer needs;
+- **request-level** thinking effort (per-turn effort is disabled on a per-request
+  model copy, because Anthropic rejects it for models without per-turn support);
+- the billing-header body attestation (`cch`), install/session metadata and
+  account bootstrap identity;
+- the Claude Code system block, 64K output cap, context management, cache
+  breakpoints and `_`-prefixed tool names (decoded back on responses);
+- removal of Pi's built-in `Pi documentation (read only...)` block, which Anthropic
+  classifies as third-party traffic. Project and user instructions are kept.
 
-The route is enabled by default: no command is needed to turn it on. It becomes
-active when the current model uses direct Anthropic OAuth and the installed OMP
-version matches the reviewed compatibility target. Run `/omp-anthropic-route`
-inside Pi to inspect the current route, version, update, and credential state;
-the command is diagnostic rather than a toggle.
+## Startup check
 
-## Compatibility and risk
+With Claude OAuth selected, each new session or `/reload` (and the first later
+switch to Claude) runs:
 
-The implementation is pinned to OMP **18.1.5** and its Claude Code fingerprint.
-At session start, the extension compares that target with `omp --version`. A
-mismatch triggers one automatic, package-only `brew upgrade omp` attempt and a
-version recheck. If the installed version still differs—including when Homebrew
-has upgraded to a newer OMP release whose route has not yet been reviewed—the
-pinned route stays disabled and direct Anthropic OAuth falls back to Pi's native
-transport. This avoids silently presenting an obsolete fingerprint; update and
-re-test this source before advancing `OMP_TARGET_VERSION`.
+1. An unauthenticated HEAD request for the latest stable OMP release.
+2. A comparison with the reviewed OMP / Claude Code pair in [`transport.ts`](transport.ts).
+   An unknown release **blocks the route** until this extension is reviewed and
+   updated; bridge code is never downloaded.
+3. If the installed OMP is older, `brew upgrade can1357/tap/omp` under a
+   cross-process lock (`~/.local/state/pi-omp-update.lock`), after checking that the
+   tap is clean and the formula matches its reviewed SHA-256. No downgrades and no
+   other packages.
+4. One synthetic, tool-free request to the **selected model** (512 output tokens,
+   45 s, no retries) that must stream the expected reply from that model.
 
-OMP and Anthropic can change this private wire contract at any time. Updating the
-OMP binary cannot safely rewrite this extension from unreviewed upstream source.
-The Bun bridge mirrors OMP's direct socket/TLS path, but this extension does not
-recreate OMP's full multi-account quota rotation. This is not an
-Anthropic-supported third-party integration, does not guarantee which quota or
-billing bucket Anthropic applies, and may be inconsistent with Anthropic's terms
-or account policy. Pi's existing extra-usage warning is deliberately left
-enabled.
+Only then do real requests proceed. A failure blocks the route with a visible
+reason; there is no fallback to Pi's transport, another account or another model.
+Each model is probed at most once per runtime; `/reload` checks again. The probe
+uses real subscription quota but does not appear in conversation history or totals.
+`/omp-anthropic-route` shows the cached results without making requests.
 
-No credential is logged or persisted by the extension. OMP resolves and refreshes
-its own credential; the access token exists only in the Pi process for the
-request and is cached in memory for at most 60 seconds. Pi's existing OAuth
-credential remains unchanged and acts as the route-selection signal. The route
-reuses OMP's non-secret `~/.omp/install-id` device identity when available; its
-mode-`0600` Pi fallback is `~/.pi/agent/omp-anthropic-route/install-id`.
+To recover, fix the reported cause and `/reload`. `Could not resolve the logged-in
+OMP Anthropic credential` means `omp token` failed: log in with `/login` → Anthropic
+in OMP (Pi and OMP logins are separate). A stale update lock records its owner PID;
+check that process before removing the lock.
+
+## Risk
+
+The reviewed pair is OMP **18.3.0** / Claude Code **2.1.280** (SDK 0.112.1). OMP and
+Anthropic can change this private wire contract at any time. This is not an
+Anthropic-supported integration, does not control which quota or billing bucket
+applies, and may conflict with Anthropic's terms; Pi's extra-usage warning stays on.
+It does not reproduce OMP's multi-account rotation or cache-decimation.
+
+Credentials are never logged or stored: the token lives in memory for at most 60 s.
+The route reuses OMP's non-secret `~/.omp/install-id`, falling back to a mode-600
+`~/.pi/agent/omp-anthropic-route/install-id`.
+
+## Tests
+
+```sh
+bun test ./pi/.pi/agent/extensions/omp-anthropic-route/*.test.ts
+node --test pi/.pi/agent/extensions/omp-anthropic-route/{native,runtime}.test.mjs
+```
+
+The Bun suites cover transport, token, update/formula guards and a real
+cross-process lock. The Node suites load the extension through Stow-style links in a
+real Pi SDK session with fake OMP/Bun commands and synthetic responses: effort guard,
+tools, reloads, credential isolation and the startup check. None contact Anthropic.
+Live checks on 2026-09-24 (Pi 0.87.1) passed for Opus 5.5, Fable 5, Sonnet 4.6 and
+Haiku 4.5; see [the Opus 5.5 plan](../../../../../docs/plans/completed/2026-09-24-pi-opus-5-5.md).
 
 ## Source and licence
 
-Request-shaping details were adapted from
-[`can1357/oh-my-pi` v18.1.5](https://github.com/can1357/oh-my-pi/tree/v18.1.5),
-particularly `packages/ai/src/providers/anthropic.ts` and
-`packages/ai/src/providers/claude-code-fingerprint.ts`. OMP is MIT licensed;
-its copyright notice is retained here by reference to its upstream licence.
+Request shaping is adapted from
+[`can1357/oh-my-pi` v18.3.0](https://github.com/can1357/oh-my-pi/tree/62bc57be1b03ef0802a33cf7f5f530e534527531)
+(`packages/ai/src/providers/anthropic.ts` and `claude-code-fingerprint.ts`), MIT licensed.
