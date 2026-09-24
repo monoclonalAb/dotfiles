@@ -1,0 +1,44 @@
+#!/bin/sh
+# Launches the Workspace Context MCP server (stdio) or its diagnostic CLI.
+# MCP hosts start this without a login shell, so resolve Node explicitly:
+# WORKSPACE_CONTEXT_NODE, then PATH, then nvm's newest install, then Homebrew.
+set -eu
+
+lib_home=${WORKSPACE_CONTEXT_MCP_HOME:-}
+if [ -z "$lib_home" ]; then
+    script_dir=$(dirname "$0")
+    if [ -f "$script_dir/../lib/workspace-context-mcp/server.mjs" ]; then
+        lib_home=$script_dir/../lib/workspace-context-mcp
+    else
+        lib_home=$HOME/.local/lib/workspace-context-mcp
+    fi
+fi
+entry=$lib_home/server.mjs
+if [ ! -f "$entry" ]; then
+    printf '%s\n' "workspace-context-mcp: server not found at $entry" >&2
+    exit 127
+fi
+
+node_bin=${WORKSPACE_CONTEXT_NODE:-}
+if [ -z "$node_bin" ] && command -v node >/dev/null 2>&1; then
+    node_bin=$(command -v node)
+fi
+if [ -z "$node_bin" ]; then
+    for candidate in "$HOME"/.nvm/versions/node/v*/bin/node; do
+        [ -x "$candidate" ] && node_bin=$candidate
+    done
+fi
+if [ -z "$node_bin" ]; then
+    for candidate in /opt/homebrew/bin/node /usr/local/bin/node; do
+        if [ -x "$candidate" ]; then
+            node_bin=$candidate
+            break
+        fi
+    done
+fi
+if [ -z "$node_bin" ]; then
+    printf '%s\n' 'workspace-context-mcp: could not find a Node.js executable (set WORKSPACE_CONTEXT_NODE)' >&2
+    exit 127
+fi
+
+exec "$node_bin" "$entry" "$@"

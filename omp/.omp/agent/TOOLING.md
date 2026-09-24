@@ -11,8 +11,9 @@ state remains in `~/.omp/plugins/` and is not Stow-managed.
   model/harness combination. File reads and shell commands are valid fallbacks.
 - Prefer an existing native tool or project command. Install or enable an
   alternative only for an observed gap and within the user's requested scope.
-- [`mcp.json`](mcp.json) owns global activation: `gcloud` and `gcp-observability`
-  are enabled read-only; other catalogue entries are disabled. Project files and
+- [`mcp.json`](mcp.json) owns global activation: `gcloud`, `gcp-observability`, and
+  the local `workspace-context` server are enabled read-only; other catalogue
+  entries are disabled. Project files and
   plugins can add capabilities. Confirm effective state with `/mcp list` in OMP.
 - Versions, HTTP statuses, tool counts, and marketplace figures below are prior
   research observations, **not current verification or recommended version pins**.
@@ -34,6 +35,23 @@ state remains in `~/.omp/plugins/` and is not Stow-managed.
 `@upstash/context7-pi` duplicates the Context7 MCP tools but adds a skill and `/c7-docs`; keep only one enabled if tool names collide. `pi-lens` pushes LSP, linter, formatter, and type-check feedback after edits. `@plannotator/pi-extension` adds annotated plan and PR review.
 
 Do not install these duplicate plugins: `pi-mcp-adapter` and `pi-mcp-extension` (native MCP); `pi-subagents`, `@tintinweb/pi-subagents`, `@narumitw/pi-subagents`, and `@quintinshaw/pi-dynamic-workflows` (native `task`/`hub`/`/vibe`); `@juicesharp/rpiv-todo`, `pi-ask-user`, and `@juicesharp/rpiv-ask-user-question` (native `todo`/`ask`); `@narumitw/pi-plan-mode` (native plan mode); `@narumitw/pi-lsp`, `pi-readseek`, and `pi-hashline-edit-pro` (native `lsp`/hashline `edit`); `pi-memory`, `pi-hermes-memory`, and `@remnic/plugin-pi` (native mnemopi); `omp-bark-notify` and `@llblab/pi-telegram` (herdr notifies); and `@narumitw/pi-sync` (this dotfiles repository syncs config).
+
+## Workspace context
+
+- `workspace-context` is a local stdio server from the dotfiles `bin` package
+  (`~/.local/bin/workspace-context-mcp serve`; source and tool reference in
+  `~/dotfiles/bin/.local/lib/workspace-context-mcp/README.md`). It indexes every
+  repository, worktree and manifest project under `~/Desktop/projects` and
+  `~/dotfiles`, including the DE root's `AGENTS.md` and `agents/` catalogue and cards.
+- Start with `get_workspace_overview`, then `get_repository_context <repo>`,
+  `find_repositories_by_stack <term>`, `get_related_de_context <repo>` for tier,
+  card, siblings and platform links, and `search_workspace` (`scope: code` uses
+  ripgrep). Repository arguments accept directory name, `owner/repo` slug, package
+  name or absolute path.
+- Read-only and offline: it never writes, never reads `.env` or credential-shaped
+  files, and rebuilds its in-memory index after five minutes or on `refresh_index`.
+  Prefer it over scanning `~/Desktop/projects` by hand when a task needs another
+  repository's conventions, integrations or catalogue tier.
 
 ## Google Cloud
 

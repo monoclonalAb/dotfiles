@@ -60,6 +60,11 @@
       ],
       "enabled": true
     },
+    "workspace-context": {
+      "command": "/Users/eric/.local/bin/workspace-context-mcp",
+      "args": ["serve"],
+      "enabled": true
+    },
     "kubernetes": { "command": "docker", "args": ["run", "-i", "--rm", "-v", "${HOME}/.kube:/root/.kube:ro", "quay.io/containers/kubernetes-mcp-server:latest"], "enabled": false },
     "stripe": { "type": "http", "url": "https://mcp.stripe.com", "enabled": false },
     "figma": { "type": "http", "url": "http://127.0.0.1:3845/mcp", "enabled": false },
