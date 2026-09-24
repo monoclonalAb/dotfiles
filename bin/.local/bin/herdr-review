@@ -1,0 +1,221 @@
+#!/usr/bin/python3
+"""Review an agent's changes in tuicr, then send the comments back to it.
+
+Bound to C-a v as a Herdr popup (herdr/.config/herdr/config.base.toml). Herdr
+starts popup commands with the focused pane's HERDR_ACTIVE_PANE_ID and
+HERDR_ACTIVE_TAB_ID. The target is that pane when it runs an agent, otherwise
+the only agent in the same tab. tuicr opens in the agent's working directory:
+`:wq`/`ZZ` sends the numbered comments as one prompt and clears them from
+tuicr; `:q`/`ZQ` sends nothing.
+"""
+
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+FLAVOURS = ("latte", "frappe", "macchiato", "mocha")
+DEFAULT_TUICR_ARGS = ["-w"]  # staged + unstaged working-tree changes
+USAGE = """Usage: herdr-review [--check] [tuicr arguments...]
+
+Review the focused Herdr agent's changes in tuicr and send the comments to it.
+Run from Herdr: C-a v, or a shell pane in the agent's tab. tuicr arguments
+default to -w (uncommitted changes); `herdr-review -r main..HEAD` reviews
+committed branch work instead.
+
+  --check  resolve the Herdr client, target agent, directory and tuicr command
+           without opening tuicr or sending anything.
+"""
+
+
+class ReviewError(Exception):
+    pass
+
+
+def search_path(env):
+    # Hotkey commands inherit the Herdr server's environment, not a login shell.
+    return f"{env.get('HOME', str(Path.home()))}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+
+def herdr_client(env):
+    candidate = env.get("HERDR_BIN_PATH")
+    if candidate and os.access(candidate, os.X_OK):
+        return candidate
+    found = shutil.which("herdr", path=env["PATH"])
+    if not found:
+        raise ReviewError("no Herdr client found on PATH")
+    return found
+
+
+def tuicr_client(env):
+    candidate = env.get("HERDR_REVIEW_TUICR") or shutil.which("tuicr", path=env["PATH"])
+    if not candidate or not os.access(candidate, os.X_OK):
+        raise ReviewError("tuicr is not installed (brew install tuicr)")
+    return candidate
+
+
+def herdr_call(herdr, args, env):
+    """Run a Herdr API command; return (result, error message)."""
+    completed = subprocess.run([herdr, *args], env=env, capture_output=True, text=True)
+    payload = {}
+    for stream in (completed.stdout, completed.stderr):
+        try:
+            payload = json.loads(stream)
+            break
+        except ValueError:
+            continue
+    if completed.returncode == 0 and "error" not in payload:
+        return payload.get("result") or {}, None
+    error = payload.get("error") or {}
+    message = error.get("message") or completed.stderr.strip() or f"herdr {' '.join(args[:2])} failed"
+    return None, message
+
+
+def resolve_agent(herdr, env):
+    # Popups get HERDR_ACTIVE_*; a shell pane in the agent's tab has its own ids.
+    pane = env.get("HERDR_ACTIVE_PANE_ID") or env.get("HERDR_PANE_ID")
+    tab = env.get("HERDR_ACTIVE_TAB_ID") or env.get("HERDR_TAB_ID")
+    if not pane:
+        raise ReviewError("run this inside Herdr (C-a v or a pane in the agent's tab)")
+    result, _ = herdr_call(herdr, ["agent", "get", pane], env)
+    if result and result.get("agent"):
+        return result["agent"]
+    listing, message = herdr_call(herdr, ["agent", "list"], env)
+    if listing is None:
+        raise ReviewError(message)
+    agents = [agent for agent in listing.get("agents", []) if tab and agent.get("tab_id") == tab]
+    if len(agents) == 1:
+        return agents[0]
+    if not agents:
+        raise ReviewError("no agent in this tab; focus the agent pane and try again")
+    raise ReviewError(f"{len(agents)} agents in this tab; focus the one that should get the review")
+
+
+def agent_directory(agent):
+    for key in ("foreground_cwd", "cwd"):
+        directory = agent.get(key)
+        if directory and os.path.isdir(directory):
+            return directory
+    raise ReviewError(f"agent {agent.get('pane_id')} has no readable working directory")
+
+
+def tuicr_arguments(args, env):
+    args = list(args) or list(DEFAULT_TUICR_ARGS)
+    if not any(arg == "--theme" or arg.startswith("--theme=") for arg in args):
+        flavour_file = Path(env.get("HOME", str(Path.home()))) / ".local/state/theme/flavour"
+        try:
+            flavour = flavour_file.read_text().strip()
+        except OSError:
+            flavour = ""
+        if flavour in FLAVOURS:
+            args += ["--theme", f"catppuccin-{flavour}"]
+    # Homebrew owns updates; skip tuicr's startup network check.
+    return args + ["--stdout", "--no-update-check"]
+
+
+def without_markers(stderr):
+    return "\n".join(
+        line for line in stderr.splitlines()
+        if not line.startswith(("tuicr-session:", "tuicr-summary:"))
+    ).strip()
+
+
+def copy_to_clipboard(text):
+    try:
+        return subprocess.run(["/usr/bin/pbcopy"], input=text, text=True).returncode == 0
+    except OSError:
+        return False
+
+
+def pause(message):
+    """Keep the popup open long enough to read a failure."""
+    print(f"herdr-review: {message}", file=sys.stderr)
+    if sys.stdin.isatty():
+        try:
+            input("Press Enter to close. ")
+        except EOFError:
+            pass
+
+
+def review(herdr, tuicr, agent, directory, args, env):
+    pane = agent["pane_id"]
+    # --stdout renders the TUI on /dev/tty and prints the export on exit.
+    completed = subprocess.run(
+        [tuicr, *args], cwd=directory, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    if completed.returncode != 0:
+        details = without_markers(completed.stderr) or f"tuicr exited with status {completed.returncode}"
+        pause(f"{details}\nNothing was sent.")
+        return completed.returncode
+    text = completed.stdout.strip()
+    if not text:
+        return 0  # quit without saving, or no comments
+    _, error = herdr_call(herdr, ["agent", "prompt", pane, text], env)
+    if error:
+        where = "copied to the clipboard and kept" if copy_to_clipboard(text) else "kept"
+        pause(f"could not send the review to {pane}: {error}\nThe comments were {where} in tuicr.")
+        return 1
+    session = re.search(r"^tuicr-session: (.+)$", completed.stderr, re.MULTILINE)
+    if session:
+        cleared = subprocess.run(
+            [tuicr, "review", "clearc", "--session", session.group(1).strip()],
+            cwd=directory, env=env, capture_output=True, text=True,
+        )
+        if cleared.returncode == 0:
+            return 0
+        detail = cleared.stderr.strip() or f"status {cleared.returncode}"
+    else:
+        detail = "tuicr did not report its session"
+    pause(f"sent to {pane}, but its comments could not be cleared ({detail}); "
+          "delete them before the next review or they will be sent again.")
+    return 1
+
+
+def check(env, args):
+    ok = True
+    rows = []
+    try:
+        herdr = herdr_client(env)
+        rows.append(("herdr", herdr))
+        agent = resolve_agent(herdr, env)
+        rows.append(("agent", f"{agent.get('pane_id')} ({agent.get('agent')}, {agent.get('agent_status')})"))
+        rows.append(("cwd", agent_directory(agent)))
+    except ReviewError as error:
+        rows.append(("error", str(error)))
+        ok = False
+    try:
+        rows.append(("tuicr", " ".join([tuicr_client(env), *tuicr_arguments(args, env)])))
+    except ReviewError as error:
+        rows.append(("tuicr", f"missing: {error}"))
+        ok = False
+    for name, value in rows:
+        print(f"{name:<6} {value}")
+    return 0 if ok else 1
+
+
+def main(argv=None, environ=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    env = dict(os.environ if environ is None else environ)
+    env["PATH"] = search_path(env)
+    if argv[:1] in (["-h"], ["--help"]):
+        print(USAGE, end="")
+        return 0
+    if argv[:1] == ["--check"]:
+        return check(env, argv[1:])
+    try:
+        herdr = herdr_client(env)
+        agent = resolve_agent(herdr, env)
+        directory = agent_directory(agent)
+        tuicr = tuicr_client(env)
+    except ReviewError as error:
+        pause(str(error))
+        return 1
+    return review(herdr, tuicr, agent, directory, tuicr_arguments(argv, env), env)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

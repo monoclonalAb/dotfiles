@@ -110,6 +110,15 @@ type = "plugin_action"
 command = "martinro.next-agent.back"
 description = "back to the pane before the agent jumps"
 
+# Review the focused agent's changes in tuicr; :wq sends the comments to it.
+[[keys.command]]
+key = "prefix+v"
+type = "popup"
+command = "$HOME/.local/bin/herdr-review"
+width = "95%"
+height = "90%"
+description = "review changes and send comments to the agent"
+
 # Personal/Work environments (martinro.spaces-env). "prefix+:" is the same
 # physical chord as prefix+shift+; and, unlike a literal "prefix+shift+;",
 # matches under both legacy and kitty keyboard encodings.

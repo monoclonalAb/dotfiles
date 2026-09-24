@@ -1,0 +1,9 @@
+# tuicr (https://tuicr.dev): the review TUI behind Herdr's C-a v
+# (bin/.local/bin/herdr-review). tuicr only reads this file; `:theme` and the
+# in-app toggles are session-only. herdr-review passes --theme for the current
+# Catppuccin flavour, which takes precedence over a `theme` key here.
+
+# Start where `:diff` and `:f` would leave it: side-by-side, one file at a time
+# (`{` / `}` change files). Both commands still toggle for the session.
+diff_view = "side-by-side"
+single_file_view = true

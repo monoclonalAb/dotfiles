@@ -82,6 +82,7 @@ brew "hyperfine"               # benchmark claims instead of asserting them
 brew "tokei"                   # cheap repo/language sizing before a broad refactor
 brew "ast-grep"                # structural search/rewrite rules
 brew "git-delta"               # readable patch and log rendering
+brew "tuicr"                   # C-a v in Herdr (herdr-review): comment on an agent's diff, send the comments back
 brew "watchexec"               # re-run tests on change during an agent loop
 brew "just"                    # stable, discoverable per-project task names
 brew "gitleaks"                # secret scan before commit
