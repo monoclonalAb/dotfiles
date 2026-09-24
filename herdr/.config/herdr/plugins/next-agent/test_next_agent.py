@@ -1,4 +1,7 @@
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import next_agent  # pyright: ignore[reportImplicitRelativeImport]
 
@@ -112,5 +115,90 @@ class SidebarDotTests(unittest.TestCase):
             wanted = next_agent.wanted_tokens(status, bucket)
             self.assertEqual(1, len(wanted))
             self.assertTrue(set(wanted) <= names)
+
+
+class JumpTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="next-agent-test-")
+        self.addCleanup(temporary.cleanup)
+        self.enterContext(patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": temporary.name}))
+        self.enterContext(patch.object(next_agent, "plugin_config", return_value=(["blocked", "done"], "all")))
+        self.live = {"focused_pane_id": "w0:p1", "focused_workspace_id": "w0", "panes": [], "agents": []}
+        self.enterContext(patch.object(next_agent, "snapshot", side_effect=lambda: self.live))
+        self.api = self.enterContext(patch.object(next_agent, "api"))
+        self.toast = self.enterContext(patch.object(next_agent, "toast"))
+        self.enterContext(patch.object(next_agent, "report_dot"))
+        self.enterContext(patch.object(next_agent, "run", side_effect=AssertionError("use the pane.focus API")))
+        self.add_pane("w0:p1")  # A shell is a valid return target.
+
+    def add_pane(self, pane_id, status=None):
+        workspace_id = pane_id.split(":")[0]
+        pane = {"pane_id": pane_id, "workspace_id": workspace_id, "tab_id": f"{workspace_id}:t1"}
+        self.live["panes"].append(pane)
+        if status:
+            self.live["agents"].append({**pane, "agent_status": status, "terminal_id": f"term-{pane_id}"})
+
+    def test_jump_projects_focus_to_the_visible_client_across_workspaces(self):
+        self.add_pane("w1:p1", "done")
+
+        next_agent.main()
+
+        self.api.assert_called_once_with("pane.focus", {"pane_id": "w1:p1"})
+        self.assertEqual({"origin_pane_id": "w0:p1", "last_jump_pane_id": "w1:p1"}, next_agent.load_state())
+
+    def test_failed_focus_preserves_the_previous_return_target(self):
+        self.add_pane("w1:p1", "done")
+        next_agent.save_state("w2:p1", "w3:p1")
+        self.api.side_effect = SystemExit("pane is gone")
+
+        with self.assertRaisesRegex(SystemExit, "pane is gone"):
+            next_agent.main()
+
+        self.assertEqual({"origin_pane_id": "w2:p1", "last_jump_pane_id": "w3:p1"}, next_agent.load_state())
+
+    def test_blocked_has_priority_over_unreviewed_completion(self):
+        self.add_pane("w1:p1", "done")
+        self.add_pane("w2:p1", "blocked")
+
+        next_agent.main()
+
+        self.api.assert_called_once_with("pane.focus", {"pane_id": "w2:p1"})
+
+    def test_workspace_scope_does_not_jump_outside_the_workspace(self):
+        self.add_pane("w0:p2", "done")
+        self.add_pane("w1:p1", "blocked")
+        with patch.object(next_agent, "plugin_config", return_value=(["blocked", "done"], "workspace")):
+            next_agent.main()
+
+        self.api.assert_called_once_with("pane.focus", {"pane_id": "w0:p2"})
+
+    def test_no_attention_does_not_focus_or_change_return_target(self):
+        self.add_pane("w1:p1", "idle")
+        self.add_pane("w2:p1", "working")
+        next_agent.save_state("w2:p1", "w3:p1")
+
+        next_agent.main()
+
+        self.api.assert_not_called()
+        self.toast.assert_called_once_with("No agent needs attention")
+        self.assertEqual({"origin_pane_id": "w2:p1", "last_jump_pane_id": "w3:p1"}, next_agent.load_state())
+
+    def test_jump_chain_returns_to_the_original_shell(self):
+        self.add_pane("w1:p1", "done")
+        self.add_pane("w2:p1", "done")
+        next_agent.main()
+        self.live.update(focused_pane_id="w1:p1", focused_workspace_id="w1")
+        self.live["agents"][0]["agent_status"] = "idle"
+
+        next_agent.main()
+
+        self.api.assert_called_with("pane.focus", {"pane_id": "w2:p1"})
+        self.assertEqual({"origin_pane_id": "w0:p1", "last_jump_pane_id": "w2:p1"}, next_agent.load_state())
+        self.live.update(focused_pane_id="w2:p1", focused_workspace_id="w2")
+        next_agent.back()
+        self.api.assert_called_with("pane.focus", {"pane_id": "w0:p1"})
+        self.assertEqual({"origin_pane_id": "w2:p1", "last_jump_pane_id": None}, next_agent.load_state())
+
+
 if __name__ == "__main__":
     unittest.main()

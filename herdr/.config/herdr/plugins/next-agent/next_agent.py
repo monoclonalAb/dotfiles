@@ -501,13 +501,16 @@ def main():
             target = ranked[(index + 1) % len(ranked)][0]
             break
 
+    # Herdr 0.9's agent.focus marks the agent seen but does not project a tab/workspace
+    # change to the client shell. pane.focus moves both the server and visible client.
+    # Save the return chain only after focus succeeds (the target may have closed).
+    api("pane.focus", {"pane_id": target["pane_id"]})
+
     if focused and target["pane_id"] != focused:
         state = load_state()
         # Continue an active chain; otherwise start a new one from this pane.
         origin = state.get("origin_pane_id") if focused == state.get("last_jump_pane_id") else focused
         save_state(origin, target["pane_id"])
-
-    run("agent", "focus", target["pane_id"])
 
 
 def back():
