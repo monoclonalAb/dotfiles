@@ -1,0 +1,76 @@
+#!/usr/bin/python3
+"""Alacritty hint dispatcher: local files in Neovim, other known URLs in macOS."""
+
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+from urllib.parse import unquote, urlsplit
+
+PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# Alacritty's stock URL schemes, excluding file (handled separately).
+EXTERNAL_SCHEMES = {
+    "http", "https", "mailto", "ftp", "ipfs", "ipns", "magnet", "gemini",
+    "gopher", "news", "git", "ssh",
+}
+
+
+def command_for(url, find_executable=shutil.which):
+    if not url or re.search(r"[\x00-\x20\x7f-\x9f]", url):
+        raise ValueError("Expected a URL without raw whitespace or control characters")
+    if re.search(r"%(?![0-9a-fA-F]{2})", url):
+        raise ValueError("Malformed URL percent escape")
+    parsed = urlsplit(url)
+    if parsed.scheme in EXTERNAL_SCHEMES:
+        return ["/usr/bin/open", url]
+    if parsed.scheme != "file":
+        raise ValueError("Unsupported URL scheme; expected a local file or known external URL")
+    if not url.lower().startswith("file://") or parsed.netloc.lower() not in ("", "localhost"):
+        raise ValueError("Only local file:// URLs are supported (not remote hosts)")
+    if parsed.query:
+        raise ValueError("File URL queries are not supported")
+    path = unquote(parsed.path, errors="strict")
+    if not path.startswith("/") or path.startswith("//") or re.search(r"[\x00-\x1f\x7f-\x9f]", path):
+        raise ValueError("Expected an absolute local file path without control characters")
+    if not Path(path).is_file():
+        raise ValueError("File does not exist or is not a regular file: " + path)
+    nvim = find_executable("nvim")
+    if not nvim:
+        raise ValueError("Neovim was not found in the standard Homebrew PATH")
+    args = [nvim, "--cmd", "set nomodeline noexrc"]
+    # Recognize source line anchors. Markdown heading fragments simply open the
+    # file; never turn arbitrary fragments into Ex commands or search patterns.
+    location = re.fullmatch(r"L([1-9]\d{0,8})(?::([1-9]\d{0,8}))?(?:-L?[1-9]\d{0,8})?", parsed.fragment)
+    if location:
+        line, column = location.group(1), location.group(2)
+        args.append(f"+call cursor({int(line)},{int(column or 1)})")
+    args.extend(["--", path])
+    return [
+        "/usr/bin/open", "-na", "Alacritty", "--args",
+        "--working-directory", str(Path(path).parent), "-e", *args,
+    ]
+
+
+def main(argv):
+    os.environ["PATH"] = PATH
+    check = len(argv) == 2 and argv[0] == "--check"
+    if not check and len(argv) != 1:
+        print("usage: terminal-open [--check] URL", file=sys.stderr)
+        return 2
+    try:
+        command = command_for(argv[-1])
+        if check:
+            print(json.dumps(command))
+        else:
+            subprocess.run(command, check=True)
+        return 0
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print(f"terminal-open: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

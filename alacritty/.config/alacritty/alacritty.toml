@@ -154,8 +154,17 @@ bindings = []
 [hints]
 # Characters for hint labels
 alphabet = "jfkdls;ahgurieowpq"
-# Hint rules (default includes URL detection with Ctrl+Shift+O)
-# enabled = []
+# One dispatcher for both OSC 8 and visible URL hints: OSC 8 matching cannot
+# filter by scheme. Local file URLs open Neovim; normal URLs keep macOS open.
+# Command+Shift+click overrides mouse reporting inside Herdr / fullscreen TUIs.
+[[hints.enabled]]
+command = { program = "/bin/sh", args = ["-c", "exec \"$HOME/.local/bin/terminal-open\" \"$@\"", "terminal-open"] }
+hyperlinks = true
+post_processing = true
+persist = false
+mouse = { enabled = true, mods = "Command" }
+binding = { key = "O", mods = "Control|Shift" }
+regex = '(ipfs:|ipns:|magnet:|mailto:|gemini://|gopher://|https://|http://|news:|file:|git://|ssh:|ftp://)[^\u0000-\u001F\u007F-\u009F<>"\s{}|\^⟨⟩`\\]+'
 
 [keyboard]
 # Key bindings (see alacritty-bindings(5) for defaults).
