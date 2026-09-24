@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import spaces_env  # pyright: ignore[reportImplicitRelativeImport]
 
@@ -129,6 +130,22 @@ class PickTargetTests(unittest.TestCase):
         self.assertIsNone(spaces_env.pick_target(state, "work", ["w1"]))
 
 
+class CurrentWorkspaceTests(unittest.TestCase):
+    def test_action_context_wins_over_session_wide_focus(self):
+        with mock.patch.dict(os.environ, {"HERDR_WORKSPACE_ID": "w-client"}):
+            self.assertEqual(
+                "w-client",
+                spaces_env.current_workspace_id({"focused_workspace_id": "w-server"}),
+            )
+
+    def test_session_focus_is_the_non_action_fallback(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                "w-server",
+                spaces_env.current_workspace_id({"focused_workspace_id": "w-server"}),
+            )
+
+
 class ResolveCurrentEnvTests(unittest.TestCase):
     def test_live_focus_wins_when_stored_environment_has_members(self):
         state = state_with(assignments={"w1": "personal", "w2": "work"}, active="personal")
@@ -221,6 +238,19 @@ class ToggleTests(unittest.TestCase):
 
         self.assertEqual(("work", "w3", []), (dest, target, added))
         self.assertEqual("work", state["active_env"])
+
+    def test_toggle_remembers_the_space_being_left_when_focus_event_was_missed(self):
+        state = state_with(
+            assignments={"p-last": "personal", "p-viewed": "personal", "w1": "work"},
+            mru={"personal": ["p-last", "p-viewed"], "work": ["w1"]},
+        )
+        order = ["p-last", "p-viewed", "w1"]
+
+        spaces_env.plan_toggle(state, order, "p-viewed")
+        dest, target, _ = spaces_env.plan_toggle(state, order, "w1")
+
+        self.assertEqual(("personal", "p-viewed"), (dest, target))
+        self.assertEqual(["p-viewed", "p-last"], state["mru"]["personal"])
 
     def test_toggle_into_empty_environment_flips_intent_without_target(self):
         state = state_with(assignments={"w1": "personal"}, mru={"personal": ["w1"]})

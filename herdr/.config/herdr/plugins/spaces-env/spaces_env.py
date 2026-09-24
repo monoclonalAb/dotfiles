@@ -31,10 +31,6 @@ from pathlib import Path
 ENVIRONMENTS = ("personal", "work")
 DEFAULT_ENV = "personal"
 STATE_FILE = "state.json"
-# One badge token per environment. Exactly one is set per Space, and the
-# sidebar drops missing tokens with their separators, so exactly one badge
-# renders per row (config.base.toml [ui.sidebar.spaces]).
-BADGE_TOKENS = {"personal": ("env_personal", "P"), "work": ("env_work", "W")}
 # Reserved token honoured by the custom build's sidebar (see the local Herdr
 # patch): non-empty hides the Space from the list, None removes the marker.
 HIDDEN_TOKEN = "sidebar_hidden"
@@ -150,6 +146,17 @@ def pick_target(state, env, live_ids):
     return None
 
 
+def current_workspace_id(live):
+    """The invoking client's Space, falling back to session-wide focus.
+
+    Herdr 0.9 keeps ordinary TUI navigation client-local, while plugin actions
+    run on the server. The action context therefore has the current Space even
+    when the session snapshot and workspace.focused hook still reflect an older
+    global focus.
+    """
+    return os.environ.get("HERDR_WORKSPACE_ID") or live.get("focused_workspace_id")
+
+
 def resolve_current_env(state, focused_env, live_ids):
     """Current environment for a toggle.
 
@@ -221,6 +228,10 @@ def plan_toggle(state, order, focused_ws):
     added = reconcile(state, order)
     focused_env = state["assignments"].get(focused_ws)
     current = resolve_current_env(state, focused_env, order)
+    # Client-local focus changes do not always reach the server-side event
+    # hook, so remember the Space supplied by this action before leaving it.
+    # The next toggle back can then return to the Space the client actually saw.
+    touch_mru(state, focused_ws)
     dest = other(current)
     target = pick_target(state, dest, order)
     state["active_env"] = dest
@@ -365,21 +376,6 @@ def toast(title):
     )
 
 
-def stamp_badge(ws_id, env):
-    """Stamp the sidebar badge. Display-only: a failure must never abort an action."""
-    tokens = {
-        name: (glyph if key == env else None)
-        for key, (name, glyph) in BADGE_TOKENS.items()
-    }
-    try:
-        api(
-            "workspace.report_metadata",
-            {"workspace_id": ws_id, "source": plugin_source(), "tokens": tokens},
-        )
-    except (SystemExit, OSError, json.JSONDecodeError) as error:
-        print(f"badge not updated for {ws_id}: {error}")
-
-
 def apply_visibility(assignments, active):
     """Hide inactive-environment Spaces from the sidebar. Display-only: never abort."""
     for ws_id, value in visibility_patch(assignments, active).items():
@@ -433,15 +429,13 @@ def apply_grouping(order, assignments):
 def toggle():
     live = snapshot()
     order = live_order(live)
-    focused_ws = live.get("focused_workspace_id")
+    focused_ws = current_workspace_id(live)
 
     def flip(state):
         dest, target, added = plan_toggle(state, order, focused_ws)
         return dest, target, added, dict(state["assignments"])
 
     dest, target, added, assignments = mutate_state(flip)
-    for ws in added:
-        stamp_badge(ws, assignments[ws])
     if added:
         apply_grouping(order, assignments)
     apply_agent_view(assignments, dest)
@@ -463,7 +457,7 @@ def toggle():
 def send():
     live = snapshot()
     order = live_order(live)
-    ws_id = os.environ.get("HERDR_WORKSPACE_ID") or live.get("focused_workspace_id")
+    ws_id = current_workspace_id(live)
     if not ws_id or ws_id not in set(order):
         toast("No current Space to send")
         raise SystemExit(f"send: workspace {ws_id!r} is not in the live session")
@@ -472,11 +466,7 @@ def send():
         src, dest, remaining, added = plan_send(state, order, ws_id)
         return src, dest, remaining, added, dict(state["assignments"])
 
-    src, dest, remaining, added, assignments = mutate_state(move)
-    stamp_badge(ws_id, dest)
-    for ws in added:
-        if ws != ws_id:
-            stamp_badge(ws, assignments[ws])
+    src, dest, remaining, _added, assignments = mutate_state(move)
     apply_grouping(order, assignments)
     apply_agent_view(assignments, src if remaining else dest)
     apply_visibility(assignments, src if remaining else dest)
@@ -502,9 +492,7 @@ def status():
         added = reconcile(state, order)
         return added, dict(state["assignments"]), state["active_env"]
 
-    added, assignments, active = mutate_state(summarise)
-    for ws in added:
-        stamp_badge(ws, assignments[ws])
+    _added, assignments, active = mutate_state(summarise)
     apply_agent_view(assignments, active)
     apply_visibility(assignments, active)
     counts = {
@@ -541,13 +529,10 @@ def handle_created():
         env, added = plan_created(state, order, ws_id)
         return env, added, dict(state["assignments"]), state["active_env"]
 
-    env, added, assignments, active = mutate_state(observe)
+    env, _added, assignments, active = mutate_state(observe)
     if env is None:
         print(f"created {ws_id}: gone before assignment")
         return
-    for ws in {ws_id, *added}:
-        if ws in assignments:
-            stamp_badge(ws, assignments[ws])
     apply_grouping(order, assignments)
     apply_agent_view(assignments, active)
     apply_visibility(assignments, active)
@@ -581,8 +566,6 @@ def handle_focused():
         return previous, env, newly, dict(state["assignments"])
 
     previous, env, newly, assignments = mutate_state(follow)
-    if newly:
-        stamp_badge(ws_id, env)
     # Focus fires constantly; only re-issue the view when it can change.
     if newly or env != previous:
         apply_agent_view(assignments, env)
@@ -600,9 +583,7 @@ def startup():
 
     added, assignments, active = mutate_state(fold)
     # Metadata tokens and the agent-view override do not survive a server
-    # restart, so restamp every Space and re-issue the view and visibility.
-    for ws in order:
-        stamp_badge(ws, assignments[ws])
+    # restart, so re-issue the view and visibility.
     apply_grouping(order, assignments)
     apply_agent_view(assignments, active)
     apply_visibility(assignments, active)
