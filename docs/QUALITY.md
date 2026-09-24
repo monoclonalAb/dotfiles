@@ -21,7 +21,7 @@ currently healthy on this Mac.
 | --- | :---: | --- | --- |
 | Stow deployment and runtime separation | B | [`.stowrc`](../.stowrc), [`.gitignore`](../.gitignore), package-only dry runs, and the setup guide's managed/unmanaged boundary | No isolated regression check proves wildcard stowing cannot publish ignored runtime or documentation files |
 | Shared theme flow | B | [`theme`](../bin/.local/bin/theme) validates state, writes atomically, reports reachability, and exposes `status` | Cross-consumer behaviour has no automated fixture or integration test |
-| Herdr customisation | B | Pinned source and toolchains in [`install-herdr-focus`](../bin/.local/bin/install-herdr-focus), patch preflight, the patch's focused cargo tests run during install, `herdr config check`, and focused [`next_agent` tests](../herdr/.config/herdr/plugins/next-agent/test_next_agent.py) | Build verification is network/toolchain dependent; plugin tests cover the ledger but not a live Herdr event flow |
+| Herdr customisation | B | Pinned source and toolchains in [`install-herdr-focus`](../bin/.local/bin/install-herdr-focus), patch preflight, the patch's focused cargo tests run during install, `herdr config check`, focused [`next_agent` tests](../herdr/.config/herdr/plugins/next-agent/test_next_agent.py), and an [isolated native jump fixture](../herdr/.config/herdr/plugins/next-agent/pty-smoke.py) | Build verification is network/toolchain dependent; the jump fixture uses synthetic lifecycle reports, not real Pi/OMP event delivery |
 | Shell, terminal, and window-manager configuration | C | Native syntax/reload paths and side effects are listed in [`VERIFICATION.md`](VERIFICATION.md) and [`../README.md`](../README.md) | Most confidence comes from this host's installed applications; there is no consolidated read-only smoke check |
 | Neovim configuration | C | Headless startup and `checkhealth` can exercise the assembled config | Plugin resolution is intentionally unpinned and checks depend on mutable external installations |
 | OMP and Pi agent tooling | B | Extension policy, scoped skills, explicit configuration, and [focused Bun test commands](VERIFICATION.md#source-only-checks) for transport, task summaries, and navigation | No single check validates discovery, frontmatter, configuration parsing, and all extension load paths together |
@@ -41,6 +41,8 @@ an execution plan for implementation history.
 | Q-002 | Knowledge-base structure and freshness rely on review | A lightweight check catches broken local links and uncatalogued required documents; a documented gardening pass handles semantic drift |
 | Q-003 | The theme orchestrator has no automated tests | State transitions and generated Alacritty, Herdr, and tmux outputs are exercised in temporary directories without contacting live applications |
 | Q-005 | Operational detail is concentrated in the long root README | Frequently changed subsystem rationale moves to one canonical linked document without weakening the README's setup path |
+| Q-006 | Pi MCP registration is verified by hand (`/reload`, `/mcp`) | A read-only check confirms every enabled command server in `omp/.omp/agent/mcp.json` is also in `pi/.pi/agent/mcp.json` and that the deployed file is the Stow link |
+| Q-007 | A Herdr live handoff regenerates internal terminal IDs, so next-agent's recycle guard can drop unread flags | An isolated old → new handoff keeps unread split siblings while still resetting genuinely recycled panes |
 
 ## Gardening rule
 

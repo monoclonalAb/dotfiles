@@ -34,7 +34,7 @@ credential-bearing `hosts.yml` is local.
 | Terminal and window environment | [`alacritty/`](../alacritty/), [`ghostty/`](../ghostty/), [`aerospace/`](../aerospace/) | Terminal defaults, key handling, and macOS workspace routing |
 | Terminal workspaces | [`herdr/`](../herdr/), [`tmux/`](../tmux/) | Primary and fallback multiplexing, navigation, persistence, and attention state |
 | User commands and automation | [`bin/`](../bin/) | Cross-application orchestration and audited builds. Machine-local scheduled jobs (LaunchAgents and their scripts) stay in `$HOME`, outside this repository: the repo carries portable per-tool configuration for a new Mac, not single-machine workflows |
-| Git clients | [`git/`](../git/), [`gh/`](../gh/) | Global ignore behaviour and non-secret GitHub CLI preferences |
+| Git clients | [`git/`](../git/), [`gh/`](../gh/), [`tuicr/`](../tuicr/) | Global ignore behaviour, non-secret GitHub CLI preferences, and tuicr review-view defaults |
 | Agent harnesses | [`omp/`](../omp/), [`pi/`](../pi/), [`.omp/`](../.omp/) | Global OMP configuration and skills, Pi extensions, and this repository's project-scoped tools |
 | Human operations | [`README.md`](../README.md) | New-machine setup, live operation, common tasks, and troubleshooting |
 | Agent knowledge | [`AGENTS.md`](../AGENTS.md), [`docs/`](./) | Progressive task routing, architecture, principles, quality, and plans |
@@ -53,12 +53,18 @@ consumer; do not fix generated output or add a second writer.
 | Requested change | Start at source | Follow through / focused evidence |
 | --- | --- | --- |
 | Install or update the workstation | `Brewfile`, `.stowrc`, `bin/.local/bin/dotfiles-update` | Root README → reviewed package dry run; updates have live side effects |
-| Theme, colour, opacity | `bin/.local/bin/theme` | Alacritty imports, Herdr base, tmux source, Neovim `lua/theme.lua` → generated output → live consumer |
+| Theme, colour, opacity | `bin/.local/bin/theme` | Alacritty imports, Herdr base, tmux source, Neovim `lua/theme.lua` → generated output → live consumer; Pi `theme-sync` polls the flavour |
 | Herdr attention glyphs or jumps | `herdr/.config/herdr/plugins/next-agent/next_agent.py` | Lifecycle integration → attention ledger → theme metadata rows and pinned patch; ledger tests alone do not prove lifecycle delivery |
 | Personal/Work Space filtering | `herdr/.config/herdr/plugins/spaces-env/spaces_env.py` | Runtime assignment state → sidebar/agent-view metadata; `test_spaces_env.py` |
-| Herdr rendering or binary behaviour | `herdr/.config/herdr/patches/` | `bin/.local/bin/install-herdr-focus` → built binary → next natural server start |
-| Pi command, UI, or display metadata | `pi/.pi/agent/extensions/README.md`, then owning extension | `bin/.local/bin/pi` and installed Pi API → focused suite → safe fresh-session check |
+| Herdr rendering or binary behaviour | `herdr/.config/herdr/patches/` | `bin/.local/bin/install-herdr-focus` → built binary → next client attach / server start |
+| Start a Pi task from Herdr | `herdr/.config/herdr/plugins/task-launcher/README.md` | `prefix+t` → plugin popup → Herdr worktree API → Pi tab; Node suite and PTY smoke test |
+| Review an agent's changes | `bin/.local/bin/herdr-review` | `prefix+v` popup → tuicr in the agent's cwd → `herdr agent prompt`; unittest suite, then `--check` |
+| Pi extension command, UI, or display metadata | `pi/.pi/agent/extensions/README.md`, then owning extension | `bin/.local/bin/pi` and installed Pi API → focused suite → safe fresh-session check |
+| Pi prompt template | `pi/.pi/agent/prompts/*.md` | Global prompt discovery → explicit `/name` invocation |
+| Click Pi file links into Neovim | `pi/.pi/agent/extensions/local-file-links/README.md` | File URLs → Alacritty hint → `bin/.local/bin/terminal-open` → Neovim |
+| Add an MCP server | `pi/.pi/agent/mcp.json`, optionally `omp/.omp/agent/mcp.json` | `/reload`, then `/mcp` in Pi lists it |
 | OMP defaults, tools, skills | `omp/.omp/agent/` | Global deployment versus project `.omp/`; consuming task and installed harness, not the model name |
+| Workspace repository index for agents | `bin/.local/lib/workspace-context-mcp/README.md` | Launcher → stdio MCP; Node suite, then `workspace-context-mcp doctor` |
 | Shell or editor startup | `zsh/.zshenv`, `zsh/.config/zsh/.zshrc`, `nvim/.config/nvim/init.lua` | Startup sources → command/plugin consumer; distinguish syntax from startup side effects |
 
 Exact commands and prerequisites live in [`VERIFICATION.md`](VERIFICATION.md).
@@ -102,51 +108,66 @@ in location but not ownership: because it lacks an include mechanism,
 `~/.config/herdr/config.toml` is generated from the tracked
 `config.base.toml` plus theme tables. It must remain a real, untracked output;
 editing it or making it a repository symlink reverses the ownership boundary.
-Writes use temporary files and rename so consumers do not observe partial
-configuration. Pushes to live applications are best-effort, while `theme status`
-provides the diagnostic path.
+Generated overlays use temporary files and rename so consumers do not observe
+partial configuration. Pushes to live applications are best-effort, while
+`theme status` provides the diagnostic path.
+
+Pi is a reader, not a push target: [`theme-sync`](../pi/.pi/agent/extensions/theme-sync/README.md)
+polls the same `flavour` file and applies an in-memory theme. It writes nothing.
 
 ### 3. Herdr source and plugin customisation
 
-There are four distinct owners:
+There are five distinct owners:
 
 - [`herdr/.config/herdr/config.base.toml`](../herdr/.config/herdr/config.base.toml)
   owns stable user configuration.
 - [`herdr/.config/herdr/patches/`](../herdr/.config/herdr/patches/) plus
-  [`install-herdr-focus`](../bin/.local/bin/install-herdr-focus) own the audited,
-  pinned local binary variant. The installer fetches one commit, preflights the
-  patch, builds with explicit tool versions, and publishes atomically. The patch
-  consumes next-agent's blocked/review metadata to render palette-native pane
-  borders and intermediate content opacity, and hides sidebar Spaces whose
-  metadata carries the reserved `sidebar_hidden` token (stamped by spaces-env).
+  [`install-herdr-focus`](../bin/.local/bin/install-herdr-focus) own the pinned,
+  patched binary. The installer fetches one upstream commit, applies the patch,
+  runs the patch's tests, and installs atomically. The build identifies itself as
+  `dotfiles.<patch-hash>` and its updater refuses stock replacements. Since 0.9
+  the **server** renders pane content (attention borders and opacity) and the
+  **client** draws the sidebar (Spaces tree, `sidebar_hidden` filtering, footer,
+  machine keys), so each half activates separately.
 - [`herdr/.config/herdr/plugins/next-agent/`](../herdr/.config/herdr/plugins/next-agent/)
   owns the per-pane attention ledger and metadata consumed by navigation, the
-  sidebar, and split-pane chrome, plus its focused unit tests.
+  sidebar, and split-pane chrome.
 - [`herdr/.config/herdr/plugins/spaces-env/`](../herdr/.config/herdr/plugins/spaces-env/)
-  owns the fixed Personal/Work Space environments and their focused unit tests.
-  Its workspace assignments and MRU order are runtime state under
-  `~/.local/state/herdr/plugins/martinro.spaces-env/`, not source.
+  owns the fixed Personal/Work Space environments. Its assignments and MRU order
+  are runtime state under `~/.local/state/herdr/plugins/martinro.spaces-env/`.
+- [`herdr/.config/herdr/plugins/task-launcher/`](../herdr/.config/herdr/plugins/task-launcher/README.md)
+  owns the Pi Tasks popup: it names the task with the selected model, creates a
+  worktree Space through Herdr, and starts Pi as that Space's only tab. Preferences
+  and prompt handoffs live under `~/.local/state/herdr/plugins/martinro.task-launcher/`.
 
 The installed binary, generated Herdr config, plugin runtime ledger, and server
 process are deployment/runtime outputs and do not belong in Git.
 
 ### 4. Agent configuration
 
-[`omp/.omp/agent/`](../omp/.omp/agent/) contains cross-repository OMP defaults,
-tooling catalogues, agents, and global or scoped skills. Scoped skills are inert
-until a project links them. [`pi/.pi/agent/extensions/`](../pi/.pi/agent/extensions/)
-contains globally discovered Pi extensions and an explicit policy for any hook
-that can alter model-visible context. The [Pi wrapper](../bin/.local/bin/pi)
+**Pi is the primary interactive harness; OMP is secondary.** Register and verify
+agent capabilities for Pi first, then optionally mirror them to OMP. Pi's managed
+MCP registrations are in [`pi/.pi/agent/mcp.json`](../pi/.pi/agent/mcp.json)
+(merged by `pi-mcp-adapter` above host-local `~/.config/mcp/mcp.json` and below a
+project's `.pi/mcp.json`). [`omp/.omp/agent/`](../omp/.omp/agent/) contains
+cross-repository OMP defaults, tooling catalogues, agents, and global or scoped
+skills. Scoped skills are inert until a project links them.
+[`pi/.pi/agent/extensions/`](../pi/.pi/agent/extensions/) contains globally
+discovered Pi extensions and the policy for any hook that can alter model-visible
+context. [`pi/.pi/agent/prompts/`](../pi/.pi/agent/prompts/) holds prompt templates
+that only enter context when invoked. The [Pi wrapper](../bin/.local/bin/pi)
 disables automatic skill discovery; `/skill` enables selected skills per session.
 OMP defaults are not automatically Pi defaults, and a catalogue entry does not
-prove a tool is exposed in the current session. Pi's metadata-only Herdr bridge
-derives a bounded task label from Pi's latest substantive user request and reports it as
-in-memory pane metadata; Pi session content remains the sole durable source.
+prove a tool is exposed in the current session.
 
-The root [`.omp/mcp.json`](../.omp/mcp.json) is project-specific configuration for
-this repository, not a global default. Credentials, model caches, databases,
-memories, lock files, and session state are local outputs even when their tools'
-static configuration is managed here.
+The [Workspace Context MCP](../bin/.local/lib/workspace-context-mcp/README.md)
+is the one locally owned MCP server: a read-only, dependency-free stdio process
+that indexes repositories under `~/Desktop/projects` and `~/dotfiles` in memory.
+
+The root [`.omp/mcp.json`](../.omp/mcp.json) and [`.pi/mcp.json`](../.pi/mcp.json)
+are project-specific configuration for this repository, not global defaults.
+Credentials, model caches, databases, memories, lock files, and session state are
+local outputs even when their tools' static configuration is managed here.
 
 ### 5. GUI and scheduled execution
 

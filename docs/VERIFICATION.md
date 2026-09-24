@@ -15,16 +15,22 @@ Use temporary directories outside the repository for generated output.
 | Diff hygiene | `git diff --check` and `git status --short` | Whitespace and worktree changes, not correctness; inspect newly created files too |
 | Shell syntax | [Shell syntax commands](#shell-syntax) below | Syntax only; use the interpreter in the affected script's shebang |
 | Zsh syntax | [Shell syntax commands](#shell-syntax) below | Syntax only; does not exercise startup or commands |
-| Herdr attention ledger | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/.config/herdr/plugins/next-agent -p 'test_*.py'` | Standard-library tests; discovery handles the hyphenated directory |
+| Herdr attention ledger / jumps | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/.config/herdr/plugins/next-agent -p 'test_*.py'` | Ledger and mocked focus API; no live server |
+| Herdr next-agent terminal flow | `PYTHONDONTWRITEBYTECODE=1 python3 herdr/.config/herdr/plugins/next-agent/pty-smoke.py` | Installed Herdr; isolated server/client in its own PTY with synthetic lifecycle reports. `HERDR_TEST_BIN=<binary>` tests a build-only binary |
 | Herdr environment grouping | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/.config/herdr/plugins/spaces-env -p 'test_*.py'` | Includes temporary-state concurrency tests; no live server |
-| Pi task summaries | `bun test ./pi/.pi/agent/extensions/herdr-task-summary/summary.test.ts` | Injected reporter; no live pane updates |
-| Pi long-context toggle | `bun test ./pi/.pi/agent/extensions/long-context/index.test.ts` | Mocked extension runtime; verifies model metadata switching and UI state, not provider acceptance or billing |
-| Pi Anthropic route | `bun test ./pi/.pi/agent/extensions/omp-anthropic-route/*.test.ts` | Mocked token/update/transport plus a loopback HTTP server and Bun subprocess; not a provider or billing check |
-| Pi Vim navigation | `bun test ./pi/.pi/agent/extensions/modal-vim-navigation/index.test.ts` | Requires npm and globally installed `@earendil-works/pi-coding-agent`; exercises installed editor APIs, not a rendered terminal |
+| Pi task launcher | `node --test herdr/.config/herdr/plugins/task-launcher/*.test.mjs`, then `python3 herdr/.config/herdr/plugins/task-launcher/pty-smoke.py` | Installed npm Pi/Node; temporary Git fixtures, fake Herdr/Pi, loopback naming provider; no real clipboard or agent |
+| Pi task launcher prerequisites | `env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/sh herdr/.config/herdr/plugins/task-launcher/launch.sh --check` | Minimal-PATH Pi/Node resolution; no model requests |
+| Herdr review popup | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s bin/.local/lib/herdr-review -p 'test_*.py'` | Fake Herdr/tuicr; with tuicr installed, also drives real tuicr in a PTY. No live Herdr or agent input |
+| Terminal Neovim opener | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s bin/.local/lib/terminal-links -p 'test_*.py'` | Hint TOML/argv and headless Neovim; GUI launches mocked |
+| Workspace Context MCP | `node --test bin/.local/lib/workspace-context-mcp/*.test.mjs` | Temporary fixture workspace and a spawned stdio server; never reads the real workspace |
+| Pi extensions (Bun) | `bun test ./pi/.pi/agent/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `theme-sync`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `long-context`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links` |
+| Pi extensions (Node native) | `node --test pi/.pi/agent/extensions/<name>/*.test.mjs` | Real Pi SDK sessions with isolated HOME and synthetic providers. Applies to `agent-stuff`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route` |
+| Pi agent-stuff public API | `node pi/.pi/agent/extensions/agent-stuff/typecheck.mjs` | Installed `tsc` and Pi public types |
+| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/.pi/agent/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `theme-sync` and `quota-footer` (which also covers `compact-ui`) |
 
-Run Pi suites as separate commands: the navigation suite installs module mocks
-for the installed Pi packages. A focused pass does not prove global extension
-discovery, context neutrality, provider compatibility, or UI behaviour.
+Run Pi suites as separate commands: some install module mocks for the installed
+Pi packages. None make real provider requests, so they do not prove provider
+acceptance, billing, or rendered UI.
 
 ### Shell syntax
 
@@ -34,11 +40,12 @@ operator's shell.
 
 ```sh
 (
-  for file in bin/.local/bin/pi bin/.local/bin/dotfiles-update bin/.local/bin/install-herdr-focus; do
+  for file in bin/.local/bin/pi bin/.local/bin/dotfiles-update bin/.local/bin/install-herdr-focus bin/.local/bin/workspace-context-mcp; do
     sh -n "$file" || exit 1
   done
 )
 bash -n bin/.local/bin/theme
+sh -n herdr/.config/herdr/plugins/task-launcher/launch.sh
 (
   for file in zsh/.zshenv zsh/.config/zsh/.zshrc zsh/.config/zsh/.zprofile; do
     zsh -n "$file" || exit 1
@@ -65,6 +72,9 @@ bash -n bin/.local/bin/theme
    inspect every proposed link and conflict. A successful dry run with pending
    actions is not the same as an already deployed package. Never automatically
    resolve a conflict with `--adopt`, deletion, or a blanket move of app state.
+5. If the owning package's dry run also lists unrelated pending files, create only
+   the new link from Stow's exact `LINK: <target> => <source>` line, then re-run the
+   dry run to confirm it no longer appears. Leave the other files to their owner.
 
 For an independent check that `docs/` leaves an empty target unchanged:
 
@@ -89,14 +99,37 @@ and side effects first; use them when the affected live path is in scope.
 | Shell | `zsh -ic 'exit'`, then the affected command | Runs startup hooks and may write local caches. Record warnings even if exit status is 0 |
 | Theme | `theme status`, then inspect the affected consumer | Diagnostic only; a status report does not prove visual updates. `theme apply`, `set`, `cycle`, and `opacity` write outputs and reload consumers |
 | Herdr config | `herdr config check` | Checks generated deployed config, **not** an unstaged or ungenerated base-file edit |
+| Herdr review target | `HERDR_ACTIVE_PANE_ID=<pane> HERDR_ACTIVE_TAB_ID=<tab> bin/.local/bin/herdr-review --check` inside Herdr | Read-only: resolves the agent, directory and tuicr command; opens nothing |
+| Pi Tasks native UI | [Pi Tasks verification](../herdr/.config/herdr/plugins/task-launcher/README.md#verification) | Needs the deployed plugin and regenerated config; keep the task text empty |
 | tmux | `tmux source-file ~/.config/tmux/tmux.conf` | Changes the running server and executes configured hooks/plugins; not syntax-only |
 | Neovim | `nvim --headless '+qa'`, then `nvim +checkhealth` when appropriate | Startup can bootstrap/download plugins and language tools; only run against a reviewed, provisioned environment |
-| Pi extension loading | Fresh Pi session and the affected command/UI | Global hooks may run at startup, including the [Anthropic route's Homebrew update attempt](../pi/.pi/agent/extensions/omp-anthropic-route/README.md#compatibility-and-risk); no fresh session needed for prose-only edits |
-| Patched Herdr binary | `install-herdr-focus --build-only <temporary-output-path>` | Network/toolchain/build side effects but no installed-binary replacement; follow the [setup guide](../README.md#8-set-up-each-tool) and inspect the installer first |
+| Workspace Context MCP | `bin/.local/bin/workspace-context-mcp doctor`, then `call <tool> '<json>'` | Reads the real workspace roots; no writes or network |
+| Pi MCP registration | `/reload`, then `/mcp` in Pi | Do not run `pi-mcp-adapter init` without `--dry-run`: it writes into the repository-owned `~/.pi/agent/mcp.json` |
+| Pi extension loading | Fresh Pi session and the affected command/UI | Startup hooks run, including the [Anthropic route's OMP update check and model probe](../pi/.pi/agent/extensions/omp-anthropic-route/README.md#startup-check), which uses quota |
+| Patched Herdr binary | `install-herdr-focus --build-only <temporary-output-path>`, then `HERDR_CONFIG_PATH=<staged config> <binary> config check` | Network/toolchain build plus the patch's tests; does not replace the installed binary. `--version` must include `dotfiles.<patch-hash>` |
 
 Do not restart a live Herdr server, reload another agent conversation, or run
 `dotfiles-update` just to obtain a green check. If safe integration verification
 is unavailable, report the remaining boundary rather than weakening the check.
+
+## Explicitly approved live Herdr handoff
+
+Only when the user asks for it; never as routine verification. `server stop`
+kills pane processes, so never use it as a fallback while agents are running.
+
+1. Require `server.capabilities.live_handoff = true` and a compatible protocol in
+   `herdr status --json`. Rehearse old → new with an isolated server first.
+2. Record pane/Space/tab IDs, focus and pane PIDs. Back up the installed binary and
+   generated config under `~/.local/state/herdr/deployments/`.
+3. Stage the config from `config.base.toml` and `theme`'s `herdr_theme`, check it
+   with the new binary, then install binary and config atomically.
+4. Run `herdr server live-handoff` with the installed executable. Clients
+   disconnect; the user reconnects with `herdr`.
+5. Verify the new server PID/executable and unchanged pane processes, topology and
+   focus. Handoff drops transient `task_summary` tokens and can clear unread
+   attention flags ([Q-007](QUALITY.md)); do not send input to agents to repair them.
+6. On failure, find which server owns the socket before restoring anything. Never
+   blindly retry, kill pane processes, or overwrite concurrent changes.
 
 ## Report evidence
 

@@ -24,8 +24,8 @@ zsh/.zshenv                --stow--> ~/.zshenv               (sets ZDOTDIR)
   [common tasks](#common-tasks), and [troubleshooting](#troubleshooting).
 - **Ownership and safe checks:** [Architecture](docs/ARCHITECTURE.md) and
   [verification](docs/VERIFICATION.md).
-- **Subsystem operation:** [Theme](#theme-toggle), [OMP tooling](#omp-agent-tooling),
-  and [per-tool setup](#8-set-up-each-tool).
+- **Subsystem operation:** [Theme](#theme-toggle), [Pi tooling](#pi-agent-tooling),
+  [OMP tooling](#omp-agent-tooling), and [per-tool setup](#8-set-up-each-tool).
 
 Setup and update commands below change the workstation; they are not a checklist
 for an agent doing a source or documentation edit.
@@ -152,9 +152,13 @@ config). `.zshrc` sources it only if present, so the shell works — plainly —
 run this.
 
 **Terminal** — Alacritty is configured and asks for `JetBrainsMono Nerd Font`, installed
-by the Brewfile.
+by the Brewfile. **Cmd-click** a `file://` URL to open it in a new Neovim window
+(**Cmd+Shift-click** inside Herdr); web links still open in the browser and
+**Ctrl+Shift+O** picks hints by keyboard. Pi's
+[local-file-links](pi/.pi/agent/extensions/local-file-links/README.md) extension makes
+its file links clickable.
 
-**Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux and Neovim share
+**Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux, Neovim and Pi share
 (see [Theme toggle](#theme-toggle)):
 
 ```sh
@@ -177,44 +181,48 @@ chmod +x ~/.local/bin/tailscale
 ```
 
 **Herdr**
+
 Herdr's runtime `config.toml` is generated from `config.base.toml` by `theme`, so
-run the Theme step above before starting it. This repo builds an audited patch on
-upstream v0.8.2 commit `9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c` rather than
-binary-editing the `wkentaro/herdr` prerelease. The patch adds heavy focused-pane
-box drawing and theme-native agent-attention chrome, and teaches the sidebar to
-hide any Space whose metadata carries a non-empty reserved `sidebar_hidden` token
-(the focused Space is always exempt, and hidden Spaces drop out of rendering,
-mouse hit-testing, and visible-order navigation together). Blocked panes use the
-active palette's red, completed conversations awaiting review use peach, and either keeps
-content at the midpoint between background and focused opacity (`0.75` with the
-tracked `ui.unfocused_pane_opacity = 0.5`). Ordinary inactive panes still blend every
-foreground/background colour toward the queried host-terminal background, which is
-substantially stronger than SGR DIM. Retained PTY row updates receive the same blend,
-so animated output in a background pane cannot flash at full opacity. Install it after
-`brew bundle`:
+run the Theme step above first. This repo builds Herdr from upstream v0.9.1
+(`065ef9d6a531c49fb8bee7e818ef837065b21ee9`) plus
+[`herdr-0.9.1-focused-pane.patch`](herdr/.config/herdr/patches/herdr-0.9.1-focused-pane.patch),
+which adds:
+
+- heavy focused-pane borders and attention chrome: blocked panes use the palette's
+  red, finished-but-unreviewed panes peach, both at midpoint opacity; other inactive
+  panes blend toward the terminal background (`ui.unfocused_pane_opacity`);
+- a single **Spaces tree** sidebar (`ui.sidebar.spaces.inline_agents = true`):
+  repository → worktree Space → conversations. Click a repository to fold it, or a
+  Space's status counts to show/hide its conversations;
+- the reserved `sidebar_hidden` Space token that spaces-env uses to hide the other
+  environment (the focused Space always stays visible);
+- `keys.next_machine` / `keys.previous_machine` for switching between saved machines.
+
+Install it after `brew bundle` (needs Rust via rustup and Zig 0.16.0; set `ZIG` to override):
 
 ```sh
-install-herdr-focus
+install-herdr-focus                          # build, test, install ~/.local/bin/herdr
+install-herdr-focus --build-only /tmp/herdr  # build and test only
 ```
 
-The script fetches the pinned source, applies
-`herdr/.config/herdr/patches/herdr-0.8.2-focused-pane.patch`, builds with pinned Rust 1.96.1 and
-Zig 0.15, runs the focused tests the patch adds, ad-hoc signs on macOS, and atomically
-installs `~/.local/bin/herdr`.
-It does not stop, restart, or hand off a server; the binary takes effect on the next
-natural server start. To audit/test without touching the installed executable, use
-`install-herdr-focus --build-only /tmp/herdr-focus`. When upgrading an already-running
-older server, wait for a natural stop, run `theme apply` while it is stopped to regenerate
-`config.toml` with the new keys, and then start Herdr normally.
+The installer never restarts a server. Since 0.9 the client draws the sidebar and the
+server draws panes, so sidebar features appear on the next `herdr` attach and pane
+chrome on the next server start. Run `theme apply` (or `C-a R`) to regenerate the
+config. The build reports `0.9.1-dotfiles.<patch-hash>` and its `herdr update`
+refuses to replace itself with a stock release; upgrades need a ported patch. To swap
+the binary under running agents, follow the
+[live-handoff checklist](docs/VERIFICATION.md#explicitly-approved-live-herdr-handoff).
 
-Then finish the normal setup:
+Then finish the setup:
 
 ```sh
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
 herdr plugin link ~/.config/herdr/plugins/spaces-env --enabled
+herdr plugin link ~/.config/herdr/plugins/task-launcher --enabled
 herdr integration install pi
 herdr integration install omp
 herdr integration status      # Pi and OMP should both be current
+herdr machine add <ssh-target> --label home   # optional, for C-a '
 herdr config check
 herdr
 ```
@@ -223,68 +231,46 @@ Herdr is the primary terminal workspace manager. Its config keeps the tmux `C-a`
 muscle memory: `h/j/k/l` moves between panes, `\` / `-` splits right / down, `c`
 closes a pane, `C-c` creates a tab, `r` renames it, `w` opens the workspace picker,
 and `z` zooms. `H` / `L` changes tabs, `x` swaps down, and `Space` enters resize mode.
-Splits stop when either resulting pane would have less than 10 readable columns or 4
-readable rows (with room reserved for pane chrome), and report why the split was refused.
-Press `C-a u` to jump to the next agent conversation needing attention, or `C-a ?`
-for the complete live keymap. Workspaces replace tmux sessions, tabs replace tmux
-windows, and Herdr persists them. The official Pi and OMP integrations supply lifecycle
-state; task-summary metadata alone does not report whether Pi is running. Without the Pi
-integration, Herdr guesses from screen text and can show an active conversation as idle.
-New sessions load their integration automatically; once an existing conversation is idle,
-use `/reload` in that Pi or OMP session (or restart it). No Herdr restart is needed.
-Herdr owns these generated extension files outside Stow; reinstall with
-`herdr integration install pi` / `herdr integration install omp`, rather than editing them.
-Native Herdr toasts cover background tabs and workspaces; the local next-agent hook fills
-the otherwise-suppressed active-tab, different-pane OMP case. A prompt already visible in
-the focused OMP pane makes the request sound without a redundant popup.
-The same per-pane next-agent ledger drives split-pane attention borders and midpoint
-opacity, so focusing one conversation cannot accidentally clear a sibling. Its glyphs are
-`◐` working, `◆` blocked/needs input (not necessarily broken), `●` finished but unreviewed,
-and `○` idle/reviewed. The
-next-agent priority/scope settings are tracked under
-`~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
+Splits are refused when a pane would drop below 10 columns or 4 rows. `C-a ?` shows
+the live keymap. The custom keys:
 
-The local spaces-env plugin organises Spaces into two fixed environments,
-Personal and Work, inside the one persistent server — a focus boundary, not a
-process boundary, so moving a Space never touches its panes. `C-a ;` toggles
-environments and focuses the destination's most recently used Space (an empty
-destination just flips where new Spaces start); `C-a :` (shift+;) sends the
-current Space to the other environment and stays on the source's most recent
-remaining Space, following the moved Space only when it was the source's last.
-New Spaces inherit the active environment, restored Spaces keep their
-assignment (identity is Herdr's stable workspace id, so renames don't matter),
-and unknown or stale ids reconcile to Personal. The whole sidebar follows the
-active environment. The Agents panel is filtered through an `agent.view.set`
-override on the member Spaces, so it lists only that environment's agents, names
-the environment in its header, and shows "no matching agents" when it is empty.
-Within that view, attention sorts first. Every row leads with the next-agent
-state glyph and, when available, a task summary, with dim Space/tab context
-beneath it. OMP uses
-its stripped terminal task title. Pi's context-neutral `herdr-task-summary`
-extension reports a display-only `$task_summary` pane token derived
-without an LLM as an up-to-six-word task phrase from the latest substantive user
-request; it observes finalized
-input without changing or injecting model-visible content and restores existing
-sessions on Pi reload when their active branch contains a usable request. Fresh
-sessions show `New conversation` until one is available. Standalone
-clipboard/image paths and conversational acknowledgements are skipped. Unknown integrations show only Space/tab context rather than falling
-back to a CLI kind or Herdr nickname. The sidebar defaults to 40 columns, with a
-36–42 column resize range. The Spaces
-list is filtered by stamping the custom build's reserved
-`sidebar_hidden` metadata token on inactive-environment Spaces (the focused
-Space stays visible server-side, so toggling into an empty environment leaves
-exactly the Space you are on); each Space keeps its dim P/W badge in the
-expanded view, while the collapsed view shows one active P/W marker on its
-section divider. The Personal block stays ordered above the Work block for the
-picker and moments when both are visible. On a stock binary the token is ignored and only the
-Agents panel filters. Both are in-memory server state, reapplied at startup.
-next-agent jumps stay global and the active environment simply follows wherever
-focus lands. To
-reset every assignment, delete
-`~/.local/state/herdr/plugins/martinro.spaces-env/state.json` (all Spaces
-become Personal), or run
-`herdr plugin action invoke martinro.spaces-env.status` to see the current
-split.
+| Key | Action |
+| --- | --- |
+| `C-a u` / `C-a Shift-u` | Jump to the next conversation needing attention / back to where the jumps started |
+| `C-a t` | Start a [Pi task](herdr/.config/herdr/plugins/task-launcher/README.md) in a new worktree Space |
+| `C-a v` | Review the focused agent's uncommitted changes in tuicr and send the comments back |
+| `C-a ;` / `C-a :` | Toggle Personal/Work / send the current Space to the other environment |
+| `C-a '` | Switch this client to the next online machine (e.g. the saved `home`) |
+
+**Agent state.** The official Pi and OMP integrations report lifecycle state; without
+them Herdr guesses from screen text. After `herdr integration install …`, `/reload`
+idle sessions. The next-agent plugin keeps a per-pane ledger shown as `◐` working,
+`◆` blocked/needs input, `●` finished but unreviewed and `○` idle/reviewed. Focusing
+a pane (hotkey, click, or pane body) marks it reviewed; split siblings keep their own
+state. It also sounds the active-tab OMP prompts Herdr's own toasts skip. Its settings
+live in `~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
+Conversation rows use OMP's terminal title, or for Pi the
+[`herdr-task-summary`](pi/.pi/agent/extensions/herdr-task-summary/summary.ts) token: a
+2–6-word title generated in the background by a small, tool-free request to the
+selected model (this uses provider quota). A letter-scramble animation shows while it
+is pending; failures keep the previous title.
+
+**Reviewing changes.** `C-a v` runs [`herdr-review`](bin/.local/bin/herdr-review), which
+opens [tuicr](https://tuicr.dev) in a popup on the focused agent's working tree
+(or the only agent in the tab). Select lines with `v`/`V`, comment with `c`, then
+`:wq`/`ZZ` sends all comments to the agent as one prompt; `:q`/`ZQ` sends nothing.
+If the agent is waiting on a question the comments stay in tuicr and are copied to
+the clipboard. For committed work run `herdr-review -r main..HEAD` from a shell pane.
+
+**Environments and machines.** spaces-env splits Spaces into Personal and Work within
+one server. `C-a ;` returns to the Space you last used in the other environment;
+`C-a :` moves the current Space across. New Spaces join the active environment and
+unknown ones default to Personal. The sidebar and conversation list show only the
+active environment. Reset assignments by deleting
+`~/.local/state/herdr/plugins/martinro.spaces-env/state.json`; inspect them with
+`herdr plugin action invoke martinro.spaces-env.status`. Each machine is a separate
+sidebar screen with its own server, plugins and environments; `C-a '` skips offline
+machines. From a plain terminal, `herdr --remote <ssh-target>` attaches directly.
 
 **tmux (legacy fallback)**
 
@@ -426,7 +412,7 @@ passwordless sudoers entry.
 
 | Managed (stow packages) | Left in `~/.config` (real dirs, untracked) |
 |---|---|
-| nvim, herdr, tmux, zsh (+`~/.zshenv`), alacritty, ghostty, aerospace, git, gh (`config.yml` only), bin, omp, pi | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh credentials (`hosts.yml`), github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
+| nvim, herdr, tmux, zsh (+`~/.zshenv`), alacritty, ghostty, aerospace, git, gh (`config.yml` only), tuicr, bin, omp, pi | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh credentials (`hosts.yml`), github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
 
 
 Secrets and runtime state must remain outside this repo. With leaf linking,
@@ -438,7 +424,7 @@ or a misconfigured writer can still leak state: inspect unexpected files and
 
 ## Theme toggle
 
-Alacritty, Herdr, tmux and Neovim share Catppuccin and one terminal opacity, driven by
+Alacritty, Herdr, tmux, Neovim and Pi share Catppuccin, with terminal opacity driven by
 `bin/.local/bin/theme` (on `PATH` via `~/.local/bin`).
 
 | Hotkey (in Alacritty) | Effect |
@@ -457,12 +443,14 @@ theme opacity               # same as Ctrl+Shift+B
 ```
 
 State lives in `~/.local/state/theme/` — deliberately outside this repo, so pressing the
-hotkey never dirties `git status`. The repo keeps latte/0.6 as its committed default; each
-app falls back to that when the state dir is missing. Changes reach Alacritty via
-`live_config_reload`; Herdr follows Alacritty's light/dark appearance (Latte for light,
-its dark Catppuccin variant for frappe/macchiato/mocha); tmux uses `source-file`; and
-every running Neovim updates over RPC (plus a `FocusGained` fallback). New windows read
-the state on startup.
+hotkey never dirties `git status`. The repo keeps latte/0.6 as its committed default.
+Changes reach Alacritty via `live_config_reload`; Herdr receives a generated config
+with the exact flavour's colours; tmux uses `source-file`; and every running Neovim
+updates over RPC (plus a `FocusGained` fallback). New windows read the state on startup.
+
+Pi's [theme-sync extension](pi/.pi/agent/extensions/theme-sync/README.md) polls the
+same state and follows it within about half a second, overriding Pi's own `/settings`
+theme without rewriting it.
 
 **Alacritty's theme-driven keys must stay out of `alacritty.toml`.** Its `import` list is
 merged with the *importing* file last, so a key set in `alacritty.toml` itself overrides
@@ -481,8 +469,8 @@ sources no profile, so the script inherits launchd's
 therefore sets its own `PATH` at the top; don't add a bare `command -v <homebrew binary>`
 without it, or that step will be skipped in silence. This is why the pushes report what
 they reached — on stderr for `cycle`/`opacity`/`set`/`apply` (discarded under the hotkey,
-visible when run by hand), and via `theme status`, which probes all three without changing
-anything:
+visible when run by hand), and via `theme status`, which probes the four pushed apps
+without changing anything (Pi reads the state independently):
 
 ```
 $ theme status
@@ -495,10 +483,82 @@ tmux       server up
 neovim     found 3 instance(s)
 ```
 
+## pi agent tooling
+
+Pi is the primary interactive harness on this machine. Register and verify
+agent-facing capabilities for Pi first; OMP entries are optional extras.
+After changing an extension, prompt or MCP file, run `/reload` in idle Pi sessions.
+
+### Extensions and prompts
+
+Global extensions live in [`pi/.pi/agent/extensions/`](pi/.pi/agent/extensions/);
+read its [policy](pi/.pi/agent/extensions/README.md) before adding anything that
+touches model context.
+
+| Extension | Adds |
+| --- | --- |
+| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](bin/.local/bin/pi) wrapper passes `--no-skills`) |
+| `session-controls.ts` | `/clear` and `/drop` |
+| `copy-prompt.ts` | `alt+shift+c` copies the draft |
+| [`modal-vim-navigation`](pi/.pi/agent/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
+| [`agent-stuff`](pi/.pi/agent/extensions/agent-stuff/README.md) | `/review`, `/end-review`, `/answer` (Ctrl+.), `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
+| `long-context` | `/long-context` switches GPT-5.6 / GPT-6 Astra to the 1.05M window (long-context pricing above 272K) |
+| [`codex-fast`](pi/.pi/agent/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
+| [`quota-footer`](pi/.pi/agent/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
+| [`quota-router`](pi/.pi/agent/extensions/quota-router/README.md) | `/accounts` and `/route`: park a second login and continue on it when one hits a usage limit |
+| [`compact-ui`](pi/.pi/agent/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and an `MCP: N/M` footer |
+| [`theme-sync`](pi/.pi/agent/extensions/theme-sync/README.md) | Follows the shared Catppuccin flavour |
+| [`local-file-links`](pi/.pi/agent/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
+| `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task) |
+| [`omp-anthropic-route`](pi/.pi/agent/extensions/omp-anthropic-route/README.md) | Claude OAuth requests in OMP's reviewed shape (below) |
+
+Prompt templates in [`pi/.pi/agent/prompts/`](pi/.pi/agent/prompts/) run only when
+invoked: `/discuss` (interview, then an implementation-ready summary), `/eli5 <topic>`
+(a throwaway visual HTML explainer), `/domain-first [scope]`, `/test-sweep [scope]`
+and `/feedback [correction]`.
+
+**Claude via OMP.** With Claude OAuth selected, `omp-anthropic-route` checks the
+latest OMP release at startup/reload, upgrades the Homebrew `omp` only to the
+reviewed version, and sends one small synthetic request to the selected model
+(this uses quota). An unreviewed release or a failed check blocks the route rather
+than falling back. API keys, proxies and other providers are untouched.
+`/omp-anthropic-route` shows the cached status.
+
+### MCP servers
+
+Pi loads MCP servers through `pi-mcp-adapter` (listed in `~/.pi/agent/settings.json`),
+merging in rising precedence:
+
+| File | Owner | Use |
+| --- | --- | --- |
+| `~/.config/mcp/mcp.json` | Host-local, **not** in this repository | Hosted OAuth/token servers (Linear, Notion, Penpot); may hold secrets |
+| [`pi/.pi/agent/mcp.json`](pi/.pi/agent/mcp.json) → `~/.pi/agent/mcp.json` | This repository | Managed global servers below |
+| `<repo>/.pi/mcp.json` | Each project | Overrides; `/mcp enable` / `/mcp disable` write here |
+
+Confirm changes with `/reload` then `/mcp`.
+
+- **gcloud** and **gcp-observability** use the same pinned packages as OMP and start
+  on demand (needs `npx` and the gcloud CLI). gcloud is read-only only because of
+  the `-c` [allowlist](omp/.omp/agent/gcloud-mcp-allowlist.json); keep it. Neither
+  restricts projects: they use your Google IAM, so pass explicit project IDs. The
+  host-local `~/Desktop/projects/DE/.pi/mcp.json` connects both eagerly there. If
+  auth has expired, run `gcloud auth login` and `gcloud auth application-default
+  login`, then `/mcp reconnect <server>`. Calling `run_gcloud_command` with
+  `{"args":["version"]}` must be rejected by the allowlist.
+- **paper** connects to Paper Desktop at `http://127.0.0.1:29979/mcp` when a file
+  is open. It can edit the open design.
+- **workspace-context** is this repository's own read-only index of every repository
+  under `~/Desktop/projects` and `~/dotfiles`
+  ([README](bin/.local/lib/workspace-context-mcp/README.md)). It runs
+  `~/.local/bin/workspace-context-mcp serve`, so the `bin` package must be stowed;
+  `workspace-context-mcp doctor` inspects it without an agent. OMP enables it too.
+  It is disabled for this repository in [`.pi/mcp.json`](.pi/mcp.json).
+
 ## omp agent tooling
 
 [`omp/.omp/agent/mcp.json`](omp/.omp/agent/mcp.json) is an opt-in catalogue except
-for the globally enabled read-only `gcloud` and `gcp-observability` servers.
+for the globally enabled read-only `gcloud`, `gcp-observability`, and local
+[`workspace-context`](bin/.local/lib/workspace-context-mcp/README.md) servers.
 The remaining entries are disabled globally. This repository enables Context7,
 DeepWiki, and grep.app in [`.omp/mcp.json`](.omp/mcp.json). Enable other reviewed
 servers per repository in `<repo>/.omp/mcp.json`; each file
@@ -514,6 +574,7 @@ CLI-only: install it with `uv tool install semgrep`, then run `semgrep scan --co
 | --- | --- | --- | --- |
 | Library/API docs | `web_search` | Context7 · Ref.tools · GitMCP · AWS Knowledge/Docs · MS Learn · Cloudflare docs · Terraform registry | context7 (dotfiles MCP; elsewhere inspect project/plugin config) |
 | Repo Q&A | — | DeepWiki · GitMCP · Octocode | deepwiki (dotfiles, de-dashboard) |
+| Local workspace context | — | [`workspace-context`](bin/.local/lib/workspace-context-mcp/README.md) (this repo, read-only stdio) | Pi global (`pi/.pi/agent/mcp.json`); also OMP global |
 | Public code search | `grep` (local only) | grep.app · Octocode · `gh search` via the `github` tool | grep (dotfiles, de-dashboard) |
 | Browser drive + inspect | `browser` (Puppeteer, CDP, relay) | Playwright MCP · Chrome DevTools MCP | built-in |
 | Semantic code intel | `lsp` (50+ servers) | Serena | built-in |
@@ -588,27 +649,7 @@ lookup.
   `.claude/agents` is deliberately not scanned.
 - **Extensions and hooks:** `~/.omp/agent/extensions/` (including `pi-rewind`) and
   `<cwd>/.omp/hooks/{pre,post}/`; both use TypeScript/JavaScript default-export
-  factories. Pi's global `/skill` command (with the `~/.local/bin/pi` wrapper's
-  `--no-skills` default) makes skill loading opt-in and session-scoped.
-  Pi's `/test-sweep [scope]` command stages a reviewable test-value and
-  production-simplification prompt without submitting it automatically.
-  Pi's `/domain-first [scope]` command similarly stages a domain-constraint
-  sweep that creates or evolves `domain-first-operating-model.md`.
-  Pi's `alt+shift+c` shortcut (`copy-prompt.ts`) copies the current prompt
-  draft to the clipboard. `/long-context [on|off|status]` toggles supported
-  GPT-5.6 models and GPT-6 Astra on OpenAI / OpenAI Codex between Pi's 272K
-  default and the 1.05M window for the current session; the footer shows
-  `ctx:1.05M` while enabled, and requests above 272K may use long-context pricing.
-  Pi's global `harness-feedback.ts` extension starts disabled; use
-  `/feedback on` to learn from corrective feedback and `/feedback off` to
-  remove that guidance.
-  Pi's context-neutral `herdr-task-summary` extension reports deterministic,
-  display-only task metadata to its current Herdr pane; it does not alter the
-  conversation or model context.
-  Pi's `omp-anthropic-route` extension aligns direct Anthropic OAuth traffic
-  with OMP's reviewed wire shape when the installed OMP version matches its
-  pinned target, falling back to Pi's native transport otherwise;
-  `/omp-anthropic-route` reports route, version, and credential state.
+  factories. Pi's own extensions are listed under [Pi tooling](#pi-agent-tooling).
 - **Plugins:** `omp plugin install <spec>` or `omp plugin link <path>`; state lives
   under `~/.omp/plugins/`.
 - **Marketplaces:** `/marketplace add <owner/repo>`, then `/marketplace discover`.
@@ -677,6 +718,7 @@ stow -n -v -t "$HOME" nvim  # dry-run: preview link actions / conflicts
 | Tree-sitter errors on every startup | `tree-sitter-cli` missing — run `brew bundle` and restart Neovim |
 | Web LSPs or TypeScript fail to start | Node/npm missing — source `~/.nvm/nvm.sh`, run `nvm install --lts`, and restart Neovim |
 | Herdr ignores a config edit | Run `herdr server reload-config`, or press `C-a R` |
+| `C-a '` says `home is not ready` or `no other machine is saved` | Save the machine with `herdr machine add <ssh-target> --label home` and check `herdr machine list --json`. A stock client (`herdr --version` without the patch) has no `next_machine` key: rerun `install-herdr-focus` |
 | Herdr conversation symbol stays idle while Pi works | Check `herdr integration status`; install/update with `herdr integration install pi`, then `/reload` in that Pi session once idle. `herdr agent explain <pane-id> --json` should show screen detection skipped once lifecycle reports are active; `default_known_agent_idle_fallback` means Herdr is still guessing from the screen |
 | tmux statusline unstyled, plugins absent | tpm not cloned, or `C-a I` never pressed |
 | `prefix + Space` does nothing | `cycle-2x2.sh` needs `python3`, and only acts on exactly 5 or 7 panes |

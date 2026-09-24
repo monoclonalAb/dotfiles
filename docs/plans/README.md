@@ -29,7 +29,7 @@ placeholder directories are unnecessary.
 
 ## Active plan index
 
-No active plans.
+- [Pi provider-native compaction](active/2026-09-15-pi-provider-native-compaction.md) — planned; baseline verified, API-first vs subscription-first scope decision pending.
 
 When there are no active plans, use `No active plans.` instead of the list.
 Keep other tasks' entries intact when adding or completing your own plan.
