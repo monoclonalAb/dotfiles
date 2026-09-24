@@ -17,10 +17,11 @@ title = "Pi Tasks"
 placement = "popup"
 width = "80%"
 height = 24
-command = ["/bin/sh", "launch.sh", "menu"]
+command = ["/bin/sh", "launch.sh", "form"]
 
 [[panes]]
 id = "pi"
 title = "Pi"
 placement = "tab"
-command = ["/bin/sh", "launch.sh", "run"]
+# This pane starts in the new checkout, not the plugin directory.
+command = ["/bin/sh", "-c", "exec /bin/sh \"$HERDR_PLUGIN_ROOT/launch.sh\" run"]

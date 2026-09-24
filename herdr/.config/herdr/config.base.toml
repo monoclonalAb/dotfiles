@@ -91,6 +91,13 @@ zoom = "prefix+z"
 # repeatable h/j/k/l resize mode.
 resize_mode = "prefix+space"
 
+# Pi Tasks (plugins/task-launcher): new worktree Space running Pi.
+[[keys.command]]
+key = "prefix+t"
+type = "plugin_action"
+command = "martinro.task-launcher.open"
+description = "start a Pi task"
+
 [[keys.command]]
 key = "prefix+u"
 type = "plugin_action"

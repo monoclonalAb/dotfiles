@@ -22,11 +22,12 @@ export function rpc(method, params, { socketPath = process.env.HERDR_SOCKET_PATH
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
       socket.destroy();
       error ? reject(error) : resolve(result);
     };
     socket.setEncoding("utf8");
-    socket.setTimeout(timeoutMs, () => finish(new RpcError(`${method} timed out.`, sent)));
+    const deadline = setTimeout(() => finish(new RpcError(`${method} timed out.`, sent)), timeoutMs);
     socket.on("error", (error) => finish(new RpcError(`${method}: ${error.message}`, sent)));
     socket.on("end", () => finish(new RpcError(`${method}: connection closed before reply.`, sent)));
     socket.on("connect", () => {
