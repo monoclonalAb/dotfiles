@@ -23,7 +23,7 @@ const releaseFile = join(root, "latest");
 const releaseLog = join(root, "release-checks.jsonl");
 const probeModeFile = join(root, "probe-mode");
 writeFileSync(modeFile, "text");
-writeFileSync(releaseFile, "18.3.0");
+writeFileSync(releaseFile, "18.3.1");
 writeFileSync(probeModeFile, "pass");
 function lines(path) {
   try { return readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse); }
@@ -36,7 +36,7 @@ executable("omp", `
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify(args) + '\\n');
-if (args[0] === '--version') console.log('omp/18.3.0');
+if (args[0] === '--version') console.log('omp/18.3.1');
 else if (args.join(' ') === 'token anthropic') console.log('sk-ant-oat-synthetic-omp');
 else process.exitCode = 99;
 `);
@@ -206,8 +206,8 @@ test("Opus 5.5 startup verifies once; status is passive, subsequent requests reu
       assert.equal(notice.type, "info");
       assert.match(notice.message, /active \(startup verified\)/);
       assert.match(notice.message, /Live model test: passed; served claude-opus-5-5/);
-      assert.match(notice.message, /Reviewed pair: OMP 18\.3\.0 \/ Claude Code 2\.1\.280/);
-      assert.match(notice.message, /Latest OMP release: 18\.3\.0/);
+      assert.match(notice.message, /Reviewed pair: OMP 18\.3\.1 \/ Claude Code 2\.1\.280/);
+      assert.match(notice.message, /Latest OMP release: 18\.3\.1/);
     }
     assert.equal(lines(commandLog).length, commandsBeforeStatus);
     assert.equal(lines(requestLog).length, requestsBefore + 1);
@@ -237,7 +237,7 @@ for (const mode of ["reject", "wrong-model", "bad-reply"]) test(`failed startup 
 });
 
 test("unreviewed latest release blocks before token lookup or model requests even with matching local pins", async () => {
-  writeFileSync(releaseFile, "18.3.1");
+  writeFileSync(releaseFile, "18.3.2");
   const before = lines(requestLog).length, commandsBefore = lines(commandLog).length;
   const f = await fixture();
   try {
@@ -246,7 +246,7 @@ test("unreviewed latest release blocks before token lookup or model requests eve
     assert.equal(f.session.messages.at(-1).stopReason, "error");
     assert.equal(lines(requestLog).length, before);
     assert.equal(lines(commandLog).length, commandsBefore);
-  } finally { await f.close(); writeFileSync(releaseFile, "18.3.0"); }
+  } finally { await f.close(); writeFileSync(releaseFile, "18.3.1"); }
 });
 
 for (const options of [{ apiKey: true }, { baseUrl: "https://proxy.invalid" }, { baseUrl: "http://api.anthropic.com" }, { otherProvider: true }]) {

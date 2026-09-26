@@ -9,8 +9,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { OmpCompatibilityResolver, type OmpCommandRunner, parseOmpVersion, parseLatestRelease, withUpdateLock, commandEnvironment } from "./omp-compat.ts";
 
-const version = "18.3.0";
-const formula = 'class Omp < Formula\n  version "18.3.0"\nend\n';
+const version = "18.3.1";
+const formula = 'class Omp < Formula\n  version "18.3.1"\nend\n';
 const hash = createHash("sha256").update(formula).digest("hex");
 function fixture(options: { installed?: string; latest?: string; dirty?: boolean; formula?: string; origin?: string; fails?: string; afterUpgrade?: string; worktreeChanged?: boolean } = {}) {
   const calls: string[] = [];
@@ -37,11 +37,11 @@ function fixture(options: { installed?: string; latest?: string; dirty?: boolean
 }
 
 test("CLI and latest release parsers are strict", () => {
-  assert.equal(parseOmpVersion("omp/18.3.0"), version);
+  assert.equal(parseOmpVersion("omp/18.3.1"), version);
   assert.equal(parseOmpVersion("omp v19.0.0-beta.1"), "19.0.0-beta.1");
   assert.equal(parseOmpVersion(version), undefined);
   assert.equal(parseLatestRelease(`https://github.com/can1357/oh-my-pi/releases/tag/v${version}`), version);
-  for (const url of ["https://example.com/releases/tag/v18.3.0", "18.3.0", "https://github.com/can1357/oh-my-pi/releases/tag/v18.3.0;id"]) assert.throws(() => parseLatestRelease(url));
+  for (const url of ["https://example.com/releases/tag/v18.3.1", "18.3.1", "https://github.com/can1357/oh-my-pi/releases/tag/v18.3.1;id"]) assert.throws(() => parseLatestRelease(url));
 });
 
 test("even matching pins check freshness, once per runtime", async () => {
@@ -54,14 +54,14 @@ test("even matching pins check freshness, once per runtime", async () => {
 });
 
 test("matching OLD pins do not pass when upstream has an unreviewed release", async () => {
-  const f = fixture({ latest: "18.3.1" });
+  const f = fixture({ latest: "18.3.2" });
   const result = await f.resolver.resolve();
   assert.equal(result.compatible, false); assert.match(result.error!, /needs protocol review/);
   assert.equal(f.calls.length, 1, "no binary, token, tap or install commands on unreviewed release");
   await f.resolver.resolve(); assert.equal(f.calls.length, 1, "failed checks are cached too");
 });
 
-for (const installed of ["18.1.5", "18.2.11"]) test(`reviewed upgrade from ${installed} validates the tap/formula, upgrades OMP only and rechecks`, async () => {
+for (const installed of ["18.1.5", "18.2.11", "18.3.0"]) test(`reviewed upgrade from ${installed} validates the tap/formula, upgrades OMP only and rechecks`, async () => {
   const f = fixture({ installed });
   const r = await f.resolver.resolve();
   assert.equal(r.compatible, true); assert.equal(r.updateAttempted, true); assert.equal(r.installedVersion, version);
@@ -83,7 +83,7 @@ for (const [name, options, message] of [
     assert.equal(r.updateAttempted, false); assert.ok(!f.calls.some(c => c.includes("brew upgrade")));
   });
 }
-for (const installed of ["19.0.0", "18.3.0-beta.1"]) test(`no automatic downgrade from ${installed}`, async () => {
+for (const installed of ["19.0.0", "18.3.1-beta.1"]) test(`no automatic downgrade from ${installed}`, async () => {
   const f = fixture({ installed }); const r = await f.resolver.resolve();
   assert.equal(r.compatible, false); assert.match(r.error!, /downgrade/); assert.equal(f.calls.length, 2);
 });

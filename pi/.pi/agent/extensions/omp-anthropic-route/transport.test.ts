@@ -146,9 +146,13 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   assert.equal(headers.get("x-stainless-package-version"), "0.112.1");
   assert.equal(headers.get("x-app"), "cli");
   assert.equal(headers.get("x-extra-safe-header"), "kept");
-  assert.match(headers.get("anthropic-beta") ?? "", /claude-code-20250219/);
-  assert.match(headers.get("anthropic-beta") ?? "", /oauth-2025-04-20/);
-  assert.match(headers.get("anthropic-beta") ?? "", /effort-2025-11-24/);
+  assert.deepEqual(headers.get("anthropic-beta")!.split(","), [
+    "claude-code-20250219", "oauth-2025-04-20", "interleaved-thinking-2025-05-14",
+    "thinking-token-count-2026-05-13", "context-management-2025-06-27",
+    "prompt-caching-scope-2026-01-05", "mid-conversation-system-2026-04-07",
+    "effort-2025-11-24", "fallback-credit-2026-06-01",
+  ]);
+  assert.equal(headers.get("anthropic-usage-limit"), null, "OMP 18.3.1 slow mode remains opt-in upstream");
   assert.doesNotMatch(headers.get("anthropic-beta") ?? "", /server-side-fallback/);
   assert.doesNotMatch(headers.get("anthropic-beta") ?? "", /mid-conversation-output-config|thinking-binding-controls/);
 
@@ -187,6 +191,7 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
     edits: [{ type: "clear_thinking_20251015", keep: "all" }],
   });
   assert.equal(body.fallbacks, undefined);
+  assert.equal(body.fallback_credit_token, undefined, "no fallback-credit redemption is introduced by the review");
   assert.deepEqual(body.messages[0].content[0].cache_control, { type: "ephemeral" });
   assert.deepEqual(body.messages[1].content[0].cache_control, { type: "ephemeral" });
   assert.equal(body.messages[2].clear_at, "next_user_message");
@@ -202,7 +207,7 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   assert.doesNotMatch(responseText, /"name":"_read"/);
 });
 
-test("OMP 18.3.0 retains the utility profile without opting into compaction or user profiles", async () => {
+test("OMP 18.3.1 retains the utility profile without opting into compaction or user profiles", async () => {
   const result = await inspectOmpRoutedRequest("https://api.anthropic.com/v1/messages", {
     headers: {
       authorization: "Bearer sk-ant-oat-test",

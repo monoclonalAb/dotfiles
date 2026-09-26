@@ -3,8 +3,8 @@ import { closeSync, constants, mkdirSync, openSync, readFileSync, unlinkSync, wr
 import { dirname } from "node:path";
 
 /**
- * Anthropic OAuth request alignment reviewed against Oh My Pi v18.3.0
- * (https://github.com/can1357/oh-my-pi/tree/62bc57be1b03ef0802a33cf7f5f530e534527531), MIT licensed.
+ * Anthropic OAuth request alignment reviewed against Oh My Pi v18.3.1
+ * (https://github.com/can1357/oh-my-pi/tree/6204b7508014bcdf12d95f0b3fd470905fd99344), MIT licensed.
  *
  * This module intentionally operates at the fetch boundary. Pi's native
  * Anthropic adapter still owns message conversion and stream parsing; this
@@ -13,9 +13,9 @@ import { dirname } from "node:path";
 
 // Advance this reviewed pair together; startup never rewrites source or adopts
 // arbitrary versions from server error text. Hash covers the entire tap formula
-// at can1357/homebrew-tap df2b98981928d9cae80124f4263479dcdebf6b28.
-export const OMP_TARGET_VERSION = "18.3.0";
-export const OMP_FORMULA_SHA256 = "e9cdbb5bfba8d0690c729871c3c896742b438a9e1f6901f39efe7003cab22a23";
+// at can1357/homebrew-tap 3800fac5e05d97052db14185ce66f27988177251.
+export const OMP_TARGET_VERSION = "18.3.1";
+export const OMP_FORMULA_SHA256 = "9e6a172019ad0f9b2ab7089e3c43b21692dfb2f6fef23478ce6108ebcbbf8ba6";
 export const CLAUDE_CODE_VERSION = "2.1.280";
 export const CLAUDE_CODE_SDK_VERSION = "0.112.1";
 export const CLAUDE_CODE_SYSTEM_INSTRUCTION =

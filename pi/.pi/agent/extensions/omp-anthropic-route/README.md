@@ -1,7 +1,7 @@
 # OMP-style Anthropic route for Pi
 
 This global extension wraps Pi's native Anthropic provider so that **direct
-Anthropic OAuth** requests match the route used by Oh My Pi (OMP) v18.3.0. The
+Anthropic OAuth** requests match the route used by Oh My Pi (OMP) v18.3.1. The
 access token comes from the logged-in OMP account (`omp token anthropic`); only the
 HTTPS `api.anthropic.com` origin uses it. API keys, proxies and other providers keep
 Pi's own credentials and transport.
@@ -44,18 +44,26 @@ Each model is probed at most once per runtime; `/reload` checks again. The probe
 uses real subscription quota but does not appear in conversation history or totals.
 `/omp-anthropic-route` shows the cached results without making requests.
 
-To recover, fix the reported cause and `/reload`. `Could not resolve the logged-in
-OMP Anthropic credential` means `omp token` failed: log in with `/login` → Anthropic
-in OMP (Pi and OMP logins are separate). A stale update lock records its owner PID;
-check that process before removing the lock.
+To recover, fix the reported cause and `/reload`. `OMP <version> needs protocol
+review` refers to the latest upstream release, not necessarily your installed
+binary. Review the upstream provider/token changes and complete Homebrew formula,
+then update the version/checksum pins, tests and source reference together; do not
+bypass the check or only change the version string. The
+[18.3.1 review](../../../../../docs/plans/completed/2026-09-25-pi-omp-18-3-1-review.md)
+records this update. Reloading alone cannot approve a future release.
+
+`Could not resolve the logged-in OMP Anthropic credential` means `omp token`
+failed: log in with `/login` → Anthropic in OMP (Pi and OMP logins are separate).
+A stale update lock records its owner PID; check that process before removing it.
 
 ## Risk
 
-The reviewed pair is OMP **18.3.0** / Claude Code **2.1.280** (SDK 0.112.1). OMP and
+The reviewed pair is OMP **18.3.1** / Claude Code **2.1.280** (SDK 0.112.1). OMP and
 Anthropic can change this private wire contract at any time. This is not an
 Anthropic-supported integration, does not control which quota or billing bucket
 applies, and may conflict with Anthropic's terms; Pi's extra-usage warning stays on.
-It does not reproduce OMP's multi-account rotation or cache-decimation.
+It does not reproduce OMP's multi-account rotation, cache-decimation, subscription
+slow mode or fallback-credit redemption.
 
 Credentials are never logged or stored: the token lives in memory for at most 60 s.
 The route reuses OMP's non-secret `~/.omp/install-id`, falling back to a mode-600
@@ -78,5 +86,5 @@ Haiku 4.5; see [the Opus 5.5 plan](../../../../../docs/plans/completed/2026-09-2
 ## Source and licence
 
 Request shaping is adapted from
-[`can1357/oh-my-pi` v18.3.0](https://github.com/can1357/oh-my-pi/tree/62bc57be1b03ef0802a33cf7f5f530e534527531)
+[`can1357/oh-my-pi` v18.3.1](https://github.com/can1357/oh-my-pi/tree/6204b7508014bcdf12d95f0b3fd470905fd99344)
 (`packages/ai/src/providers/anthropic.ts` and `claude-code-fingerprint.ts`), MIT licensed.
