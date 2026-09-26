@@ -75,6 +75,33 @@
     "secrets list",
     "secrets describe",
     "secrets versions list",
-    "secrets versions describe"
+    "secrets versions describe",
+
+    "redis instances list",
+    "redis instances describe",
+    "redis clusters list",
+    "redis clusters describe",
+    "redis operations list",
+    "redis operations describe",
+    "redis regions list",
+
+    "memorystore instances list",
+    "memorystore instances describe",
+    "memorystore operations list",
+    "memorystore operations describe",
+    "memorystore locations list",
+
+    "compute networks list",
+    "compute networks describe",
+    "compute networks subnets list",
+    "compute networks subnets describe",
+    "compute networks peerings list",
+    "compute networks vpc-access connectors list",
+    "compute networks vpc-access connectors describe",
+    "compute networks vpc-access operations list",
+    "compute networks vpc-access operations describe",
+    "compute networks vpc-access locations list",
+
+    "logging read"
   ]
 }
