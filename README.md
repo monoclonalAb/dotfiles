@@ -517,12 +517,16 @@ invoked: `/discuss` (interview, then an implementation-ready summary), `/eli5 <t
 (a throwaway visual HTML explainer), `/domain-first [scope]`, `/test-sweep [scope]`
 and `/feedback [correction]`.
 
-**Claude via OMP.** With Claude OAuth selected, `omp-anthropic-route` checks the
-latest OMP release at startup/reload, upgrades the Homebrew `omp` only to the
-reviewed version, and sends one small synthetic request to the selected model
-(this uses quota). An unreviewed release or a failed check blocks the route rather
-than falling back. API keys, proxies and other providers are untouched.
-`/omp-anthropic-route` shows the cached status.
+**Claude via OMP.** The first direct Claude OAuth request after starting Pi or
+`/reload` automatically checks/updates Homebrew `omp` to the latest stable release,
+then sends one small synthetic request to verify the requested model (uses quota).
+Later requests reuse the check. CLI updates trust upstream binaries but permit only
+version/hash changes in a reviewed formula recipe; bridge code stays pinned.
+Formula changes or failed checks block instead of falling back. Startup, model
+selection and reload are passive; API keys, proxies and other providers are
+untouched. `/omp-anthropic-route` shows the cached status. See the
+[request preflight](pi/.pi/agent/extensions/omp-anthropic-route/README.md#request-preflight)
+for guards and recovery.
 
 ### MCP servers
 

@@ -1,10 +1,11 @@
 # OMP-style Anthropic route for Pi
 
 This global extension wraps Pi's native Anthropic provider so that **direct
-Anthropic OAuth** requests match the route used by Oh My Pi (OMP) v18.3.1. The
-access token comes from the logged-in OMP account (`omp token anthropic`); only the
-HTTPS `api.anthropic.com` origin uses it. API keys, proxies and other providers keep
-Pi's own credentials and transport.
+Anthropic OAuth** requests use a wire adapter reviewed against Oh My Pi (OMP)
+v18.3.1. The OMP CLI updates independently to the latest stable release; it supplies
+the logged-in account's access token (`omp token anthropic`), not the bridge code.
+Only the HTTPS `api.anthropic.com` origin uses it. API keys, proxies and other
+providers keep Pi's own credentials and transport.
 
 Pi keeps its model catalogue, tools, sessions and stream parser. At the HTTP
 boundary the route adds OMP's Claude Code shape:
@@ -22,35 +23,40 @@ boundary the route adds OMP's Claude Code shape:
 - removal of Pi's built-in `Pi documentation (read only...)` block, which Anthropic
   classifies as third-party traffic. Project and user instructions are kept.
 
-## Startup check
+## Request preflight
 
-With Claude OAuth selected, each new session or `/reload` (and the first later
-switch to Claude) runs:
+The **first direct Claude OAuth request** in each session/reloaded runtime runs:
 
 1. An unauthenticated HEAD request for the latest stable OMP release.
-2. A comparison with the reviewed OMP / Claude Code pair in [`transport.ts`](transport.ts).
-   An unknown release **blocks the route** until this extension is reviewed and
-   updated; bridge code is never downloaded.
-3. If the installed OMP is older, `brew upgrade can1357/tap/omp` under a
-   cross-process lock (`~/.local/state/pi-omp-update.lock`), after checking that the
-   tap is clean and the formula matches its reviewed SHA-256. No downgrades and no
-   other packages.
-4. One synthetic, tool-free request to the **selected model** (512 output tokens,
-   45 s, no retries) that must stream the expected reply from that model.
+2. If the installed OMP is older, `brew upgrade can1357/tap/omp` under a
+   cross-process lock (`~/.local/state/pi-omp-update.lock`). The tap must be clean,
+   have the expected upstream origin, and fast-forward successfully. Its formula
+   must match the exact reviewed recipe in [`omp-compat.ts`](omp-compat.ts), with
+   only the matching stable version and four binary SHA-256 values substituted.
+   URLs, install commands, dependencies and all other bytes cannot change.
+   Worktree/formula bytes are rechecked before Homebrew; the installed version is
+   rechecked afterwards. No downgrades, unrelated package upgrades or cleanup.
+3. Resolve the OMP OAuth credential, then send one synthetic, tool-free request to
+   the **requested model** (512 output tokens, 45 s, no retries). It must stream the
+   expected reply from that model before the real request is allowed through.
 
-Only then do real requests proceed. A failure blocks the route with a visible
-reason; there is no fallback to Pi's transport, another account or another model.
-Each model is probed at most once per runtime; `/reload` checks again. The probe
-uses real subscription quota but does not appear in conversation history or totals.
-`/omp-anthropic-route` shows the cached results without making requests.
+A newer CLI release alone no longer blocks Claude. The wire reference in
+[`transport.ts`](transport.ts) is **not a CLI version pin**. Neither the bridge
+source nor its Claude Code fingerprint updates automatically.
 
-To recover, fix the reported cause and `/reload`. `OMP <version> needs protocol
-review` refers to the latest upstream release, not necessarily your installed
-binary. Review the upstream provider/token changes and complete Homebrew formula,
-then update the version/checksum pins, tests and source reference together; do not
-bypass the check or only change the version string. The
-[18.3.1 review](../../../../../docs/plans/completed/2026-09-25-pi-omp-18-3-1-review.md)
-records this update. Reloading alone cannot approve a future release.
+Session startup, model selection, `/reload` and `/omp-anthropic-route` do not
+upgrade OMP or probe Claude themselves. The provider boundary guards both normal
+prompts and SDK/extension requests. The release/update result (including failures)
+is cached until reload, and each model is probed at most once per runtime. This
+avoids checks on every tool turn or changing OMP midway through a conversation.
+The probe uses subscription quota but does not enter conversation history/totals.
+
+To activate changed source, run `/reload`, then send a Claude prompt. Use
+`/omp-anthropic-route` to inspect the cached CLI and model-test status. An old
+`needs protocol review` version error means the previous runtime is still loaded.
+Formula changes still need source review; network, upgrade, credential and probe
+failures still block without a native/account/model fallback. Fix the reported
+cause, `/reload`, and send another prompt; failures do not automatically retry.
 
 `Could not resolve the logged-in OMP Anthropic credential` means `omp token`
 failed: log in with `/login` → Anthropic in OMP (Pi and OMP logins are separate).
@@ -58,9 +64,12 @@ A stale update lock records its owner PID; check that process before removing it
 
 ## Risk
 
-The reviewed pair is OMP **18.3.1** / Claude Code **2.1.280** (SDK 0.112.1). OMP and
-Anthropic can change this private wire contract at any time. This is not an
-Anthropic-supported integration, does not control which quota or billing bucket
+The wire reference is OMP **18.3.1** / Claude Code **2.1.280** (SDK 0.112.1).
+Automatic CLI updates trust upstream release binaries and checksums; those binaries
+are **not individually source-reviewed**. The recipe guard constrains installation,
+not the binary's behavior, and a successful probe is not a complete protocol or
+security audit. OMP and Anthropic can change this private wire contract at any time.
+This is not an Anthropic-supported integration, does not control which quota or billing bucket
 applies, and may conflict with Anthropic's terms; Pi's extra-usage warning stays on.
 It does not reproduce OMP's multi-account rotation, cache-decimation, subscription
 slow mode or fallback-credit redemption.
@@ -76,10 +85,12 @@ bun test ./pi/.pi/agent/extensions/omp-anthropic-route/*.test.ts
 node --test pi/.pi/agent/extensions/omp-anthropic-route/{native,runtime}.test.mjs
 ```
 
-The Bun suites cover transport, token, update/formula guards and a real
-cross-process lock. The Node suites load the extension through Stow-style links in a
-real Pi SDK session with fake OMP/Bun commands and synthetic responses: effort guard,
-tools, reloads, credential isolation and the startup check. None contact Anthropic.
+The Bun suites cover transport, token, future-release upgrades, exact formula
+recipe validation, downgrade/race guards and a real cross-process lock. The Node
+suites load the extension through Stow-style links in a real Pi SDK session with
+fake OMP/Homebrew/Git/Bun commands: lazy preflight, automatic upgrade, blocked
+formula drift, effort, tools, reloads and credential isolation. None upgrade the
+real CLI or contact Anthropic.
 Live checks on 2026-09-24 (Pi 0.87.1) passed for Opus 5.5, Fable 5, Sonnet 4.6 and
 Haiku 4.5; see [the Opus 5.5 plan](../../../../../docs/plans/completed/2026-09-24-pi-opus-5-5.md).
 

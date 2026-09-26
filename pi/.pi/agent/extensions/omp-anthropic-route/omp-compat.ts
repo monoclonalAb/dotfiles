@@ -11,11 +11,76 @@ const OMP_VERSION_RE = /(?:^|\b)omp[\s/]v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)
 export const LATEST_RELEASE_URL = "https://github.com/can1357/oh-my-pi/releases/latest";
 const TAP_ORIGIN = "https://github.com/can1357/homebrew-tap";
 
+// Reviewed recipe at tap fbffe294ac114d89b8c7c71c08594a7a4ade3535.
+// Only a stable release number and the four binary hashes may change without
+// another recipe review. Compare text, never eval Ruby or download bridge code.
+export const OMP_FORMULA_TEMPLATE = `class Omp < Formula
+  desc "Coding agent with the IDE wired in"
+  homepage "https://omp.sh"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/can1357/oh-my-pi/releases/download/v#{version}/omp-darwin-arm64",
+          using: :nounzip
+      sha256 "@SHA256@"
+    end
+    on_intel do
+      url "https://github.com/can1357/oh-my-pi/releases/download/v#{version}/omp-darwin-x64",
+          using: :nounzip
+      sha256 "@SHA256@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/can1357/oh-my-pi/releases/download/v#{version}/omp-linux-arm64",
+          using: :nounzip
+      sha256 "@SHA256@"
+    end
+    on_intel do
+      url "https://github.com/can1357/oh-my-pi/releases/download/v#{version}/omp-linux-x64",
+          using: :nounzip
+      sha256 "@SHA256@"
+    end
+  end
+
+  def install
+    bin.install Dir["omp-*"].first => "omp"
+    (bin/"omp").chmod 0555
+    with_env(HOME: buildpath) do
+      generate_completions_from_executable(bin/"omp", "completions", shells: [:bash, :zsh, :fish])
+    end
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/omp --version")
+  end
+end
+`;
+
+function stableVersionParts(version: string): number[] | undefined {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) return undefined;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : undefined;
+}
+
+export function validateOmpFormula(formula: string, version: string): void {
+  const versions = [...formula.matchAll(/^  version "(\d+\.\d+\.\d+)"$/gm)];
+  const hashes = [...formula.matchAll(/^      sha256 "[0-9a-f]{64}"$/gm)];
+  const normalized = formula.replace(/^  version "\d+\.\d+\.\d+"$/gm, '  version "@VERSION@"')
+    .replace(/^      sha256 "[0-9a-f]{64}"$/gm, '      sha256 "@SHA256@"');
+  if (!stableVersionParts(version) || versions.length !== 1 || versions[0][1] !== version ||
+      hashes.length !== 4 || normalized !== OMP_FORMULA_TEMPLATE) {
+    throw new Error("Latest OMP formula needs review or does not match the latest release; no formula was executed or binary upgraded.");
+  }
+}
+
 export type OmpCommandRunner = (executable: string, args: readonly string[], signal?: AbortSignal) => Promise<string>;
 export type UpdateLock = (operation: () => Promise<void>, signal?: AbortSignal) => Promise<void>;
 export interface OmpCompatibilityStatus {
   compatible: boolean;
-  targetVersion: string;
   latestVersion?: string;
   installedVersion?: string;
   updateAttempted: boolean;
@@ -48,7 +113,7 @@ export function parseOmpVersion(output: string): string | undefined {
 
 export function parseLatestRelease(output: string): string {
   const version = output.trim().match(/^https:\/\/github\.com\/can1357\/oh-my-pi\/releases\/tag\/v(\d+\.\d+\.\d+)$/)?.[1];
-  if (!version) throw new Error("Could not identify the latest stable OMP release; no upgrade or inference was attempted.");
+  if (!version || !stableVersionParts(version)) throw new Error("Could not identify the latest stable OMP release; no upgrade or inference was attempted.");
   return version;
 }
 
@@ -70,18 +135,20 @@ export async function withUpdateLock(directory: string, operation: () => Promise
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-/** One freshness check per extension runtime, including failures. Never interpret
- * a matching local pin as freshness or a newer binary as a reviewed protocol. */
+/** One CLI freshness check per runtime, including failures. This updates the
+ * token CLI, not the independently reviewed wire adapter. The caller must still
+ * probe the selected model before sending real traffic. */
 export class OmpCompatibilityResolver {
   private resolved: Promise<OmpCompatibilityStatus> | undefined;
   status: OmpCompatibilityStatus | undefined;
 
+  private readonly command: OmpCommandRunner;
+  private readonly lock: UpdateLock;
+
   constructor(
-    private readonly targetVersion: string,
-    private readonly formulaSha256: string,
-    private readonly command: OmpCommandRunner = runCommand,
-    private readonly lock: UpdateLock = (operation, signal) => withUpdateLock(join(homedir(), ".local/state/pi-omp-update.lock"), operation, signal),
-  ) {}
+    command: OmpCommandRunner = runCommand,
+    lock: UpdateLock = (operation, signal) => withUpdateLock(join(homedir(), ".local/state/pi-omp-update.lock"), operation, signal),
+  ) { this.command = command; this.lock = lock; }
 
   resolve(signal?: AbortSignal): Promise<OmpCompatibilityStatus> {
     this.resolved ??= this.check(signal);
@@ -93,7 +160,7 @@ export class OmpCompatibilityResolver {
   }
 
   private async check(signal?: AbortSignal): Promise<OmpCompatibilityStatus> {
-    const status: OmpCompatibilityStatus = { compatible: false, targetVersion: this.targetVersion, updateAttempted: false };
+    const status: OmpCompatibilityStatus = { compatible: false, updateAttempted: false };
     this.status = status;
     try {
       signal?.throwIfAborted();
@@ -101,22 +168,19 @@ export class OmpCompatibilityResolver {
       // a canonical release URL is accepted; redirect text is never executable.
       status.latestVersion = parseLatestRelease(await this.command("curl", ["--fail", "--silent", "--show-error", "--head", "--location",
         "--proto", "=https", "--proto-redir", "=https", "--max-time", "20", "--output", "/dev/null", "--write-out", "%{url_effective}", LATEST_RELEASE_URL], signal));
-      if (status.latestVersion !== this.targetVersion) {
-        throw new Error(`OMP ${status.latestVersion} needs protocol review; this bridge supports ${this.targetVersion}. Update the reviewed bridge source, then /reload. No upgrade was attempted.`);
-      }
+      const targetVersion = status.latestVersion;
       status.installedVersion = await this.installedVersion(signal);
-      if (!status.installedVersion) throw new Error("OMP is missing or returned an unrecognized version; install the reviewed OMP before retrying.");
-      if (status.installedVersion !== this.targetVersion) {
-        const parts = (version: string) => version.split(".").map(Number);
-        const installed = parts(status.installedVersion), target = parts(this.targetVersion);
-        const difference = installed.map((v, i) => v - target[i]).find(v => v !== 0);
-        if (difference === undefined || !Number.isFinite(difference) || difference > 0) {
+      if (!status.installedVersion) throw new Error("OMP is missing or returned an unrecognized version; install OMP with Homebrew before retrying.");
+      if (status.installedVersion !== targetVersion) {
+        const installed = stableVersionParts(status.installedVersion), target = stableVersionParts(targetVersion)!;
+        const difference = installed?.map((v, i) => v - target[i]).find(v => v !== 0);
+        if (!installed || difference === undefined || difference > 0) {
           throw new Error("Installed OMP is newer or non-stable; automatic downgrade is disabled.");
         }
         await this.lock(async () => {
-          // Another Pi startup may have completed this upgrade while we waited.
+          // Another Pi request may have completed this upgrade while we waited.
           status.installedVersion = await this.installedVersion(signal);
-          if (status.installedVersion === this.targetVersion) return;
+          if (status.installedVersion === targetVersion) return;
           if (status.installedVersion !== installed.join(".")) throw new Error("OMP changed while waiting for the update lock; /reload to recheck.");
           const tap = (await this.command("brew", ["--repository", "can1357/tap"], signal)).trim();
           if (!tap.startsWith("/") || /[\r\n]/.test(tap)) throw new Error("Homebrew returned an invalid OMP tap directory.");
@@ -128,14 +192,15 @@ export class OmpCompatibilityResolver {
           if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error("Invalid OMP tap revision.");
           const hash = (text: string) => createHash("sha256").update(text).digest("hex");
           const candidate = await git(["show", `${revision}:Formula/omp.rb`]);
-          if (hash(candidate) !== this.formulaSha256) throw new Error("Latest OMP formula needs review; no formula was executed or binary upgraded.");
+          validateOmpFormula(candidate, targetVersion);
+          const candidateHash = hash(candidate);
           await git(["merge", "--ff-only", "--quiet", revision]);
           // Check actual worktree bytes too: git status alone can miss an
           // assume-unchanged file. The expected blob derives from the already
-          // SHA-256-reviewed candidate; disable clean filters on the local hash.
+          // recipe-validated candidate; disable clean filters on the local hash.
           const reviewedBlob = createHash("sha1").update(`blob ${Buffer.byteLength(candidate)}\0`).update(candidate).digest("hex");
           const workingBlob = (await git(["hash-object", "--no-filters", "--", "Formula/omp.rb"])).trim();
-          if (workingBlob !== reviewedBlob || hash(await git(["show", "HEAD:Formula/omp.rb"])) !== this.formulaSha256 || (await git(["status", "--porcelain"])).trim()) {
+          if (workingBlob !== reviewedBlob || hash(await git(["show", "HEAD:Formula/omp.rb"])) !== candidateHash || (await git(["status", "--porcelain"])).trim()) {
             throw new Error("OMP tap changed during update; refusing to run Homebrew.");
           }
           status.updateAttempted = true;
@@ -143,10 +208,10 @@ export class OmpCompatibilityResolver {
           status.installedVersion = await this.installedVersion(signal);
         }, signal);
       }
-      if (status.installedVersion !== this.targetVersion) throw new Error("OMP upgrade did not install the reviewed version; inference remains blocked.");
+      if (status.installedVersion !== targetVersion) throw new Error("OMP upgrade did not install the latest stable version; inference remains blocked.");
       status.compatible = true;
     } catch (error) {
-      status.error = error instanceof Error ? error.message.split(/\r?\n/, 1)[0].slice(0, 500) : "OMP startup check failed";
+      status.error = error instanceof Error ? error.message.split(/\r?\n/, 1)[0].slice(0, 500) : "OMP preflight failed";
     }
     return status;
   }

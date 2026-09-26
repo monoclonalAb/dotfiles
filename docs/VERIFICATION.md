@@ -105,7 +105,7 @@ and side effects first; use them when the affected live path is in scope.
 | Neovim | `nvim --headless '+qa'`, then `nvim +checkhealth` when appropriate | Startup can bootstrap/download plugins and language tools; only run against a reviewed, provisioned environment |
 | Workspace Context MCP | `bin/.local/bin/workspace-context-mcp doctor`, then `call <tool> '<json>'` | Reads the real workspace roots; no writes or network |
 | Pi MCP registration | `/reload`, then `/mcp` in Pi | Do not run `pi-mcp-adapter init` without `--dry-run`: it writes into the repository-owned `~/.pi/agent/mcp.json` |
-| Pi extension loading | Fresh Pi session and the affected command/UI | Startup hooks run, including the [Anthropic route's OMP update check and model probe](../pi/.pi/agent/extensions/omp-anthropic-route/README.md#startup-check), which uses quota |
+| Pi extension loading | Fresh Pi session and the affected command/UI | Startup hooks run. The [Anthropic route's OMP update check and model probe](../pi/.pi/agent/extensions/omp-anthropic-route/README.md#request-preflight) wait for the first direct Claude OAuth request (including SDK/extension requests), which may upgrade OMP and uses probe quota |
 | Patched Herdr binary | `install-herdr-focus --build-only <temporary-output-path>`, then `HERDR_CONFIG_PATH=<staged config> <binary> config check` | Network/toolchain build plus the patch's tests; does not replace the installed binary. `--version` must include `dotfiles.<patch-hash>` |
 
 Do not restart a live Herdr server, reload another agent conversation, or run

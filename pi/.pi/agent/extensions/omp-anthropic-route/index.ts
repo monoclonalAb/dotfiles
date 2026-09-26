@@ -13,7 +13,7 @@ import { OmpCompatibilityResolver } from "./omp-compat.ts";
 import { OmpAnthropicTokenResolver } from "./omp-token.ts";
 import {
   AnthropicIdentityResolver, CLAUDE_CODE_VERSION, createOmpAnthropicFetch,
-  loadOrCreateInstallId, OMP_TARGET_VERSION, OMP_FORMULA_SHA256, readInstallId,
+  loadOrCreateInstallId, OMP_PROTOCOL_REVIEW_VERSION, readInstallId,
 } from "./transport.ts";
 
 const STATUS_COMMAND = "omp-anthropic-route";
@@ -46,7 +46,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
   const installId = readInstallId(join(homedir(), ".omp", "install-id")) ??
     loadOrCreateInstallId(join(getAgentDir(), "omp-anthropic-route", "install-id"));
   const identityResolver = new AnthropicIdentityResolver();
-  const compatibilityResolver = new OmpCompatibilityResolver(OMP_TARGET_VERSION, OMP_FORMULA_SHA256);
+  const compatibilityResolver = new OmpCompatibilityResolver();
   const tokenResolver = new OmpAnthropicTokenResolver();
   const bunFetch = createBunFetch(fileURLToPath(new URL("./bun-fetch-bridge.ts", import.meta.url)));
   const lifetime = new AbortController();
@@ -54,6 +54,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
   const eligibleModels = new Set<string>();
   let verifiedCredential: string | undefined;
   let upstream: Provider | undefined;
+  let ui: ExtensionContext["ui"] | undefined;
 
   function routeOptions<T extends ProviderStreamOptions | SimpleStreamOptions>(model: Model<Api>, context: TranscriptContext, options: T): T {
     return { ...options, fetch: createOmpAnthropicFetch(options.fetch ?? bunFetch, {
@@ -65,16 +66,19 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
   async function ensureReady(model: Model<"anthropic-messages">, callerSignal?: AbortSignal): Promise<string> {
     const signal = callerSignal ? AbortSignal.any([lifetime.signal, callerSignal]) : lifetime.signal;
     signal.throwIfAborted();
+    eligibleModels.add(modelKey(model));
+    if (!compatibilityResolver.status) ui?.notify("Claude preflight: checking latest stable OMP (may upgrade Homebrew omp).", "info");
     const compatibility = await compatibilityResolver.resolve(signal);
-    if (!compatibility.compatible) throw new Error(`Claude startup blocked: ${compatibility.error ?? "OMP compatibility check failed"}`);
+    if (!compatibility.compatible) throw new Error(`Claude preflight blocked: ${compatibility.error ?? "OMP update check failed"}. Fix the cause, then /reload.`);
     const apiKey = await tokenResolver.resolve(signal);
     const credential = createHash("sha256").update(apiKey).digest("hex"); // memory only
-    if (verifiedCredential && verifiedCredential !== credential) throw new Error("OMP credential changed since the startup test; /reload to verify it. No automatic account fallback.");
+    if (verifiedCredential && verifiedCredential !== credential) throw new Error("OMP credential changed since the preflight test; /reload to verify it. No automatic account fallback.");
     verifiedCredential = credential;
     const key = modelKey(model);
     let probe = probes.get(key);
-    if (probe && probe.credential !== credential) throw new Error("OMP credential changed since the startup test; /reload to verify it. No automatic account fallback.");
+    if (probe && probe.credential !== credential) throw new Error("OMP credential changed since the preflight test; /reload to verify it. No automatic account fallback.");
     if (!probe) {
+      ui?.notify(`Claude preflight: verifying ${model.id} (one synthetic request, ≤${PROBE_MAX_TOKENS} output tokens; uses quota).`, "info");
       probe = { state: "checking", credential, promise: Promise.resolve() };
       probes.set(key, probe);
       const current = probe;
@@ -85,8 +89,8 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
           let messageRequests = 0;
           const limitedFetch: typeof fetch = (input, init) => {
             const url = new URL(input instanceof Request ? input.url : String(input));
-            if (url.origin !== "https://api.anthropic.com") throw new Error("Startup probe destination was not Anthropic");
-            if (url.pathname === "/v1/messages" && ++messageRequests > 1) throw new Error("Startup probe request budget exceeded");
+            if (url.origin !== "https://api.anthropic.com") throw new Error("Preflight probe destination was not Anthropic");
+            if (url.pathname === "/v1/messages" && ++messageRequests > 1) throw new Error("Preflight probe request budget exceeded");
             return bunFetch(input, init);
           };
           if (!upstream) throw new Error("Anthropic provider is unavailable");
@@ -98,21 +102,22 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
           let streamed = false;
           for await (const event of stream) if (event.type === "text_delta") streamed = true;
           const result = await stream.result();
-          if (result.stopReason !== "stop") throw new Error(result.errorMessage ?? `Startup probe stopped with ${result.stopReason}`);
+          if (result.stopReason !== "stop") throw new Error(result.errorMessage ?? `Preflight probe stopped with ${result.stopReason}`);
           const served = result.responseModel ?? result.model;
           // Anthropic's 'latest' aliases may resolve to a dated snapshot, never
           // a different model family. Opus 5.5 must remain Opus 5.5.
           const datedAlias = served.startsWith(`${model.id}-`) && /^\d{8}$/.test(served.slice(model.id.length + 1));
-          if (!result.responseId || (served !== model.id && !datedAlias)) throw new Error("Startup probe did not confirm the selected served model");
+          if (!result.responseId || (served !== model.id && !datedAlias)) throw new Error("Preflight probe did not confirm the selected served model");
           const text = result.content.filter(block => block.type === "text").map(block => block.text).join("").trim();
-          if (!streamed || text !== PROBE_REPLY || messageRequests !== 1) throw new Error("Startup probe reply/stream assertions failed");
+          if (!streamed || text !== PROBE_REPLY || messageRequests !== 1) throw new Error("Preflight probe reply/stream assertions failed");
           current.servedModel = served;
           current.outputTokens = result.usage.output;
           current.state = "passed";
+          ui?.notify(`Claude preflight passed: ${model.id}; OMP CLI ${compatibility.installedVersion} / Claude Code ${CLAUDE_CODE_VERSION}.`, "info");
         } catch (error) {
           current.state = "failed";
           current.error = safeError(error);
-          throw new Error(`Claude startup test failed for ${model.id}: ${current.error}. Fix the cause, then /reload; no automatic retry or native fallback.`);
+          throw new Error(`Claude preflight test failed for ${model.id}: ${current.error}. Fix the cause, then /reload; no automatic retry or native fallback.`);
         }
       })();
     }
@@ -153,44 +158,29 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
     return upstream && ctx.model && isDirectAnthropicModel(ctx.model) &&
       (eligibleModels.has(modelKey(ctx.model)) || ctx.modelRegistry.isUsingOAuth(ctx.model)) ? ctx.model : undefined;
   }
-  async function start(ctx: ExtensionContext): Promise<void> {
-    if (!upstream || !ctx.model || !isDirectAnthropicModel(ctx.model)) return;
-    try {
-      // isUsingOAuth is a synchronous availability snapshot. Immediately after
-      // provider registration it can still be stale; resolve selected auth, not
-      // every stored account, before deciding whether startup should run.
-      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-      if (!auth.ok || !auth.apiKey?.includes("sk-ant-oat")) return;
-      const model = auth.baseUrl ? { ...ctx.model, baseUrl: auth.baseUrl } : ctx.model;
-      if (!isDirectAnthropicModel(model)) return;
-      eligibleModels.add(modelKey(model));
-      if (probes.has(modelKey(model))) return;
-      ctx.ui.notify(`Claude startup: checking reviewed OMP/bridge updates and ${model.id} (one synthetic request, ≤${PROBE_MAX_TOKENS} output tokens).`, "info");
-      await ensureReady(model, ctx.signal);
-      ctx.ui.notify(`Claude startup passed: ${model.id}; OMP ${OMP_TARGET_VERSION} / Claude Code ${CLAUDE_CODE_VERSION}.`, "info");
-    } catch (error) { ctx.ui.notify(safeError(error), "warning"); }
-  }
-  pi.on("session_start", async (_event, ctx) => { registerRoute(ctx); await start(ctx); });
-  pi.on("model_select", async (_event, ctx) => { await start(ctx); });
+  // Merely selecting Claude or reloading is passive. The provider boundary owns
+  // updates/probes, so CLI, SDK and extension requests get the same guard.
+  pi.on("session_start", (_event, ctx) => { ui = ctx.ui; registerRoute(ctx); });
   pi.on("session_shutdown", async () => { lifetime.abort(); });
 
   pi.registerCommand(STATUS_COMMAND, {
-    description: "Show recurring Claude startup check and live probe results (no new work)",
+    description: "Show Claude request preflight and live probe results (no new work)",
     handler: async (_args, ctx) => {
       const model = selected(ctx);
       const compatibility = compatibilityResolver.status;
       const probe = model ? probes.get(modelKey(model)) : undefined;
-      const state = !model ? "standby" : probe?.state === "passed" ? "active (startup verified)" : "blocked / not verified";
+      const state = !model ? "standby" : probe?.state === "passed" ? "active (verified)"
+        : compatibility?.error || probe?.state === "failed" ? "blocked" : "pending (first Claude request)";
       ctx.ui.notify([
         `OMP-style Anthropic route: ${state}`,
-        `Reviewed pair: OMP ${OMP_TARGET_VERSION} / Claude Code ${CLAUDE_CODE_VERSION}`,
+        `Wire reference: OMP ${OMP_PROTOCOL_REVIEW_VERSION} / Claude Code ${CLAUDE_CODE_VERSION} (not a CLI version pin)`,
         `Latest OMP release: ${compatibility?.latestVersion ?? "not checked"}; installed: ${compatibility?.installedVersion ?? "not checked"}`,
         `OMP upgrade: ${compatibility?.updateAttempted ? "attempted" : "not needed / not attempted"}`,
         `Live model test: ${probe?.state ?? "not run"}${probe?.servedModel ? `; served ${probe.servedModel}; ${probe.outputTokens} output tokens` : ""}`,
         ...(compatibility?.error ? [compatibility.error] : []),
         ...(probe?.error ? [probe.error] : []),
-        "Policy: check each Claude startup/reload and first later model selection; reviewed updates only, one bounded probe per model/runtime, no native fallback on failure.",
-        "This command does not update, resolve credentials or send a test. /reload starts a fresh check (and may use quota).",
+        "Policy: first direct Claude OAuth request checks/updates OMP to latest stable using the reviewed formula recipe; wire code stays pinned. One bounded probe per model/runtime; no fallback on failure.",
+        "This command does not update, resolve credentials or send a test. /reload resets the check; the next Claude request performs it (and may use quota).",
       ].join("\n"), model && probe?.state !== "passed" ? "warning" : "info");
     },
   });

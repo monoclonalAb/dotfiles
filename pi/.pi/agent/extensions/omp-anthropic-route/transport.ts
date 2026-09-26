@@ -11,11 +11,10 @@ import { dirname } from "node:path";
  * layer only aligns the OAuth request/response wire shape with OMP.
  */
 
-// Advance this reviewed pair together; startup never rewrites source or adopts
-// arbitrary versions from server error text. Hash covers the entire tap formula
-// at can1357/homebrew-tap 3800fac5e05d97052db14185ce66f27988177251.
-export const OMP_TARGET_VERSION = "18.3.1";
-export const OMP_FORMULA_SHA256 = "9e6a172019ad0f9b2ab7089e3c43b21692dfb2f6fef23478ce6108ebcbbf8ba6";
+// Wire reference, not an installed CLI version requirement. OMP supplies tokens;
+// its guarded updater never rewrites this adapter or adopts server-suggested
+// fingerprints. Changes to the wire profile still need source review.
+export const OMP_PROTOCOL_REVIEW_VERSION = "18.3.1";
 export const CLAUDE_CODE_VERSION = "2.1.280";
 export const CLAUDE_CODE_SDK_VERSION = "0.112.1";
 export const CLAUDE_CODE_SYSTEM_INSTRUCTION =

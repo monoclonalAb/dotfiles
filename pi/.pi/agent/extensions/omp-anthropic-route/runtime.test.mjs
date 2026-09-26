@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { OMP_FORMULA_TEMPLATE } from "./omp-compat.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,8 +24,15 @@ const modeFile = join(root, "mode");
 const releaseFile = join(root, "latest");
 const releaseLog = join(root, "release-checks.jsonl");
 const probeModeFile = join(root, "probe-mode");
+const installedFile = join(root, "installed");
+const formulaFile = join(root, "formula");
+const updateLog = join(root, "updates.jsonl");
+const currentVersion = "18.3.2";
+const formula = OMP_FORMULA_TEMPLATE.replace("@VERSION@", currentVersion).replaceAll("@SHA256@", "a".repeat(64));
 writeFileSync(modeFile, "text");
-writeFileSync(releaseFile, "18.3.1");
+writeFileSync(releaseFile, currentVersion);
+writeFileSync(installedFile, currentVersion);
+writeFileSync(formulaFile, formula);
 writeFileSync(probeModeFile, "pass");
 function lines(path) {
   try { return readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse); }
@@ -36,12 +45,30 @@ executable("omp", `
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify(args) + '\\n');
-if (args[0] === '--version') console.log('omp/18.3.1');
+if (args[0] === '--version') console.log('omp/' + fs.readFileSync(${JSON.stringify(installedFile)}, 'utf8'));
 else if (args.join(' ') === 'token anthropic') console.log('sk-ant-oat-synthetic-omp');
 else process.exitCode = 99;
 `);
-executable("brew", "throw new Error('A matching fixture must never attempt an upgrade');");
-executable("git", "throw new Error('A matching fixture must never alter a tap');");
+executable("brew", `
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(updateLog)}, JSON.stringify(['brew', ...args]) + '\\n');
+if (args.join(' ') === '--repository can1357/tap') console.log(${JSON.stringify(join(root, 'tap'))});
+else if (args.join(' ') === 'upgrade can1357/tap/omp') fs.writeFileSync(${JSON.stringify(installedFile)}, fs.readFileSync(${JSON.stringify(releaseFile)}));
+else throw new Error('Unexpected brew command');
+`);
+executable("git", `
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const args = process.argv.slice(4);
+fs.appendFileSync(${JSON.stringify(updateLog)}, JSON.stringify(['git', ...args]) + '\\n');
+const formula = fs.readFileSync(${JSON.stringify(formulaFile)}, 'utf8');
+if (args[0] === 'remote') console.log('https://github.com/can1357/homebrew-tap');
+else if (args[0] === 'rev-parse') console.log('a'.repeat(40));
+else if (args[0] === 'show') process.stdout.write(formula);
+else if (args[0] === 'hash-object') console.log(crypto.createHash('sha1').update('blob ' + Buffer.byteLength(formula) + '\\0').update(formula).digest('hex'));
+else if (!['status', 'fetch', 'merge'].includes(args[0])) throw new Error('Unexpected git command');
+`);
 executable("curl", `
 const fs = require('node:fs');
 fs.appendFileSync(${JSON.stringify(releaseLog)}, JSON.stringify(process.argv.slice(2)) + '\\n');
@@ -183,14 +210,21 @@ test("native Pi loads the linked route, executes tools, changes tools/thinking, 
   } finally { await f.close(); }
 });
 
-test("Opus 5.5 startup verifies once; status is passive, subsequent requests reuse the check, reload rechecks", async () => {
+test("first Opus request verifies once; startup/status/reload are passive and later requests reuse the check", async () => {
   const requestsBefore = lines(requestLog).length, releasesBefore = lines(releaseLog).length;
   const f = await fixture({ id: "claude-opus-5-5" });
   try {
     assert.equal(f.model.id, "claude-opus-5-5");
+    const commandsBefore = lines(commandLog).length;
+    await f.session.prompt("/omp-anthropic-route");
+    assert.equal(lines(commandLog).length, commandsBefore);
+    assert.equal(lines(releaseLog).length, releasesBefore);
+    assert.equal(lines(requestLog).length, requestsBefore);
+    await f.session.prompt("User request");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
     assert.equal(lines(releaseLog).length, releasesBefore + 1);
-    assert.equal(lines(requestLog).length, requestsBefore + 1);
-    const probe = lines(requestLog).at(-1);
+    assert.equal(lines(requestLog).length, requestsBefore + 2);
+    const probe = lines(requestLog)[requestsBefore];
     assert.equal(probe.body.model, f.model.id);
     assert.equal(probe.body.max_tokens, 512);
     assert.equal(probe.body.tools.length, 0);
@@ -198,55 +232,85 @@ test("Opus 5.5 startup verifies once; status is passive, subsequent requests reu
     assert.match(probe.headers['user-agent'], /2\.1\.280/);
     assert.match(probe.body.system[0].text, /cc_version=2\.1\.280\./);
     assert.doesNotMatch(JSON.stringify(probe.body), /Synthetic fixture only|synthetic tool result/);
-    assert.deepEqual(f.session.messages, [], "probe must not enter the conversation");
+    assert.doesNotMatch(JSON.stringify(f.session.messages), /PI_ROUTE_OK/, "probe must not enter the conversation");
+    const messagesBeforeStatus = structuredClone(f.session.messages);
     const commandsBeforeStatus = lines(commandLog).length;
     for (let invocation = 0; invocation < 2; invocation++) {
       await f.session.prompt("/omp-anthropic-route");
       const notice = f.notices.at(-1);
       assert.equal(notice.type, "info");
-      assert.match(notice.message, /active \(startup verified\)/);
+      assert.match(notice.message, /active \(verified\)/);
       assert.match(notice.message, /Live model test: passed; served claude-opus-5-5/);
-      assert.match(notice.message, /Reviewed pair: OMP 18\.3\.1 \/ Claude Code 2\.1\.280/);
-      assert.match(notice.message, /Latest OMP release: 18\.3\.1/);
+      assert.match(notice.message, /Wire reference: OMP 18\.3\.1 \/ Claude Code 2\.1\.280 \(not a CLI version pin\)/);
+      assert.match(notice.message, /Latest OMP release: 18\.3\.2/);
     }
     assert.equal(lines(commandLog).length, commandsBeforeStatus);
-    assert.equal(lines(requestLog).length, requestsBefore + 1);
-    assert.deepEqual(f.session.messages, []);
-    await f.session.prompt("User request");
-    assert.equal(f.session.messages.at(-1).stopReason, "stop");
     assert.equal(lines(requestLog).length, requestsBefore + 2);
-    await f.session.reload();
-    assert.equal(lines(releaseLog).length, releasesBefore + 2);
+    assert.deepEqual(f.session.messages, messagesBeforeStatus);
+    await f.session.prompt("Another user request");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop");
     assert.equal(lines(requestLog).length, requestsBefore + 3);
+    await f.session.reload();
+    assert.equal(lines(releaseLog).length, releasesBefore + 1);
+    assert.equal(lines(requestLog).length, requestsBefore + 3);
+    await f.session.prompt("After reload");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop");
+    assert.equal(lines(releaseLog).length, releasesBefore + 2);
+    assert.equal(lines(requestLog).length, requestsBefore + 5);
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });
 
-for (const mode of ["reject", "wrong-model", "bad-reply"]) test(`failed startup ${mode} blocks user inference without retry/fallback`, async () => {
+for (const mode of ["reject", "wrong-model", "bad-reply"]) test(`failed preflight ${mode} blocks user inference without retry/fallback`, async () => {
   writeFileSync(probeModeFile, mode);
   const before = lines(requestLog).length;
   const f = await fixture({ id: "claude-opus-5-5" });
   try {
-    assert.match(f.notices.at(-1).message, /startup test failed/);
-    assert.equal(lines(requestLog).length, before + 1);
+    assert.equal(lines(requestLog).length, before);
     await f.session.prompt("Do not send this after a failed preflight");
     assert.equal(f.session.messages.at(-1).stopReason, "error");
-    assert.match(f.session.messages.at(-1).errorMessage, /startup test failed/);
+    assert.match(f.session.messages.at(-1).errorMessage, /preflight test failed/);
+    assert.equal(lines(requestLog).length, before + 1);
+    await f.session.prompt("Still blocked without another probe");
+    assert.equal(f.session.messages.at(-1).stopReason, "error");
     assert.equal(lines(requestLog).length, before + 1);
   } finally { await f.close(); writeFileSync(probeModeFile, "pass"); }
 });
 
-test("unreviewed latest release blocks before token lookup or model requests even with matching local pins", async () => {
-  writeFileSync(releaseFile, "18.3.2");
-  const before = lines(requestLog).length, commandsBefore = lines(commandLog).length;
+test("first Claude prompt auto-upgrades a newer stable CLI before probing; wire source stays unchanged", async () => {
+  writeFileSync(installedFile, "18.3.1");
+  const sourceHash = () => createHash("sha256").update(readFileSync(join(source, "transport.ts"))).digest("hex");
+  const originalHash = sourceHash();
+  const before = lines(requestLog).length, updatesBefore = lines(updateLog).length;
   const f = await fixture();
   try {
-    assert.match(f.notices.at(-1).message, /needs protocol review/);
+    assert.equal(lines(updateLog).length, updatesBefore, "startup must not upgrade");
+    await f.session.prompt("Prompt after an upstream release");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+    assert.equal(readFileSync(installedFile, "utf8"), currentVersion);
+    assert.deepEqual(lines(updateLog).slice(updatesBefore).filter(args => args[0] === "brew"), [
+      ["brew", "--repository", "can1357/tap"], ["brew", "upgrade", "can1357/tap/omp"],
+    ]);
+    assert.equal(lines(requestLog).length, before + 2);
+    assert.match(JSON.stringify(lines(requestLog)[before].body.messages), /PI_ROUTE_OK/);
+    assert.doesNotMatch(JSON.stringify(lines(requestLog)[before + 1].body.messages), /PI_ROUTE_OK/);
+    assert.equal(sourceHash(), originalHash);
+  } finally { await f.close(); writeFileSync(installedFile, currentVersion); }
+});
+
+test("new release with changed formula blocks before token lookup, upgrade or model requests", async () => {
+  writeFileSync(installedFile, "18.3.1");
+  writeFileSync(formulaFile, formula + "system 'unreviewed'\\n");
+  const before = lines(requestLog).length, commandsBefore = lines(commandLog).length, updatesBefore = lines(updateLog).length;
+  const f = await fixture();
+  try {
     await f.session.prompt("Must not reach Anthropic");
     assert.equal(f.session.messages.at(-1).stopReason, "error");
+    assert.match(f.session.messages.at(-1).errorMessage, /formula needs review/);
     assert.equal(lines(requestLog).length, before);
-    assert.equal(lines(commandLog).length, commandsBefore);
-  } finally { await f.close(); writeFileSync(releaseFile, "18.3.1"); }
+    assert.ok(!lines(commandLog).slice(commandsBefore).some(args => args[0] === "token"));
+    assert.ok(!lines(updateLog).slice(updatesBefore).some(args => args[1] === "upgrade" || args[1] === "merge"));
+  } finally { await f.close(); writeFileSync(installedFile, currentVersion); writeFileSync(formulaFile, formula); }
 });
 
 for (const options of [{ apiKey: true }, { baseUrl: "https://proxy.invalid" }, { baseUrl: "http://api.anthropic.com" }, { otherProvider: true }]) {
@@ -263,16 +327,55 @@ for (const options of [{ apiKey: true }, { baseUrl: "https://proxy.invalid" }, {
   });
 }
 
-test("selecting Claude later triggers one preflight and returning to it does not retest", async () => {
+test("selecting Claude later is passive; its first prompt probes and returning to it does not retest", async () => {
   const f = await fixture({ otherProvider: true });
   const before = lines(requestLog).length;
   try {
     const opus = f.models.getModel("anthropic", "claude-opus-5-5");
     await f.session.setModel(opus);
-    assert.equal(lines(requestLog).length, before + 1);
+    assert.equal(lines(requestLog).length, before);
+    await f.session.prompt("First Claude prompt");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop");
+    assert.equal(lines(requestLog).length, before + 2);
     await f.session.setModel(f.model);
     await f.session.setModel(opus);
-    assert.equal(lines(requestLog).length, before + 1);
+    assert.equal(lines(requestLog).length, before + 2);
+    await f.session.prompt("Back to Claude");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop");
+    assert.equal(lines(requestLog).length, before + 3);
+  } finally { await f.close(); }
+});
+
+test("concurrent first requests share one release check and same-model probe", async () => {
+  const requestsBefore = lines(requestLog).length, releasesBefore = lines(releaseLog).length;
+  const f = await fixture();
+  try {
+    const results = await Promise.all(["First", "Second"].map(content => f.models.completeSimple(f.model, {
+      messages: [{ role: "user", content, timestamp: 0 }],
+    }, { maxTokens: 512, maxRetries: 0 })));
+    for (const result of results) assert.equal(result.stopReason, "stop", result.errorMessage);
+    assert.equal(lines(releaseLog).length, releasesBefore + 1);
+    const requests = lines(requestLog).slice(requestsBefore);
+    assert.equal(requests.length, 3);
+    assert.equal(requests.filter(r => JSON.stringify(r.body.messages).includes("PI_ROUTE_OK")).length, 1);
+  } finally { await f.close(); }
+});
+
+test("an already-aborted first request does not update, resolve OMP tokens or probe", async () => {
+  const commandsBefore = lines(commandLog).length, requestsBefore = lines(requestLog).length, releasesBefore = lines(releaseLog).length;
+  const f = await fixture();
+  try {
+    const controller = new AbortController(); controller.abort();
+    const result = await f.models.completeSimple(f.model, {
+      messages: [{ role: "user", content: "Cancelled", timestamp: 0 }],
+    }, { signal: controller.signal, maxTokens: 512, maxRetries: 0 });
+    assert.notEqual(result.stopReason, "stop");
+    assert.equal(lines(commandLog).length, commandsBefore);
+    assert.equal(lines(requestLog).length, requestsBefore);
+    assert.equal(lines(releaseLog).length, releasesBefore);
+    await f.session.prompt("Uncancelled first request");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop");
+    assert.equal(lines(requestLog).length, requestsBefore + 2);
   } finally { await f.close(); }
 });
 
