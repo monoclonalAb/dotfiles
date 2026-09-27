@@ -247,7 +247,8 @@ them Herdr guesses from screen text. After `herdr integration install …`, `/re
 idle sessions. The next-agent plugin keeps a per-pane ledger shown as `◐` working,
 `◆` blocked/needs input, `●` finished but unreviewed and `○` idle/reviewed. Focusing
 a pane (hotkey, click, or pane body) marks it reviewed; split siblings keep their own
-state. It also sounds the active-tab OMP prompts Herdr's own toasts skip. Its settings
+state. The focused conversation counts as reviewed even if it finishes while the
+terminal is in the background (the macOS notification still fires). It also sounds the active-tab OMP prompts Herdr's own toasts skip. Its settings
 live in `~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
 Conversation rows use OMP's terminal title, or for Pi the
 [`herdr-task-summary`](pi/.pi/agent/extensions/herdr-task-summary/summary.ts) token: a

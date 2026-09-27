@@ -134,12 +134,16 @@ def apply_observation(entry, status, focused, seq, terminal_id):
 
 
 def attention_bucket(status, entry):
-    """Priority bucket for a live agent, or None when it needs no attention."""
+    """Priority bucket for a live agent, or None when it needs no attention.
+
+    A completion needs review only while the ledger holds it unread. Herdr reports the focused
+    pane's completion as `done` when the terminal app is unfocused, then downgrades it to `idle`
+    on return without any event, and clicking the already-focused row emits no pane.focused.
+    Trusting the raw `done` would therefore pin a review dot to the pane in front of you.
+    """
     if status == "blocked":
         return "blocked"
-    if status == "done":
-        return "done"
-    if status in ("idle", "unknown") and entry.get("unread") is True:
+    if status in ("done", "idle", "unknown") and entry.get("unread") is True:
         return entry.get("raised_as") or "done"
     return None
 
@@ -414,20 +418,15 @@ def handle_pane_focused():
         return
 
     def seen(entries):
-        entry = entries.get(pane_id)
-        before = (
-            dot_kind(status, attention_bucket(status, normalise_entry(entry, terminal_id)))
-            if entry
-            else None
-        )
-        updated = apply_observation(entry, status, True, seq, terminal_id)
+        updated = apply_observation(entries.get(pane_id), status, True, seq, terminal_id)
         entries[pane_id] = updated
-        return before, attention_bucket(status, updated)
+        return attention_bucket(status, updated)
 
-    before, bucket = mutate_attention(seen)
-    if before != dot_kind(status, bucket):
-        report_dot(pane_id, status, bucket)
-    print(f"focus {pane_id} status={status} seq={seq} bucket={bucket}")
+    bucket = mutate_attention(seen)
+    # Focus is the explicit review action, so always restamp: the ledger's previous verdict can
+    # match while the sidebar still shows a stale dot (an older rule or a failed display write).
+    kind = report_dot(pane_id, status, bucket)
+    print(f"focus {pane_id} status={status} seq={seq} bucket={bucket} dot={kind}")
 
 
 

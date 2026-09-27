@@ -97,6 +97,21 @@ class SidebarDotTests(unittest.TestCase):
 
         self.assertEqual("idle", self.dot("idle", entry))
 
+    def test_focused_completion_while_the_terminal_is_unfocused_is_already_reviewed(self):
+        # Herdr reports `done` for the focused pane while the terminal app is unfocused, then
+        # downgrades it to `idle` on return without an event a hook could observe.
+        entry = self.observe(None, "working", focused=True, seq=1)
+        entry = self.observe(entry, "done", focused=True, seq=2)
+
+        self.assertEqual("idle", self.dot("done", entry))
+        self.assertEqual("idle", self.dot("idle", self.observe(entry, "idle", focused=True, seq=2)))
+
+    def test_unfocused_completion_still_raises_review(self):
+        entry = self.observe(None, "working", seq=1)
+        entry = self.observe(entry, "done", seq=2)
+
+        self.assertEqual("review", self.dot("done", entry))
+
     def test_blocked_pane_keeps_the_blocked_dot_while_focused(self):
         entry = self.observe(None, "blocked", focused=True, seq=1)
 
@@ -115,6 +130,27 @@ class SidebarDotTests(unittest.TestCase):
             wanted = next_agent.wanted_tokens(status, bucket)
             self.assertEqual(1, len(wanted))
             self.assertTrue(set(wanted) <= names)
+
+
+class FocusEventTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="next-agent-test-")
+        self.addCleanup(temporary.cleanup)
+        self.enterContext(patch.dict(os.environ, {
+            "HERDR_PLUGIN_STATE_DIR": temporary.name,
+            "HERDR_PLUGIN_EVENT_JSON": '{"data": {"pane_id": "w0:p2"}}',
+        }))
+        self.report = self.enterContext(patch.object(next_agent, "report_dot", return_value="idle"))
+
+    def test_focus_restamps_even_when_the_ledger_already_agrees(self):
+        # The ledger already holds the pane reviewed, but its sidebar token may still be stale.
+        next_agent.mutate_attention(lambda entries: entries.update({
+            "w0:p2": next_agent.apply_observation(None, "done", True, 5, "term"),
+        }))
+        with patch.object(next_agent, "probe_agent", return_value=("idle", True, 5, "term")):
+            next_agent.handle_pane_focused()
+
+        self.report.assert_called_once_with("w0:p2", "idle", None)
 
 
 class JumpTests(unittest.TestCase):
@@ -155,6 +191,16 @@ class JumpTests(unittest.TestCase):
             next_agent.main()
 
         self.assertEqual({"origin_pane_id": "w2:p1", "last_jump_pane_id": "w3:p1"}, next_agent.load_state())
+
+    def test_focused_raw_done_is_reviewed_not_a_candidate(self):
+        self.live["agents"].append(
+            {"pane_id": "w0:p1", "workspace_id": "w0", "tab_id": "w0:t1", "agent_status": "done", "terminal_id": "t"}
+        )
+
+        next_agent.main()
+
+        self.api.assert_not_called()
+        self.toast.assert_called_once_with("No agent needs attention")
 
     def test_blocked_has_priority_over_unreviewed_completion(self):
         self.add_pane("w1:p1", "done")

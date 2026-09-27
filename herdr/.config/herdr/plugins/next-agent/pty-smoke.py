@@ -212,6 +212,35 @@ enabled = false
                 args.extend(["--workspace", initial["focused_workspace_id"]])
             cli(*args)
             target = next(p["pane_id"] for p in snapshot()["panes"] if p["pane_id"] not in old_panes)
+
+            def token(pane_id, name):
+                return next(p for p in snapshot()["panes"] if p["pane_id"] == pane_id).get("tokens", {}).get(name)
+
+            def status(pane_id):
+                return next(a["agent_status"] for a in snapshot()["agents"] if a["pane_id"] == pane_id)
+
+            if navigation == "away":
+                # The conversation in front of you finishes while the terminal app is unfocused.
+                # Herdr reports it `done`, then silently downgrades it to `idle` on return, and a
+                # click on the already-focused row emits no pane.focused event.
+                cli("pane", "report-metadata", target, "--source", "fixture-label", "--token", "task_summary=Away target")
+                cli("pane", "report-agent", target, "--source", "fixture", "--agent", "pi", "--state", "working", "--seq", "1")
+                api("pane.focus", {"pane_id": target})
+                wait_for(lambda: snapshot()["focused_pane_id"] == target, "target was not focused")
+                wait_for(lambda: token(target, "dot_working"), "working dot missing")
+                os.write(master, b"\x1b[O")
+                drain(0.5)
+                cli("pane", "report-agent", target, "--source", "fixture", "--agent", "pi", "--state", "idle", "--seq", "2")
+                wait_for(lambda: status(target) == "done", "focused completion was not unseen while the terminal was unfocused")
+                os.write(master, b"\x1b[I")
+                wait_for(lambda: status(target) == "idle", "returning to the terminal did not mark the tab seen")
+                wait_for(lambda: screen.find("Away target"), "target sidebar label missing")
+                x, y = screen.find("Away target")
+                os.write(master, f"\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m".encode())
+                wait_for(lambda: token(target, "dot_idle") and not token(target, "dot_review"), "focused conversation stayed marked for review")
+                wait_for(lambda: "○" in screen.line("Away target"), "reviewed glyph not rendered")
+                print(f"PASS: a focused conversation finishing while away is not left for review ({kind})")
+                return
             sibling = None
             if navigation == "click":
                 before_split = {p["pane_id"] for p in snapshot()["panes"]}
@@ -230,9 +259,6 @@ enabled = false
             assert DESTINATION not in ANSI.sub(b"", output), "target was already visible"
             output.clear()
             if navigation == "click":
-                def token(pane_id, name):
-                    return next(p for p in snapshot()["panes"] if p["pane_id"] == pane_id).get("tokens", {}).get(name)
-
                 wait_for(lambda: token(target, "dot_review") and token(sibling, "dot_review"), "missing initial review dots")
                 wait_for(lambda: screen.find("Review target"), "target sidebar label missing")
                 x, y = screen.find("Review target")
@@ -300,6 +326,6 @@ enabled = false
 if __name__ == "__main__":
     if not HERDR:
         raise SystemExit("Herdr must already be installed and on PATH")
-    for navigation in ("hotkey", "click"):
+    for navigation in ("hotkey", "click", "away"):
         for kind in ("workspace", "tab"):
             smoke(kind, navigation)
