@@ -330,3 +330,18 @@ test("API-key requests pass through without bootstrap or mutation", async () => 
   assert.equal(receivedInput, input);
   assert.equal(receivedInit, init);
 });
+
+test("identity lookup is cached per access token and repeated after a refresh", async () => {
+  const seen: string[] = [];
+  const fetchImpl: typeof globalThis.fetch = async (_input, init) => {
+    const token = new Headers(init?.headers).get("authorization")!;
+    seen.push(token);
+    return new Response(JSON.stringify({ oauth_account: { account_uuid: token.endsWith("b") ? "account-b" : "account-a" } }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const resolver = new AnthropicIdentityResolver();
+  assert.equal((await resolver.resolve("sk-ant-oat-a", fetchImpl)).accountId, "account-a");
+  assert.equal((await resolver.resolve("sk-ant-oat-a", fetchImpl)).accountId, "account-a");
+  assert.equal((await resolver.resolve("sk-ant-oat-b", fetchImpl)).accountId, "account-b");
+  assert.deepEqual(seen, ["Bearer sk-ant-oat-a", "Bearer sk-ant-oat-b"]);
+});

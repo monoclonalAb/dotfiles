@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ import {
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createBunFetch } from "./bun-fetch.ts";
 import { OmpCompatibilityResolver } from "./omp-compat.ts";
-import { OmpAnthropicTokenResolver } from "./omp-token.ts";
+import { OmpAccountGuard, OmpAnthropicTokenResolver } from "./omp-token.ts";
 import {
   AnthropicIdentityResolver, CLAUDE_CODE_VERSION, createOmpAnthropicFetch,
   loadOrCreateInstallId, OMP_PROTOCOL_REVIEW_VERSION, readInstallId,
@@ -22,7 +22,7 @@ type MarkedProvider = Provider & { [ROUTE_UPSTREAM]?: Provider };
 const PROBE_MAX_TOKENS = 512;
 const PROBE_TIMEOUT_MS = 45_000;
 const PROBE_REPLY = "PI_ROUTE_OK";
-type Probe = { state: "checking" | "passed" | "failed"; credential: string; promise: Promise<void>;
+type Probe = { state: "checking" | "passed" | "failed"; promise: Promise<void>;
   error?: string; servedModel?: string; outputTokens?: number };
 
 function isDirectAnthropicModel(model: Model<Api>): model is Model<"anthropic-messages"> {
@@ -50,9 +50,10 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
   const tokenResolver = new OmpAnthropicTokenResolver();
   const bunFetch = createBunFetch(fileURLToPath(new URL("./bun-fetch-bridge.ts", import.meta.url)));
   const lifetime = new AbortController();
+  // Shares the transport's per-token bootstrap lookup, so no extra identity request.
+  const accountGuard = new OmpAccountGuard(async token => (await identityResolver.resolve(token, bunFetch, lifetime.signal)).accountId);
   const probes = new Map<string, Probe>();
   const eligibleModels = new Set<string>();
-  let verifiedCredential: string | undefined;
   let upstream: Provider | undefined;
   let ui: ExtensionContext["ui"] | undefined;
 
@@ -71,15 +72,13 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
     const compatibility = await compatibilityResolver.resolve(signal);
     if (!compatibility.compatible) throw new Error(`Claude preflight blocked: ${compatibility.error ?? "OMP update check failed"}. Fix the cause, then /reload.`);
     const apiKey = await tokenResolver.resolve(signal);
-    const credential = createHash("sha256").update(apiKey).digest("hex"); // memory only
-    if (verifiedCredential && verifiedCredential !== credential) throw new Error("OMP credential changed since the preflight test; /reload to verify it. No automatic account fallback.");
-    verifiedCredential = credential;
+    await accountGuard.accept(apiKey);
+    signal.throwIfAborted();
     const key = modelKey(model);
     let probe = probes.get(key);
-    if (probe && probe.credential !== credential) throw new Error("OMP credential changed since the preflight test; /reload to verify it. No automatic account fallback.");
     if (!probe) {
       ui?.notify(`Claude preflight: verifying ${model.id} (one synthetic request, ≤${PROBE_MAX_TOKENS} output tokens; uses quota).`, "info");
-      probe = { state: "checking", credential, promise: Promise.resolve() };
+      probe = { state: "checking", promise: Promise.resolve() };
       probes.set(key, probe);
       const current = probe;
       current.promise = (async () => {

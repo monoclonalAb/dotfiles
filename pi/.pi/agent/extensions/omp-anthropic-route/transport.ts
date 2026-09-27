@@ -305,15 +305,20 @@ export function loadOrCreateInstallId(filePath: string): string {
 }
 
 export class AnthropicIdentityResolver {
-  private resolved: Promise<AnthropicIdentity> | undefined;
+  // Latest access token only (SHA-256 fingerprint, memory only). OMP refreshes
+  // OAuth access tokens every few hours; each new token is looked up once.
+  private resolved: { credential: string; identity: Promise<AnthropicIdentity> } | undefined;
 
   resolve(
     accessToken: string,
     fetchImpl: typeof globalThis.fetch,
     signal?: AbortSignal | null,
   ): Promise<AnthropicIdentity> {
-    this.resolved ??= this.fetchIdentity(accessToken, fetchImpl, signal);
-    return this.resolved;
+    const credential = createHash("sha256").update(accessToken).digest("hex");
+    if (this.resolved?.credential !== credential) {
+      this.resolved = { credential, identity: this.fetchIdentity(accessToken, fetchImpl, signal) };
+    }
+    return this.resolved.identity;
   }
 
   private async fetchIdentity(

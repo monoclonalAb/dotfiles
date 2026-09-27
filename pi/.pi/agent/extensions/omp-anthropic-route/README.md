@@ -60,6 +60,12 @@ cause, `/reload`, and send another prompt; failures do not automatically retry.
 
 `Could not resolve the logged-in OMP Anthropic credential` means `omp token`
 failed: log in with `/login` → Anthropic in OMP (Pi and OMP logins are separate).
+
+The runtime stays on the Anthropic account behind its first OMP credential. OMP
+refreshes OAuth access tokens every few hours; a new token is accepted when the
+bootstrap lookup (one per token, shared with request metadata) reports the same
+account UUID. `OMP returned a different or unverifiable Anthropic account` means
+the account differed or could not be identified; `/reload` to verify the new one.
 A stale update lock records its owner PID; check that process before removing it.
 
 ## Risk
@@ -85,7 +91,7 @@ bun test ./pi/.pi/agent/extensions/omp-anthropic-route/*.test.ts
 node --test pi/.pi/agent/extensions/omp-anthropic-route/{native,runtime}.test.mjs
 ```
 
-The Bun suites cover transport, token, future-release upgrades, exact formula
+The Bun suites cover transport, token/account refresh, future-release upgrades, exact formula
 recipe validation, downgrade/race guards and a real cross-process lock. The Node
 suites load the extension through Stow-style links in a real Pi SDK session with
 fake OMP/Homebrew/Git/Bun commands: lazy preflight, automatic upgrade, blocked
