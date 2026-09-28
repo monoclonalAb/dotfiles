@@ -301,26 +301,13 @@ The Tree-sitter parser installer likewise requires `tree-sitter-cli`, which the 
 Note `lazy-lock.json` is gitignored, so a fresh install pulls the latest stable version of
 every plugin rather than the versions pinned on the old machine.
 
-**git identity** — not managed by this repo, so create `~/.gitconfig` by hand:
-
-```ini
-[user]
-	name = Your Name
-	email = you@example.com
-[credential]
-	helper = store
-[filter "lfs"]
-	smudge = git-lfs smudge -- %f
-	process = git-lfs filter-process
-	required = true
-	clean = git-lfs clean -- %f
-```
-
-`helper = store` writes credentials to `~/.git-credentials` **in plaintext**. Swap it for
-`osxkeychain` if that bothers you.
-
-(The `git/` stow package only carries a global ignore file, at `~/.config/git/ignore`.
-Git picks that up via XDG automatically — no `core.excludesfile` needed.)
+**git** — the `git` package links [`~/.config/git/config`](git/.config/git/config)
+(name, email, `init.defaultBranch`) and the global `ignore` file; Git reads both via
+XDG. Keep `~/.gitconfig` absent: when it exists, Git reads it too and
+`git config --global` writes there instead of to the tracked file. Credentials use the
+`osxkeychain` helper that Apple's and Homebrew's Git both configure system-wide;
+`gh auth login` can add itself as the GitHub helper. Run `git lfs install` only if you
+need LFS; it records its filter in the tracked config.
 
 
 **AeroSpace** — launch it once and grant Accessibility in System Settings → Privacy &

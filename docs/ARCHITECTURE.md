@@ -34,7 +34,7 @@ credential-bearing `hosts.yml` is local.
 | Terminal and window environment | [`alacritty/`](../alacritty/), [`ghostty/`](../ghostty/), [`aerospace/`](../aerospace/) | Terminal defaults, key handling, and macOS workspace routing |
 | Terminal workspaces | [`herdr/`](../herdr/), [`tmux/`](../tmux/) | Primary and fallback multiplexing, navigation, persistence, and attention state |
 | User commands and automation | [`bin/`](../bin/) | Cross-application orchestration and audited builds. Machine-local scheduled jobs (LaunchAgents and their scripts) stay in `$HOME`, outside this repository: the repo carries portable per-tool configuration for a new Mac, not single-machine workflows |
-| Git clients | [`git/`](../git/), [`gh/`](../gh/), [`tuicr/`](../tuicr/) | Global ignore behaviour, non-secret GitHub CLI preferences, and tuicr review-view defaults |
+| Git clients | [`git/`](../git/), [`gh/`](../gh/), [`tuicr/`](../tuicr/) | Global identity and ignore behaviour, non-secret GitHub CLI preferences, and tuicr review-view defaults |
 | Agent harnesses | [`omp/`](../omp/), [`pi/`](../pi/), [`.omp/`](../.omp/) | Global OMP configuration and skills, Pi extensions, and this repository's project-scoped tools |
 | Human operations | [`README.md`](../README.md) | New-machine setup, live operation, common tasks, and troubleshooting |
 | Agent knowledge | [`AGENTS.md`](../AGENTS.md), [`docs/`](./) | Progressive task routing, architecture, principles, quality, and plans |

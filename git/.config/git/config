@@ -1,0 +1,7 @@
+[user]
+	name = Eric Zheng
+	email = eric.zheng@outlook.com
+	useConfigOnly = true
+[init]
+	# Apple's Command Line Tools git sets this system-wide; Homebrew git does not.
+	defaultBranch = main

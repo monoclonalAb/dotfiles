@@ -34,7 +34,7 @@ brew "tree-sitter-cli"         # required to generate and compile nvim-treesitte
 brew "make"                    # telescope-fzf-native's `build = "make"`
 brew "cmake"
 brew "luarocks"
-brew "git-lfs"                 # ~/.gitconfig declares the lfs filter
+brew "git-lfs"                 # `git lfs install` records its filter in ~/.config/git/config
 
 brew "uv"                    # uvx runs Python-packaged MCP servers
 brew "bun"                   # OMP plugin installation runtime
