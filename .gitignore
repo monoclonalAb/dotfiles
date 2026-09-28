@@ -14,8 +14,7 @@
 **/.zcompdump*
 **/access_tokens.md
 
-# Machine-specific prompt configuration and generated Alacritty backup files.
-**/.p10k.zsh
+# Generated Alacritty backup files.
 alacritty/.config/alacritty/*.toml.*.bak
 
 # tmux plugins — installed by tpm, not hand-edited.

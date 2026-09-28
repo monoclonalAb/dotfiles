@@ -7,7 +7,6 @@
 --ignore='\.zsh_sessions'
 --ignore='\.zcompdump.*'
 --ignore='access_tokens\.md'
---ignore='\.p10k\.zsh'
 --ignore='auth\.json'
 --ignore='models-store\.json'
 --ignore='\.config/tmux/plugins'

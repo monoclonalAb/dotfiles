@@ -144,12 +144,14 @@ ls -la ~/.config    # managed files inside these real directories are symlinks
 
 ```sh
 exec zsh
-p10k configure
 ```
 
-Writes `~/.p10k.zsh`, which is deliberately **not** in this repo (it's 89 KB of generated
-config). `.zshrc` sources it only if present, so the shell works — plainly — before you
-run this.
+The Powerlevel10k prompt is tracked at `zsh/.config/zsh/.p10k.zsh`, so it arrives
+configured. `p10k configure` deletes the link and writes a real file; to keep a new
+style, move it back with
+`mv ~/.config/zsh/.p10k.zsh ~/dotfiles/zsh/.config/zsh/.p10k.zsh && (cd ~/dotfiles && stow -t "$HOME" zsh)`
+and commit. `.zprofile` adds Homebrew to `PATH` when the installer did not (the
+script installer's suggested `~/.zprofile` line is never read because `ZDOTDIR` is set).
 
 **Terminal** — Alacritty is configured and asks for `JetBrainsMono Nerd Font`, installed
 by the Brewfile. **Cmd-click** a `file://` URL to open it in a new Neovim window

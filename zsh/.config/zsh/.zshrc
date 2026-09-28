@@ -115,8 +115,13 @@ if command -v pyenv >/dev/null 2>&1; then
   eval "$(pyenv init - zsh)"
 fi
 
-# The next line updates PATH for the Google Cloud SDK.
-if [ -f '/Users/eric/Downloads/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/eric/Downloads/google-cloud-sdk/path.zsh.inc'; fi
-
-# The next line enables shell command completion for gcloud.
-if [ -f '/Users/eric/Downloads/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/eric/Downloads/google-cloud-sdk/completion.zsh.inc'; fi
+# Google Cloud SDK PATH and completion: the Brewfile's gcloud-cli cask, or a
+# manual install in ~/google-cloud-sdk.
+for gcloud_sdk in /opt/homebrew/share/google-cloud-sdk "$HOME/google-cloud-sdk"; do
+  if [ -f "$gcloud_sdk/path.zsh.inc" ]; then
+    . "$gcloud_sdk/path.zsh.inc"
+    [ -f "$gcloud_sdk/completion.zsh.inc" ] && . "$gcloud_sdk/completion.zsh.inc"
+    break
+  fi
+done
+unset gcloud_sdk
