@@ -52,7 +52,7 @@ consumer; do not fix generated output or add a second writer.
 
 | Requested change | Start at source | Follow through / focused evidence |
 | --- | --- | --- |
-| Install or update the workstation | `Brewfile`, `.stowrc`, `bin/.local/bin/dotfiles-update` | Root README → reviewed package dry run; updates have live side effects |
+| Install or update the workstation | `Brewfile`, `.stowrc`, `bin/.local/bin/dotfiles-bootstrap`, `bin/.local/bin/dotfiles-update` | Root README → reviewed package dry run; `dotfiles-bootstrap --check` for missing prerequisites; installs and updates have live side effects |
 | Theme, colour, opacity | `bin/.local/bin/theme` | Alacritty imports, Herdr base, tmux source, Neovim `lua/theme.lua` → generated output → live consumer; Pi `theme-sync` polls the flavour |
 | Herdr attention glyphs or jumps | `herdr/.config/herdr/plugins/next-agent/next_agent.py` | Lifecycle integration → attention ledger → theme metadata rows and pinned patch; ledger tests alone do not prove lifecycle delivery |
 | Personal/Work Space filtering | `herdr/.config/herdr/plugins/spaces-env/spaces_env.py` | Runtime assignment state → sidebar/agent-view metadata; `test_spaces_env.py` |

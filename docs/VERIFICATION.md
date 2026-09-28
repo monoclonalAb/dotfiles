@@ -45,6 +45,7 @@ operator's shell.
   done
 )
 bash -n bin/.local/bin/theme
+bash -n bin/.local/bin/dotfiles-bootstrap
 sh -n herdr/.config/herdr/plugins/task-launcher/launch.sh
 (
   for file in zsh/.zshenv zsh/.config/zsh/.zshrc zsh/.config/zsh/.zprofile; do
@@ -104,6 +105,7 @@ and side effects first; use them when the affected live path is in scope.
 | tmux | `tmux source-file ~/.config/tmux/tmux.conf` | Changes the running server and executes configured hooks/plugins; not syntax-only |
 | Neovim | `nvim --headless '+qa'`, then `nvim +checkhealth` when appropriate | Startup can bootstrap/download plugins and language tools; only run against a reviewed, provisioned environment |
 | Workspace Context MCP | `bin/.local/bin/workspace-context-mcp doctor`, then `call <tool> '<json>'` | Reads the real workspace roots; no writes or network |
+| New-Mac bootstrap | `bin/.local/bin/dotfiles-bootstrap --check`; for a blank machine's view, `(t=$(mktemp -d) && env -i HOME="$t" PATH=/usr/bin:/bin bin/.local/bin/dotfiles-bootstrap --check; rm -rf "$t")` | Changes no configuration, but runs `brew bundle check`, a Stow dry run and Herdr status queries, which may write their own caches and locks. The default mode installs software; never run it as a check |
 | Pi MCP registration | `/reload`, then `/mcp` in Pi | Do not run `pi-mcp-adapter init` without `--dry-run`: it writes into the repository-owned `~/.pi/agent/mcp.json` |
 | Pi extension loading | Fresh Pi session and the affected command/UI | Startup hooks run. The [Anthropic route's OMP update check and model probe](../pi/.pi/agent/extensions/omp-anthropic-route/README.md#request-preflight) wait for the first direct Claude OAuth request (including SDK/extension requests), which may upgrade OMP and uses probe quota |
 | Patched Herdr binary | `install-herdr-focus --build-only <temporary-output-path>`, then `HERDR_CONFIG_PATH=<staged config> <binary> config check` | Network/toolchain build plus the patch's tests; does not replace the installed binary. `--version` must include `dotfiles.<patch-hash>` |

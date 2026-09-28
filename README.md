@@ -32,6 +32,39 @@ for an agent doing a source or documentation edit.
 
 ## Setting up a new Mac
 
+### Quick start
+
+The repository is private, so sign in to GitHub before cloning. From a new Terminal:
+
+```sh
+xcode-select --install      # wait for the installer to finish
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+/opt/homebrew/bin/brew install gh
+/opt/homebrew/bin/gh auth login                  # choose HTTPS and "authenticate Git"
+/opt/homebrew/bin/gh repo clone monoclonalAb/dotfiles ~/dotfiles
+~/dotfiles/bin/.local/bin/dotfiles-bootstrap
+```
+
+[`dotfiles-bootstrap`](bin/.local/bin/dotfiles-bootstrap) automates the numbered
+steps below: Command Line Tools, Homebrew, rustup, the Brewfile, nvm + Node LTS,
+Pi and TypeScript, Stow (all packages), the theme seed, tpm, the patched Herdr
+build, and Herdr's plugins and agent integrations. It acts only on what is missing,
+so rerun it after fixing a failure. It stops rather than resolving a Stow conflict
+(see [step 7](#7-link-everything)), never upgrades installed packages, and ends by
+printing what it cannot do: sign-ins (`gh`, Pi `/login`, gcloud, Tailscale),
+AeroSpace's Accessibility permission, tmux `C-a I`, and the first `nvim` launch.
+`dotfiles-bootstrap --check` reports the same steps without changing any
+configuration (Homebrew and Herdr may still write their own caches and locks).
+
+What carries over: every file in the packages, including Pi's settings (default
+and enabled models, `pi-mcp-adapter`) and model overrides, the p10k prompt, and the
+git identity. What does not: credentials and sign-ins, SSH keys,
+`~/.config/mcp/mcp.json`, machine-local LaunchAgents, app data (such as the
+Obsidian vault), and the [personal bits](#personal-bits--edit-or-skip) tied to
+this Mac.
+
+The numbered steps are the manual equivalent and explain each prerequisite.
+
 **Order matters.** Homebrew and rustup have to be in place *before* the first new zsh
 starts, and `stow` has to run *before* p10k / tpm / nvim, because those write into
 directories this repo owns. Following the steps top to bottom handles that.
@@ -59,8 +92,11 @@ needs `python3`.
 ### 3. Rust — do this before opening a new shell
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --no-modify-path
 ```
+
+`--no-modify-path` stops rustup creating `~/.zshenv` (which would then block Stow)
+and editing other shell files; the linked `.zshenv` already loads Cargo.
 
 `~/.zshenv` sources `~/.cargo/env` **unconditionally**. Skip this step and every single
 zsh startup — including the ones the steps below trigger — prints
@@ -69,9 +105,11 @@ zsh startup — including the ones the steps below trigger — prints
 ### 4. Clone the repo
 
 ```sh
-git clone https://github.com/monoclonalAb/dotfiles ~/dotfiles
+brew install gh && gh auth login     # the repository is private
+gh repo clone monoclonalAb/dotfiles ~/dotfiles
 ```
 
+Keep the clone at `~/dotfiles`: Pi and OMP MCP configuration refers to that path.
 A plain clone is correct — **no `--recurse-submodules`**. The tmux plugin submodules were
 removed when this repo moved to Stow; tpm installs them now (step 8). The Catppuccin
 theme for Alacritty is vendored into the repo, so it needs nothing at install time.
@@ -88,10 +126,16 @@ nushell, yabai, MacTeX) that's off by default.
 ### 6. Node, via nvm
 
 ```sh
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | PROFILE=/dev/null bash
 source "$HOME/.nvm/nvm.sh"
 nvm install --lts
+npm install -g @earendil-works/pi-coding-agent typescript@5
 ```
+
+`PROFILE=/dev/null` keeps nvm's installer from appending to a shell file. The global
+packages are Pi itself (the `pi` wrapper in `bin` execs it) and the TypeScript
+fallback that [`lsp.json`](omp/.omp/agent/lsp.json) points at; install them with
+nvm's npm, not Homebrew's.
 
 Most of the Mason LSPs (`html`, `cssls`, `tailwindcss`, `jsonls`, `yamlls`) are npm
 packages, and the `pwa-node` debug adapter shells out to `node`. `.zshrc` already has the
@@ -351,6 +395,7 @@ machine. Fix or delete as you go.
 | `zsh/.config/zsh/.zshrc` — conda initialisation | conda block at `/opt/anaconda3` | install Anaconda there, or delete the block |
 | `.archive/fish/.config/fish/config.fish` | the same conda block | ditto |
 | `nvim/.config/nvim/lua/plugins/obsidian.lua` | Obsidian integration loads only when `~/Documents/obsidian` exists | create your vault there; ordinary Markdown works without one |
+| `pi/.pi/agent/mcp.json`, `omp/.omp/agent/{mcp,lsp,dap}.json` | absolute `/Users/eric/...` paths (JSON cannot expand `~`) | same username and `~/dotfiles` clone: nothing; otherwise `dotfiles-bootstrap` lists the files to edit |
 
 ## Optional extras
 
@@ -397,7 +442,11 @@ passwordless sudoers entry.
 
 | Managed (stow packages) | Left in `~/.config` (real dirs, untracked) |
 |---|---|
-| nvim, herdr, tmux, zsh (+`~/.zshenv`), alacritty, ghostty, aerospace, git, gh (`config.yml` only), tuicr, bin, omp, pi | **Games:** StardewValley, Battle.net · **Secrets/app-state:** gh credentials (`hosts.yml`), github-copilot, gsheets, mcp-google-sheets, assistant, cagent, launchpad · **Skipped:** uv (receipt), mpv (empty), raycast |
+| nvim, herdr, tmux, zsh (+`~/.zshenv`, p10k prompt), alacritty, ghostty, aerospace, git (identity + ignore), gh (`config.yml` only), tuicr, bin, omp, pi (settings, models, extensions, prompts, MCP) | **Games:** StardewValley · **Secrets/app-state:** gh credentials (`hosts.yml`), github-copilot, gcloud, mcp (`mcp.json`), launchpad, Herdr runtime (sessions, logs, plugin state, generated `config.toml`) · **Default templates only:** cmux, opencode, amp · **Skipped:** raycast (extension bundles), herdr-dev (plugin test fixtures) |
+
+Also outside the repository: credentials (`~/.pi/agent/auth.json`, gcloud, `~/.ssh`),
+`~/.config/mcp/mcp.json`, LaunchAgents, and other agent CLIs' settings (Claude Code,
+Codex, Gemini, opencode, cmux).
 
 
 Secrets and runtime state must remain outside this repo. With leaf linking,
@@ -670,6 +719,10 @@ another task's unfinished work.
 Machines set up before the Pi status integration was added also need
 `herdr integration install pi` once, then `/reload` in each existing idle Pi conversation.
 Stow does not install Herdr-owned integrations; confirm them with `herdr integration status`.
+
+`dotfiles-update` does not install new npm globals, tpm, or Herdr plugins. Run
+`dotfiles-bootstrap --check` after an update to see whether anything the new state
+expects is missing, then `dotfiles-bootstrap` to install it.
 
 On a clone too old to have the script yet, pull once by hand and run it from the
 repo — after that it is on `PATH` as usual:
