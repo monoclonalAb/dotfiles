@@ -41,6 +41,16 @@ function safeError(error: unknown): string {
     .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[redacted email]").slice(0, 800);
 }
 function modelKey(model: Model<Api>): string { return `${model.api}:${model.baseUrl}:${model.id}`; }
+/** Stop waiting when the caller aborts, without cancelling or poisoning the
+ * shared work (an OMP update or model probe) that other requests reuse. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { work.catch(() => {}); reject(signal.reason); return; }
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
 
 export default function ompAnthropicRoute(pi: ExtensionAPI) {
   const installId = readInstallId(join(homedir(), ".omp", "install-id")) ??
@@ -56,6 +66,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
   const eligibleModels = new Set<string>();
   let upstream: Provider | undefined;
   let ui: ExtensionContext["ui"] | undefined;
+  let updateWarningShown = false;
 
   function routeOptions<T extends ProviderStreamOptions | SimpleStreamOptions>(model: Model<Api>, context: TranscriptContext, options: T): T {
     return { ...options, fetch: createOmpAnthropicFetch(options.fetch ?? bunFetch, {
@@ -69,8 +80,12 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
     signal.throwIfAborted();
     eligibleModels.add(modelKey(model));
     if (!compatibilityResolver.status) ui?.notify("Claude preflight: checking latest stable OMP (may upgrade Homebrew omp).", "info");
-    const compatibility = await compatibilityResolver.resolve(signal);
-    if (!compatibility.compatible) throw new Error(`Claude preflight blocked: ${compatibility.error ?? "OMP update check failed"}. Fix the cause, then /reload.`);
+    const compatibility = await untilAborted(compatibilityResolver.resolve(), signal);
+    if (!compatibility.compatible) throw new Error(`Claude preflight blocked: ${compatibility.error ?? "OMP CLI unavailable"}. Fix it, then resend (rechecked automatically).`);
+    if (compatibility.updateError && !updateWarningShown) {
+      updateWarningShown = true;
+      ui?.notify(`Claude preflight: OMP update skipped (${compatibility.updateError}). Continuing with installed OMP ${compatibility.installedVersion}; the update retries next session or /reload.`, "warning");
+    }
     const apiKey = await tokenResolver.resolve(signal);
     await accountGuard.accept(apiKey);
     signal.throwIfAborted();
@@ -84,7 +99,8 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
       current.promise = (async () => {
         try {
           const context = normalizeContext({ messages: [{ role: "user", content: `Reply exactly ${PROBE_REPLY}. Do not call tools.`, timestamp: 0 }] });
-          const probeSignal = AbortSignal.any([signal, AbortSignal.timeout(PROBE_TIMEOUT_MS)]);
+          // Not tied to the first caller: pressing Esc must not record a failed probe.
+          const probeSignal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(PROBE_TIMEOUT_MS)]);
           let messageRequests = 0;
           const limitedFetch: typeof fetch = (input, init) => {
             const url = new URL(input instanceof Request ? input.url : String(input));
@@ -120,8 +136,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
         }
       })();
     }
-    await probe.promise;
-    signal.throwIfAborted();
+    await untilAborted(probe.promise, signal);
     return apiKey;
   }
 
@@ -170,15 +185,18 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
       const probe = model ? probes.get(modelKey(model)) : undefined;
       const state = !model ? "standby" : probe?.state === "passed" ? "active (verified)"
         : compatibility?.error || probe?.state === "failed" ? "blocked" : "pending (first Claude request)";
+      const update = !compatibility?.latestVersion && !compatibility?.updateError ? "not checked"
+        : compatibility?.updateError ? `skipped: ${compatibility.updateError} (using installed CLI; retries next session or /reload)`
+        : compatibility?.updateAttempted ? "upgraded" : "not needed";
       ctx.ui.notify([
         `OMP-style Anthropic route: ${state}`,
         `Wire reference: OMP ${OMP_PROTOCOL_REVIEW_VERSION} / Claude Code ${CLAUDE_CODE_VERSION} (not a CLI version pin)`,
         `Latest OMP release: ${compatibility?.latestVersion ?? "not checked"}; installed: ${compatibility?.installedVersion ?? "not checked"}`,
-        `OMP upgrade: ${compatibility?.updateAttempted ? "attempted" : "not needed / not attempted"}`,
+        `OMP update: ${update}`,
         `Live model test: ${probe?.state ?? "not run"}${probe?.servedModel ? `; served ${probe.servedModel}; ${probe.outputTokens} output tokens` : ""}`,
         ...(compatibility?.error ? [compatibility.error] : []),
         ...(probe?.error ? [probe.error] : []),
-        "Policy: first direct Claude OAuth request checks/updates OMP to latest stable using the reviewed formula recipe; wire code stays pinned. One bounded probe per model/runtime; no fallback on failure.",
+        "Policy: first direct Claude OAuth request tries to update OMP to latest stable using the reviewed formula recipe; update failures warn and keep the installed CLI. Wire code stays pinned. One bounded probe per model/runtime; no fallback on probe failure.",
         "This command does not update, resolve credentials or send a test. /reload resets the check; the next Claude request performs it (and may use quota).",
       ].join("\n"), model && probe?.state !== "passed" ? "warning" : "info");
     },

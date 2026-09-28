@@ -27,6 +27,8 @@ const probeModeFile = join(root, "probe-mode");
 const installedFile = join(root, "installed");
 const formulaFile = join(root, "formula");
 const updateLog = join(root, "updates.jsonl");
+const brewModeFile = join(root, "brew-mode");
+const ompBrokenFile = join(root, "omp-broken");
 const currentVersion = "18.3.2";
 const formula = OMP_FORMULA_TEMPLATE.replace("@VERSION@", currentVersion).replaceAll("@SHA256@", "a".repeat(64));
 writeFileSync(modeFile, "text");
@@ -45,7 +47,8 @@ executable("omp", `
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify(args) + '\\n');
-if (args[0] === '--version') console.log('omp/' + fs.readFileSync(${JSON.stringify(installedFile)}, 'utf8'));
+if (args[0] === '--version' && fs.existsSync(${JSON.stringify(ompBrokenFile)})) { console.error('dyld: synthetic broken install'); process.exitCode = 1; }
+else if (args[0] === '--version') console.log('omp/' + fs.readFileSync(${JSON.stringify(installedFile)}, 'utf8'));
 else if (args.join(' ') === 'token anthropic') console.log('sk-ant-oat-synthetic-omp');
 else process.exitCode = 99;
 `);
@@ -54,7 +57,16 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(updateLog)}, JSON.stringify(['brew', ...args]) + '\\n');
 if (args.join(' ') === '--repository can1357/tap') console.log(${JSON.stringify(join(root, 'tap'))});
-else if (args.join(' ') === 'upgrade can1357/tap/omp') fs.writeFileSync(${JSON.stringify(installedFile)}, fs.readFileSync(${JSON.stringify(releaseFile)}));
+else if (args.join(' ') === 'upgrade can1357/tap/omp') {
+  const mode = fs.existsSync(${JSON.stringify(brewModeFile)}) ? fs.readFileSync(${JSON.stringify(brewModeFile)}, 'utf8') : '';
+  const finish = () => fs.writeFileSync(${JSON.stringify(installedFile)}, fs.readFileSync(${JSON.stringify(releaseFile)}));
+  if (mode === 'fail') {
+    console.error('Warning: A newer Command Line Tools release is available.');
+    console.error('Error: Another active Homebrew process is already in progress.');
+    process.exitCode = 1;
+  } else if (mode.startsWith('delay:')) setTimeout(finish, Number(mode.slice(6)));
+  else finish();
+}
 else throw new Error('Unexpected brew command');
 `);
 executable("git", `
@@ -298,19 +310,79 @@ test("first Claude prompt auto-upgrades a newer stable CLI before probing; wire 
   } finally { await f.close(); writeFileSync(installedFile, currentVersion); }
 });
 
-test("new release with changed formula blocks before token lookup, upgrade or model requests", async () => {
+test("new release with changed formula is not installed; Claude continues on the installed CLI with a warning", async () => {
   writeFileSync(installedFile, "18.3.1");
   writeFileSync(formulaFile, formula + "system 'unreviewed'\\n");
-  const before = lines(requestLog).length, commandsBefore = lines(commandLog).length, updatesBefore = lines(updateLog).length;
+  const before = lines(requestLog).length, updatesBefore = lines(updateLog).length;
   const f = await fixture();
   try {
-    await f.session.prompt("Must not reach Anthropic");
+    await f.session.prompt("Continues on the installed CLI");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+    assert.equal(readFileSync(installedFile, "utf8"), "18.3.1");
+    assert.ok(!lines(updateLog).slice(updatesBefore).some(args => args[1] === "upgrade" || args[1] === "merge"));
+    assert.equal(lines(requestLog).length, before + 2, "probe still precedes the real request");
+    const warnings = f.notices.filter(n => n.type === "warning");
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0].message, /OMP update skipped \(Latest OMP formula needs review.*installed OMP 18\.3\.1/);
+    await f.session.prompt("Second prompt does not repeat the update or warning");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop");
+    assert.equal(f.notices.filter(n => n.type === "warning").length, 1);
+    await f.session.prompt("/omp-anthropic-route");
+    assert.match(f.notices.at(-1).message, /active \(verified\)/);
+    assert.match(f.notices.at(-1).message, /OMP update: skipped: Latest OMP formula needs review/);
+  } finally { await f.close(); writeFileSync(installedFile, currentVersion); writeFileSync(formulaFile, formula); }
+});
+
+test("a failed Homebrew upgrade reports Homebrew's reason and does not block Claude", async () => {
+  writeFileSync(installedFile, "18.3.1");
+  writeFileSync(brewModeFile, "fail");
+  const before = lines(requestLog).length;
+  const f = await fixture();
+  try {
+    await f.session.prompt("Continues after a Homebrew failure");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+    assert.equal(readFileSync(installedFile, "utf8"), "18.3.1");
+    assert.equal(lines(requestLog).length, before + 2);
+    const warning = f.notices.find(n => n.type === "warning");
+    assert.match(warning.message, /brew failed during OMP preflight: Error: Another active Homebrew process is already in progress\./);
+  } finally { await f.close(); writeFileSync(installedFile, currentVersion); rmSync(brewModeFile, { force: true }); }
+});
+
+test("an unusable OMP CLI blocks before any request and is rechecked on the next prompt without /reload", async () => {
+  writeFileSync(ompBrokenFile, "");
+  const before = lines(requestLog).length, commandsBefore = lines(commandLog).length;
+  const f = await fixture();
+  try {
+    await f.session.prompt("Blocked while OMP is broken");
     assert.equal(f.session.messages.at(-1).stopReason, "error");
-    assert.match(f.session.messages.at(-1).errorMessage, /formula needs review/);
+    assert.match(f.session.messages.at(-1).errorMessage, /OMP is missing or unusable \(omp failed during OMP preflight: dyld: synthetic broken install\)/);
     assert.equal(lines(requestLog).length, before);
     assert.ok(!lines(commandLog).slice(commandsBefore).some(args => args[0] === "token"));
-    assert.ok(!lines(updateLog).slice(updatesBefore).some(args => args[1] === "upgrade" || args[1] === "merge"));
-  } finally { await f.close(); writeFileSync(installedFile, currentVersion); writeFileSync(formulaFile, formula); }
+    rmSync(ompBrokenFile);
+    await f.session.prompt("Works once OMP is fixed");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+    assert.equal(lines(requestLog).length, before + 2);
+  } finally { await f.close(); rmSync(ompBrokenFile, { force: true }); }
+});
+
+test("interrupting the first request neither kills the upgrade nor blocks the next prompt", async () => {
+  writeFileSync(installedFile, "18.3.1");
+  writeFileSync(brewModeFile, "delay:600");
+  const before = lines(requestLog).length;
+  const f = await fixture();
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 150);
+    const cancelled = await f.models.completeSimple(f.model, {
+      messages: [{ role: "user", content: "Interrupted during upgrade", timestamp: 0 }],
+    }, { signal: controller.signal, maxTokens: 512, maxRetries: 0 });
+    assert.notEqual(cancelled.stopReason, "stop");
+    assert.equal(lines(requestLog).length, before);
+    await f.session.prompt("Next prompt after interrupting");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+    assert.equal(readFileSync(installedFile, "utf8"), currentVersion, "brew upgrade completed");
+    assert.equal(f.notices.filter(n => n.type === "warning").length, 0);
+  } finally { await f.close(); writeFileSync(installedFile, currentVersion); rmSync(brewModeFile, { force: true }); }
 });
 
 for (const options of [{ apiKey: true }, { baseUrl: "https://proxy.invalid" }, { baseUrl: "http://api.anthropic.com" }, { otherProvider: true }]) {
