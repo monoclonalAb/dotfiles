@@ -7,6 +7,9 @@
 # through on a typo.
 
 tap "nikitabobko/tap" # aerospace
+tap "can1357/tap"     # omp
+tap "infisical/get-cli"
+tap "anomalyco/tap"   # opencode
 
 ###############################################################################
 # Required — the configs break without these                                  #
@@ -45,6 +48,10 @@ brew "lua-language-server"   # omp lsp: Lua
 brew "jdtls"                 # omp lsp: Java; temurin@21 is required below
 brew "yaml-language-server"  # omp lsp: YAML/CI files
 brew "biome"                 # omp lsp linter/formatter for TS/JS/JSON
+brew "can1357/tap/omp"       # OMP harness; Pi's omp-anthropic-route blocks Claude requests without it
+
+# Pi and OMP's gcloud / gcp-observability MCP servers shell out to `gcloud`.
+cask "gcloud-cli"
 
 cask "alacritty"
 cask "wezterm"
@@ -97,6 +104,17 @@ brew "yq"                      # structured YAML/JSON edits
 brew "sqlite-utils"            # query and inspect SQLite from the shell
 brew "lefthook"                # deterministic pre-commit gates
 brew "terminal-notifier"       # desktop notifications from long agent runs
+brew "pyenv"                   # .zshrc runs `pyenv init` when present
+brew "git"                     # newer than the Command Line Tools git
+brew "pngpaste"                # clipboard image -> file from the shell
+
+# Work tooling installed on the current Mac.
+brew "cloud-sql-proxy"
+brew "libpq"                   # psql and friends (keg-only)
+brew "infisical/get-cli/infisical"
+brew "anomalyco/tap/opencode"
+cask "ngrok"
+cask "orbstack"                # Docker runtime; needed for container-use and Docker MCP servers
 
 
 cask "skim"                    # vimtex's viewer (vimtex_view_method = "skim")
@@ -136,4 +154,3 @@ cask "temurin@21"              # jdtls shells out to `java`
 # brew "scc"         # tokei alternative with COCOMO estimates
 # brew "gum"         # interactive shell prompts; never use in unattended hooks
 # brew "hurl"        # plain-text HTTP request tests
-# cask "orbstack"    # lighter Docker Desktop; needed for container-use and Docker MCP servers
