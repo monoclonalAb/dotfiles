@@ -521,8 +521,10 @@ for guards and recovery.
 
 ### MCP servers
 
-Pi loads MCP servers through `pi-mcp-adapter` (listed in `~/.pi/agent/settings.json`),
-merging in rising precedence:
+Pi loads MCP servers through `pi-mcp-adapter`, a package listed in the tracked
+[`settings.json`](pi/.pi/agent/settings.json); Pi installs it on first start. Pi
+writes `/settings`, `/model` and changelog updates through that link, so review and
+commit them like any other change. The adapter merges configuration in rising precedence:
 
 | File | Owner | Use |
 | --- | --- | --- |

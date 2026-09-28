@@ -1,0 +1,33 @@
+{
+  "lastChangelogVersion": "0.87.1",
+  "theme": "light",
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-opus-5-5",
+  "defaultThinkingLevel": "xhigh",
+  "transport": "auto",
+  "tuiMode": "fullscreen",
+  "compaction": {
+    "enabled": true
+  },
+  "enabledModels": [
+    "anthropic/claude-opus-5-5",
+    "openai-codex/gpt-6-astra",
+    "anthropic/claude-fable-5-1",
+    "openai-codex/gpt-6-luna",
+    "openai-codex/gpt-6-sol"
+  ],
+  "images": {
+    "blockImages": false
+  },
+  "hideThinkingBlock": true,
+  "packages": [
+    "npm:pi-mcp-adapter@2.32.1"
+  ],
+  "quietStartup": true,
+  "modelThinkingLevels": {
+    "openai-codex/gpt-5.6-luna": "max",
+    "openai-codex/gpt-6-astra": "xhigh",
+    "anthropic/claude-fable-5-1": "xhigh",
+    "openai-codex/gpt-5.6-sol": "xhigh"
+  }
+}

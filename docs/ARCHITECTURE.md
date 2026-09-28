@@ -160,6 +160,13 @@ disables automatic skill discovery; `/skill` enables selected skills per session
 OMP defaults are not automatically Pi defaults, and a catalogue entry does not
 prove a tool is exposed in the current session.
 
+Pi's own [`settings.json`](../pi/.pi/agent/settings.json) (models, packages, UI) and
+[`models.json`](../pi/.pi/agent/models.json) (model overrides) are managed too. Pi
+rewrites `settings.json` in place, following the link, so `/settings`, `/model` and
+upgrade bookkeeping surface as repository diffs to review; they are desired state,
+not runtime output. Its credentials, trust decisions, caches and installed packages
+stay in `~/.pi/agent/`.
+
 The [Workspace Context MCP](../bin/.local/lib/workspace-context-mcp/README.md)
 is the one locally owned MCP server: a read-only, dependency-free stdio process
 that indexes repositories under `~/Desktop/projects` and `~/dotfiles` in memory.

@@ -1,0 +1,13 @@
+{
+  "providers": {
+    "anthropic": {
+      "modelOverrides": {
+        "claude-fable-5-1": {
+          "compat": {
+            "supportsMidConvoEffort": false
+          }
+        }
+      }
+    }
+  }
+}
