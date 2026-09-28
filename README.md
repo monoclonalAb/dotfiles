@@ -173,14 +173,9 @@ error to `$TMPDIR/Alacritty-*.log` — harmless, and this clears it.
 **Tailscale**
 
 Install the `tailscale-app` cask, sign in to the existing tailnet, and enable MagicDNS in
-the tailnet's DNS settings. The cask ships no `tailscale` command on `PATH`; use this wrapper
-instead of a symlink so the executable keeps its application-bundle identity:
-
-```sh
-printf '%s\n' '#!/bin/sh' 'exec /Applications/Tailscale.app/Contents/MacOS/Tailscale "$@"' \
-  > ~/.local/bin/tailscale
-chmod +x ~/.local/bin/tailscale
-```
+the tailnet's DNS settings. The cask ships no `tailscale` command on `PATH`; the `bin`
+package's [`tailscale`](bin/.local/bin/tailscale) wrapper execs the bundled binary
+instead of symlinking it, so the executable keeps its application-bundle identity.
 
 **Herdr**
 

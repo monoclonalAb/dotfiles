@@ -40,7 +40,7 @@ operator's shell.
 
 ```sh
 (
-  for file in bin/.local/bin/pi bin/.local/bin/dotfiles-update bin/.local/bin/install-herdr-focus bin/.local/bin/workspace-context-mcp; do
+  for file in bin/.local/bin/pi bin/.local/bin/dotfiles-update bin/.local/bin/install-herdr-focus bin/.local/bin/workspace-context-mcp bin/.local/bin/tailscale; do
     sh -n "$file" || exit 1
   done
 )

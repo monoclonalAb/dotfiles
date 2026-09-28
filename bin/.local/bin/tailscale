@@ -1,0 +1,6 @@
+#!/bin/sh
+# The tailscale-app cask ships no CLI on PATH. Exec the bundled binary rather
+# than symlinking it so it keeps its application-bundle identity.
+app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+[ -x "$app" ] || { echo "tailscale: $app not found (brew install --cask tailscale-app)" >&2; exit 127; }
+exec "$app" "$@"
