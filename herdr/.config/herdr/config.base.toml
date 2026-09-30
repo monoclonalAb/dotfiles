@@ -38,6 +38,10 @@ navigate_workspace_down = "down"
 open_worktree = "prefix+g"
 new_worktree = "prefix+shift+g"
 remove_worktree = "prefix+ctrl+g"
+# Custom-build keys: reorder the focused linked worktree within its repository
+# in the Spaces tree (stops at either end; dragging its row does the same).
+move_worktree_up = "prefix+shift+k"
+move_worktree_down = "prefix+shift+j"
 
 # Agent navigation. Image paste is direct because it is active only for
 # remote Herdr clients.

@@ -234,10 +234,12 @@ which adds:
   panes blend toward the terminal background (`ui.unfocused_pane_opacity`);
 - a single **Spaces tree** sidebar (`ui.sidebar.spaces.inline_agents = true`):
   repository → worktree Space → conversations. Click a repository to fold it, or a
-  Space's status counts to show/hide its conversations;
+  Space's status counts to show/hide its conversations. Drag a linked worktree's row
+  to reorder it within its repository (the main checkout stays first);
 - the reserved `sidebar_hidden` Space token that spaces-env uses to hide the other
   environment (the focused Space always stays visible);
-- `keys.next_machine` / `keys.previous_machine` for switching between saved machines.
+- `keys.next_machine` / `keys.previous_machine` for switching between saved machines,
+  and `keys.move_worktree_up` / `keys.move_worktree_down` for reordering worktrees.
 
 Install it after `brew bundle` (needs Rust via rustup and Zig 0.16.0; set `ZIG` to override):
 
@@ -282,6 +284,7 @@ the live keymap. The custom keys:
 | `C-a v` | Review the focused agent's uncommitted changes in tuicr and send the comments back |
 | `C-a ;` / `C-a :` | Toggle Personal/Work / send the current Space to the other environment |
 | `C-a '` | Switch this client to the next online machine (e.g. the saved `home`) |
+| `C-a K` / `C-a J` | Move the focused linked worktree up / down within its repository (stops at either end) |
 
 **Agent state.** The official Pi and OMP integrations report lifecycle state; without
 them Herdr guesses from screen text. After `herdr integration install …`, `/reload`
@@ -764,6 +767,7 @@ stow -n -v -t "$HOME" nvim  # dry-run: preview link actions / conflicts
 | Web LSPs or TypeScript fail to start | Node/npm missing — source `~/.nvm/nvm.sh`, run `nvm install --lts`, and restart Neovim |
 | Herdr ignores a config edit | Run `herdr server reload-config`, or press `C-a R` |
 | `C-a '` says `home is not ready` or `no other machine is saved` | Save the machine with `herdr machine add <ssh-target> --label home` and check `herdr machine list --json`. A stock client (`herdr --version` without the patch) has no `next_machine` key: rerun `install-herdr-focus` |
+| `C-a K` / `C-a J` does nothing | Only a linked worktree moves, within its repository and not past either end; the main checkout stays first. If `herdr config check` reports unknown `keys.move_worktree_*` keys, the installed binary predates the feature: rerun `install-herdr-focus` |
 | Herdr conversation symbol stays idle while Pi works | Check `herdr integration status`; install/update with `herdr integration install pi`, then `/reload` in that Pi session once idle. `herdr agent explain <pane-id> --json` should show screen detection skipped once lifecycle reports are active; `default_known_agent_idle_fallback` means Herdr is still guessing from the screen |
 | tmux statusline unstyled, plugins absent | tpm not cloned, or `C-a I` never pressed |
 | `prefix + Space` does nothing | `cycle-2x2.sh` needs `python3`, and only acts on exactly 5 or 7 panes |

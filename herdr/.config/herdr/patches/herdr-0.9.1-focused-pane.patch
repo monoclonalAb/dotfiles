@@ -1,8 +1,27 @@
 diff --git a/docs/next/website/src/data/config-reference.json b/docs/next/website/src/data/config-reference.json
-index 36afe33..0468379 100644
+index 36afe33..2b6d4e1 100644
 --- a/docs/next/website/src/data/config-reference.json
 +++ b/docs/next/website/src/data/config-reference.json
-@@ -619,6 +619,18 @@
+@@ -517,6 +517,18 @@
+           "default": "unset",
+           "description": "Delete the selected managed worktree checkout after confirmation. Unset by default."
+         },
++        {
++          "key": "keys.move_worktree_up",
++          "type": "keybinding",
++          "default": "unset",
++          "description": "Move the focused linked worktree up within its repository in the Spaces sidebar. Stops at the top; the main checkout stays first. Unset by default."
++        },
++        {
++          "key": "keys.move_worktree_down",
++          "type": "keybinding",
++          "default": "unset",
++          "description": "Move the focused linked worktree down within its repository in the Spaces sidebar. Stops at the bottom. Unset by default."
++        },
+         {
+           "key": "keys.rename_workspace",
+           "type": "keybinding",
+@@ -619,6 +631,18 @@
            "default": "unset",
            "description": "Focus the next agent shown in the agent panel. Unset by default."
          },
@@ -21,7 +40,7 @@ index 36afe33..0468379 100644
          {
            "key": "keys.focus_agent",
            "type": "keybinding",
-@@ -969,6 +981,12 @@
+@@ -969,6 +993,12 @@
            "default": "true",
            "description": "Draw borders along the outside edge of the pane area. Disable with pane gaps disabled for tmux-style internal splitters without an outside frame."
          },
@@ -34,7 +53,7 @@ index 36afe33..0468379 100644
          {
            "key": "ui.pane_scrollbars",
            "type": "boolean",
-@@ -987,6 +1005,18 @@
+@@ -987,6 +1017,18 @@
            "default": "false",
            "description": "Show agent labels in split pane borders when no manual pane label is set."
          },
@@ -53,7 +72,7 @@ index 36afe33..0468379 100644
          {
            "key": "ui.hide_tab_bar_when_single_tab",
            "type": "boolean",
-@@ -1066,6 +1096,12 @@
+@@ -1066,6 +1108,12 @@
            "default": "{}",
            "description": "Complete Agent-row overrides keyed by strict canonical agent id. Agents without an override use ui.sidebar.agents.rows."
          },
@@ -61,7 +80,7 @@ index 36afe33..0468379 100644
 +          "key": "ui.sidebar.spaces.inline_agents",
 +          "type": "boolean",
 +          "default": "false",
-+          "description": "Use one repository / worktree-Space / conversation tree instead of separate Spaces and Agents panels. Rows are compact (first Space label row only, no row gaps), with branch connectors, clickable repository headers and agent status counts. The view label and Menu share a bottom footer; New is hidden. All repository and Space branches start expanded, including inactive/new Spaces. Manual folding lasts for the current server lifetime; older saved folds are ignored on inline-tree startup/handoff. Ordinary config reloads preserve manual choices."
++          "description": "Use one repository / worktree-Space / conversation tree instead of separate Spaces and Agents panels. Rows are compact (first Space label row only, no row gaps), with branch connectors, clickable repository headers and agent status counts. Linked worktree Spaces can be dragged to reorder them within their repository. The view label and Menu share a bottom footer; New is hidden. All repository and Space branches start expanded, including inactive/new Spaces. Manual folding lasts for the current server lifetime; older saved folds are ignored on inline-tree startup/handoff. Ordinary config reloads preserve manual choices."
 +        },
          {
            "key": "ui.sidebar.spaces.row_gap",
@@ -333,6 +352,25 @@ index 95ee5e7..582c9d4 100644
  mod word_selection;
  mod worktrees;
  use text_editor::TextEditor;
+diff --git a/src/client/shell/actions.rs b/src/client/shell/actions.rs
+index 12d8cc1..ea73681 100644
+--- a/src/client/shell/actions.rs
++++ b/src/client/shell/actions.rs
+@@ -949,6 +949,14 @@ impl ClientShellState {
+                     tab_id: tabs[next].tab_id.clone(),
+                 }))
+             }
++            KeybindAction::MoveWorktreeUp | KeybindAction::MoveWorktreeDown => {
++                super::tree::worktree_step_method(
++                    snapshot,
++                    self.tree_keep_visible(),
++                    &focused_workspace,
++                    action == KeybindAction::MoveWorktreeDown,
++                )
++            }
+             KeybindAction::MoveTabPrevious | KeybindAction::MoveTabNext => {
+                 let tabs = snapshot
+                     .tabs
 diff --git a/src/client/shell/composition.rs b/src/client/shell/composition.rs
 index e0888d0..495aef4 100644
 --- a/src/client/shell/composition.rs
@@ -399,10 +437,18 @@ index 2d16b00..f286803 100644
                  if let Some(snapshot) = self.snapshot.as_deref() {
                      let profile = snapshot.server_keybindings_toml.clone();
 diff --git a/src/client/shell/endpoint_navigation.rs b/src/client/shell/endpoint_navigation.rs
-index 6cb8c2c..1e8f44e 100644
+index 6cb8c2c..3af8d0b 100644
 --- a/src/client/shell/endpoint_navigation.rs
 +++ b/src/client/shell/endpoint_navigation.rs
-@@ -106,7 +106,16 @@ impl ClientShellState {
+@@ -27,6 +27,7 @@ impl ClientShellState {
+                         .worktree
+                         .as_ref()
+                         .is_some_and(|worktree| worktree.is_linked_worktree)
++                        || self.tree_worktree_drag(&workspace.workspace_id)
+                 })
+     }
+ 
+@@ -106,7 +107,16 @@ impl ClientShellState {
          outcome: &mut ClientShellInput,
      ) -> bool {
          use crate::input::KeybindAction;
@@ -420,7 +466,7 @@ index 6cb8c2c..1e8f44e 100644
              return false;
          }
          if matches!(
-@@ -213,6 +222,46 @@ impl ClientShellState {
+@@ -213,6 +223,46 @@ impl ClientShellState {
          false
      }
  
@@ -525,10 +571,102 @@ index 34d2ccd..40a8fb5 100644
                      .map(|entry| Row::Workspace {
                          endpoint: endpoint_index,
 diff --git a/src/client/shell/mouse.rs b/src/client/shell/mouse.rs
-index 0b9326d..8ab3c72 100644
+index 0b9326d..5317a85 100644
 --- a/src/client/shell/mouse.rs
 +++ b/src/client/shell/mouse.rs
-@@ -1983,6 +1983,10 @@ impl ClientShellState {
+@@ -508,6 +508,50 @@ impl ClientShellState {
+         Some(last_index + 1)
+     }
+ 
++    /// Inline tree: a linked worktree with visible siblings drags within its
++    /// repository instead of being rejected.
++    pub(super) fn tree_worktree_drag(&self, workspace_id: &str) -> bool {
++        self.config.spaces.inline_agents
++            && self.snapshot.as_deref().is_some_and(|snapshot| {
++                super::tree::linked_worktree_siblings(
++                    snapshot,
++                    self.tree_keep_visible(),
++                    workspace_id,
++                )
++                .is_some()
++            })
++    }
++
++    fn workspace_drag_target_at(
++        &self,
++        source_workspace_id: &str,
++        point: (u16, u16),
++    ) -> Option<(Option<String>, u16)> {
++        if !self.tree_worktree_drag(source_workspace_id) {
++            return self.workspace_drop_target_at(point);
++        }
++        let body = self.hits.workspace_body;
++        if body.height == 0
++            || point.1 < body.y.saturating_sub(1)
++            || point.1 >= self.hits.new_workspace.y
++        {
++            return None;
++        }
++        // Document rows to screen rows; the row just above the viewport is
++        // still drawable, like the stock first-entry slot.
++        let start = self.workspace_scroll;
++        super::tree::worktree_drop_slots(&self.tree_inputs(), source_workspace_id)
++            .into_iter()
++            .filter_map(|(before, position)| {
++                let row = (usize::from(body.y) + position).checked_sub(start)?;
++                (row + 1 >= usize::from(body.y) && row < usize::from(body.bottom()))
++                    .then(|| (before, row as u16))
++            })
++            .enumerate()
++            .min_by_key(|(index, (_, row))| (point.1.abs_diff(*row), *index))
++            .map(|(_, target)| target)
++    }
++
+     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
+         if self.hits.workspace_body.height == 0
+             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
+@@ -573,6 +617,14 @@ impl ClientShellState {
+             .workspaces
+             .iter()
+             .find(|workspace| workspace.workspace_id == source_workspace_id)?;
++        if self.tree_worktree_drag(source_workspace_id) {
++            return super::tree::worktree_move_method(
++                snapshot,
++                self.tree_keep_visible(),
++                source_workspace_id,
++                before_workspace_id,
++            );
++        }
+         if source
+             .worktree
+             .as_ref()
+@@ -1158,8 +1210,12 @@ impl ClientShellState {
+                     outcome.repaint = true;
+                     return;
+                 }
+-                Some(ClientChromeDrag::Workspace { .. }) => {
+-                    let target = self.workspace_drop_target_at(point);
++                Some(ClientChromeDrag::Workspace {
++                    source_workspace_id,
++                    ..
++                }) => {
++                    let source_workspace_id = source_workspace_id.clone();
++                    let target = self.workspace_drag_target_at(&source_workspace_id, point);
+                     if let Some(ClientChromeDrag::Workspace {
+                         target: current, ..
+                     }) = self.chrome_drag.as_mut()
+@@ -1180,7 +1236,9 @@ impl ClientShellState {
+                     let source_workspace_id = press.workspace_id.clone();
+                     let draggable = self.endpoint_workspace_is_draggable(press);
+                     if draggable {
+-                        if let Some(target) = self.workspace_drop_target_at(point) {
++                        if let Some(target) =
++                            self.workspace_drag_target_at(&source_workspace_id, point)
++                        {
+                             self.chrome_drag = Some(ClientChromeDrag::Workspace {
+                                 source_workspace_id,
+                                 target: Some(target),
+@@ -1983,6 +2041,10 @@ impl ClientShellState {
                  if self.handle_endpoint_machine_click(point, outcome) {
                      return;
                  }
@@ -539,7 +677,7 @@ index 0b9326d..8ab3c72 100644
                  if super::contains(self.hits.global_launcher, point) {
                      self.toggle_global_menu();
                      outcome.repaint = true;
-@@ -2049,6 +2053,21 @@ impl ClientShellState {
+@@ -2049,6 +2111,21 @@ impl ClientShellState {
                      self.persist_chrome_preferences(outcome);
                      return;
                  }
@@ -935,10 +1073,10 @@ index 787d8a7..7afa676 100644
 +mod tree;
 diff --git a/src/client/shell/tests/tree.rs b/src/client/shell/tests/tree.rs
 new file mode 100644
-index 0000000..c38b1a6
+index 0000000..beab9ff
 --- /dev/null
 +++ b/src/client/shell/tests/tree.rs
-@@ -0,0 +1,837 @@
+@@ -0,0 +1,1214 @@
 +//! Inline Spaces tree (`ui.sidebar.spaces.inline_agents`): document shape,
 +//! `sidebar_hidden` filtering, disclosure, fixed footer and hit-testing.
 +use super::*;
@@ -1776,12 +1914,389 @@ index 0000000..c38b1a6
 +            .any(|(_, description)| description == "next machine")
 +    );
 +}
++
++fn linked(snapshot: &mut ClientShellSnapshot, number: usize, branch: &str, is_linked: bool) {
++    let workspace = &mut snapshot.workspaces[number - 1];
++    workspace.worktree = Some(ClientShellWorktree {
++        key: "repo".into(),
++        label: "repo".into(),
++        is_linked_worktree: is_linked,
++    });
++    workspace.branch = Some(branch.into());
++}
++
++/// notes; repo [main, alpha, beta, gamma (one conversation)]; website.
++fn worktree_fixture(focused: usize) -> ClientShellSnapshot {
++    let mut snapshot = snapshot();
++    let labels = ["notes", "repo", "repo", "repo", "repo", "website"];
++    snapshot.workspaces = labels
++        .iter()
++        .enumerate()
++        .map(|(index, label)| workspace(index + 1, label, index + 1 == focused))
++        .collect();
++    linked(&mut snapshot, 2, "main", false);
++    linked(&mut snapshot, 3, "worktree/alpha", true);
++    linked(&mut snapshot, 4, "worktree/beta", true);
++    linked(&mut snapshot, 5, "worktree/gamma", true);
++    snapshot.focused_workspace_id = Some(format!("ws_{focused}"));
++    snapshot.focused_tab_id = Some(format!("tab_{focused}_1"));
++    snapshot.focused_pane_id = Some(format!("pane_{focused}_1"));
++    snapshot.tabs = (1..=labels.len())
++        .map(|number| tab(number, 1, number == focused))
++        .collect();
++    snapshot.panes = (1..=labels.len())
++        .map(|number| pane(number, 1, number == focused))
++        .collect();
++    snapshot.agents = vec![agent(5, 1, "gamma task", false)];
++    snapshot
++}
++
++fn tall_rows(state: &mut ClientShellState) -> Vec<String> {
++    let frame = state.compose(106, 24).expect("composed frame");
++    let width = usize::from(state.sidebar_width.saturating_sub(1));
++    frame_rows(&frame)
++        .into_iter()
++        .map(|row| {
++            row.chars()
++                .take(width)
++                .collect::<String>()
++                .trim_end_matches(['▕', '«', '»'])
++                .trim_end()
++                .to_owned()
++        })
++        .collect()
++}
++
++fn mouse(
++    state: &mut ClientShellState,
++    kind: MouseEventKind,
++    column: u16,
++    row: u16,
++) -> ClientShellInput {
++    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
++        kind,
++        column,
++        row,
++        modifiers: KeyModifiers::empty(),
++    })])
++}
++
++fn drag(state: &mut ClientShellState, from: u16, to: u16) -> ClientShellInput {
++    mouse(state, MouseEventKind::Down(MouseButton::Left), 6, from);
++    mouse(state, MouseEventKind::Drag(MouseButton::Left), 6, to);
++    mouse(state, MouseEventKind::Up(MouseButton::Left), 6, to)
++}
++
++fn move_blocks(outcome: &ClientShellInput) -> Vec<(Vec<String>, Option<String>)> {
++    outcome
++        .actions
++        .iter()
++        .filter_map(|action| match action {
++            ClientShellAction::Endpoint { request, .. } => match &request.method {
++                crate::api::schema::Method::WorkspaceMoveBlock(params) => Some((
++                    params.workspace_ids.clone(),
++                    params.before_workspace_id.clone(),
++                )),
++                _ => None,
++            },
++            _ => None,
++        })
++        .collect()
++}
++
++fn ids(values: &[&str]) -> Vec<String> {
++    values.iter().map(|value| (*value).to_owned()).collect()
++}
++
++/// The server's `workspace.move_block` ordering, for checking the result.
++fn apply_block(snapshot: &mut ClientShellSnapshot, moved: &[String], before: Option<&str>) {
++    let block = moved
++        .iter()
++        .map(|id| {
++            snapshot
++                .workspaces
++                .iter()
++                .find(|workspace| &workspace.workspace_id == id)
++                .expect("moved Space exists")
++                .clone()
++        })
++        .collect::<Vec<_>>();
++    snapshot
++        .workspaces
++        .retain(|workspace| !moved.contains(&workspace.workspace_id));
++    let at = before
++        .and_then(|id| {
++            snapshot
++                .workspaces
++                .iter()
++                .position(|workspace| workspace.workspace_id == id)
++        })
++        .unwrap_or(snapshot.workspaces.len());
++    snapshot.workspaces.splice(at..at, block);
++}
++
++#[test]
++fn linked_worktree_drags_within_its_repository() {
++    let mut state = tree_state(worktree_fixture(2));
++    let rows = tall_rows(&mut state);
++    assert!(rows[4].starts_with(" repo"), "{:?}", rows[4]);
++    assert!(rows[5].starts_with(" ├─ main"), "{:?}", rows[5]);
++    assert!(rows[7].starts_with(" ├─ alpha"), "{:?}", rows[7]);
++    assert!(rows[9].starts_with(" ├─ beta"), "{:?}", rows[9]);
++    assert!(rows[11].starts_with(" └─ gamma"), "{:?}", rows[11]);
++    assert_eq!(rows[12], "    └─ ○ gamma task");
++    assert!(rows[14].starts_with(" website"), "{:?}", rows[14]);
++    let row = |state: &ClientShellState, id| workspace_row(state, id).expect("Space row");
++    let (alpha, gamma, website) = (
++        row(&state, "ws_3"),
++        row(&state, "ws_5"),
++        row(&state, "ws_6"),
++    );
++
++    // Drag gamma up onto alpha: the indicator sits in the gap above alpha.
++    mouse(
++        &mut state,
++        MouseEventKind::Down(MouseButton::Left),
++        6,
++        gamma,
++    );
++    mouse(
++        &mut state,
++        MouseEventKind::Drag(MouseButton::Left),
++        6,
++        alpha,
++    );
++    assert!(matches!(
++        state.chrome_drag,
++        Some(ClientChromeDrag::Workspace { ref source_workspace_id, target: Some((Some(ref before), 6)) })
++            if source_workspace_id == "ws_5" && before == "ws_3"
++    ));
++    let rows = tall_rows(&mut state);
++    assert!(
++        rows[6].starts_with("───"),
++        "in-group indicator: {:?}",
++        rows[6]
++    );
++    let released = mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 6, alpha);
++    assert!(
++        focus_requests(&released).is_empty(),
++        "a drag does not focus"
++    );
++    assert_eq!(
++        move_blocks(&released),
++        vec![(ids(&["ws_2", "ws_5", "ws_3", "ws_4"]), Some("ws_6".into()))],
++        "one block at the repository's place; the main checkout stays first"
++    );
++
++    // Past the end of the repository clamps to after gamma's conversations.
++    tall_rows(&mut state);
++    mouse(
++        &mut state,
++        MouseEventKind::Down(MouseButton::Left),
++        6,
++        alpha,
++    );
++    mouse(
++        &mut state,
++        MouseEventKind::Drag(MouseButton::Left),
++        6,
++        website,
++    );
++    assert!(matches!(
++        state.chrome_drag,
++        Some(ClientChromeDrag::Workspace {
++            target: Some((None, 13)),
++            ..
++        })
++    ));
++    let released = mouse(
++        &mut state,
++        MouseEventKind::Up(MouseButton::Left),
++        6,
++        website,
++    );
++    assert_eq!(
++        move_blocks(&released),
++        vec![(ids(&["ws_2", "ws_4", "ws_5", "ws_3"]), Some("ws_6".into()))]
++    );
++
++    // Dropping a worktree where it already is sends nothing.
++    tall_rows(&mut state);
++    assert!(move_blocks(&drag(&mut state, gamma, website)).is_empty());
++    // The main checkout still moves the whole repository among top-level rows.
++    tall_rows(&mut state);
++    let main = row(&state, "ws_2");
++    assert_eq!(
++        move_blocks(&drag(&mut state, main, website + 1)),
++        vec![(ids(&["ws_2", "ws_3", "ws_4", "ws_5"]), None)]
++    );
++}
++
++#[test]
++fn lone_linked_worktree_is_not_draggable() {
++    let mut snapshot = worktree_fixture(2);
++    snapshot.workspaces.truncate(3);
++    snapshot.agents.clear();
++    let mut state = tree_state(snapshot);
++    tall_rows(&mut state);
++    let alpha = workspace_row(&state, "ws_3").expect("alpha row");
++    let main = workspace_row(&state, "ws_2").expect("main row");
++    mouse(
++        &mut state,
++        MouseEventKind::Down(MouseButton::Left),
++        6,
++        alpha,
++    );
++    mouse(&mut state, MouseEventKind::Drag(MouseButton::Left), 6, main);
++    assert!(state.chrome_drag.is_none());
++}
++
++#[test]
++fn worktree_move_keeps_neighbours_and_hidden_spaces_in_place() {
++    // other; repo [main, beta, alpha] (+ a hidden checkout); mid; last.
++    let mut snapshot = snapshot();
++    let labels = ["other", "repo", "mid", "repo", "repo", "repo", "last"];
++    snapshot.workspaces = labels
++        .iter()
++        .enumerate()
++        .map(|(index, label)| workspace(index + 1, label, index == 0))
++        .collect();
++    linked(&mut snapshot, 2, "worktree/beta", true);
++    linked(&mut snapshot, 4, "main", false);
++    linked(&mut snapshot, 5, "worktree/hidden", true);
++    linked(&mut snapshot, 6, "worktree/alpha", true);
++    snapshot.workspaces[4]
++        .tokens
++        .push((SIDEBAR_HIDDEN_TOKEN.into(), "work".into()));
++    let method = |snapshot: &ClientShellSnapshot, id, before| {
++        crate::client::shell::tree::worktree_move_method(snapshot, None, id, before)
++    };
++    assert!(
++        method(&snapshot, "ws_2", Some("ws_6")).is_none(),
++        "already there"
++    );
++    assert!(
++        method(&snapshot, "ws_6", Some("ws_3")).is_none(),
++        "outside the group"
++    );
++    assert!(
++        method(&snapshot, "ws_6", Some("ws_5")).is_none(),
++        "hidden sibling"
++    );
++    assert!(method(&snapshot, "ws_4", None).is_none(), "main checkout");
++
++    let Some(crate::api::schema::Method::WorkspaceMoveBlock(params)) =
++        method(&snapshot, "ws_6", Some("ws_2"))
++    else {
++        panic!("alpha moves above beta");
++    };
++    assert_eq!(params.workspace_ids, ids(&["ws_4", "ws_6", "ws_2"]));
++    assert_eq!(params.before_workspace_id.as_deref(), Some("ws_3"));
++    apply_block(
++        &mut snapshot,
++        &params.workspace_ids,
++        params.before_workspace_id.as_deref(),
++    );
++    assert_eq!(
++        snapshot
++            .workspaces
++            .iter()
++            .map(|workspace| workspace.workspace_id.as_str())
++            .collect::<Vec<_>>(),
++        ["ws_1", "ws_4", "ws_6", "ws_2", "ws_3", "ws_5", "ws_7"],
++        "the hidden checkout keeps its place among unmoved Spaces"
++    );
++    let mut state = tree_state(snapshot);
++    let rows = tall_rows(&mut state)
++        .into_iter()
++        .filter(|row| !row.trim_matches(['│', ' ']).is_empty())
++        .collect::<Vec<_>>();
++    let tree = rows
++        .iter()
++        .skip(1)
++        .take(7)
++        .map(|row| row.split("  ").next().unwrap_or("").trim_end())
++        .collect::<Vec<_>>();
++    assert_eq!(
++        tree,
++        [
++            " other",
++            " repo",
++            " ├─ main",
++            " ├─ alpha",
++            " └─ beta",
++            " mid",
++            " last"
++        ],
++        "{rows:?}"
++    );
++}
++
++#[test]
++fn worktree_keys_step_the_focused_worktree_and_stop_at_the_ends() {
++    let press = |focused, action| {
++        let mut state = tree_state(worktree_fixture(focused));
++        tall_rows(&mut state);
++        let mut outcome = ClientShellInput::default();
++        state.record_binding(crate::input::KeybindMatch::Action(action), &mut outcome);
++        move_blocks(&outcome)
++    };
++    use crate::input::KeybindAction::{MoveWorktreeDown, MoveWorktreeUp};
++    assert_eq!(
++        press(4, MoveWorktreeUp),
++        vec![(ids(&["ws_2", "ws_4", "ws_3", "ws_5"]), Some("ws_6".into()))]
++    );
++    assert_eq!(
++        press(4, MoveWorktreeDown),
++        vec![(ids(&["ws_2", "ws_3", "ws_5", "ws_4"]), Some("ws_6".into()))]
++    );
++    assert!(press(3, MoveWorktreeUp).is_empty(), "top linked worktree");
++    assert!(
++        press(5, MoveWorktreeDown).is_empty(),
++        "bottom linked worktree"
++    );
++    assert!(press(2, MoveWorktreeDown).is_empty(), "main checkout");
++    assert!(press(1, MoveWorktreeDown).is_empty(), "ordinary Space");
++}
++
++#[test]
++fn worktree_keys_parse_and_appear_in_help() {
++    let config: Config = toml::from_str(
++        "[keys]\nmove_worktree_up = \"prefix+shift+k\"\nmove_worktree_down = \"prefix+shift+j\"\nswap_pane_up = \"prefix+ctrl+k\"\nswap_pane_down = \"prefix+ctrl+j\"\n",
++    )
++    .expect("config parses");
++    let shell = ClientShellConfig::from_config(&config);
++    let keybinds = &shell.keybinds.keybinds;
++    for (code, expected) in [
++        ('K', crate::input::KeybindAction::MoveWorktreeUp),
++        ('J', crate::input::KeybindAction::MoveWorktreeDown),
++    ] {
++        let key = crate::input::TerminalKey::new(
++            crossterm::event::KeyCode::Char(code),
++            crossterm::event::KeyModifiers::SHIFT,
++        );
++        assert!(
++            matches!(
++                crate::input::resolve_prefix_binding(keybinds, &key),
++                Some(crate::input::KeybindMatch::Action(action)) if action == expected
++            ),
++            "{code}"
++        );
++    }
++    let help = crate::input::keybind_help_groups(keybinds, shell.keybinds.prefix);
++    for description in ["move worktree up", "move worktree down"] {
++        assert!(help
++            .iter()
++            .flat_map(|(_, entries)| entries.iter())
++            .any(|(_, entry)| entry == description));
++    }
++}
 diff --git a/src/client/shell/tree.rs b/src/client/shell/tree.rs
 new file mode 100644
-index 0000000..f3533c2
+index 0000000..30d2552
 --- /dev/null
 +++ b/src/client/shell/tree.rs
-@@ -0,0 +1,1149 @@
+@@ -0,0 +1,1302 @@
 +//! Inline Spaces tree (`ui.sidebar.spaces.inline_agents`).
 +//!
 +//! One row document shared by rendering, scrolling, disclosure and hit-testing:
@@ -1913,6 +2428,159 @@ index 0000000..f3533c2
 +            .is_some_and(|worktree| worktree.is_linked_worktree)
 +    });
 +    members
++}
++
++fn is_linked_worktree(snapshot: &ClientShellSnapshot, index: usize) -> bool {
++    snapshot.workspaces[index]
++        .worktree
++        .as_ref()
++        .is_some_and(|worktree| worktree.is_linked_worktree)
++}
++
++/// A visible linked worktree's group: all visible members in tree order and
++/// the linked ones among them. None unless there is a sibling to reorder with.
++pub(super) fn linked_worktree_siblings(
++    snapshot: &ClientShellSnapshot,
++    keep_visible: Option<&str>,
++    workspace_id: &str,
++) -> Option<(Vec<usize>, Vec<usize>)> {
++    let visible = visible_workspaces(snapshot, keep_visible);
++    let source = visible
++        .iter()
++        .copied()
++        .find(|index| snapshot.workspaces[*index].workspace_id == workspace_id)?;
++    let worktree = snapshot.workspaces[source]
++        .worktree
++        .as_ref()
++        .filter(|worktree| worktree.is_linked_worktree)?;
++    let members = group_members(snapshot, &visible, &worktree.key);
++    let linked = members
++        .iter()
++        .copied()
++        .filter(|index| is_linked_worktree(snapshot, *index))
++        .collect::<Vec<_>>();
++    (linked.len() > 1).then_some((members, linked))
++}
++
++/// Move a linked worktree before a visible linked sibling (`None`: after the
++/// last). The whole visible group is rewritten as one block at its earliest
++/// member, where the tree anchors it, so neighbouring entries and Spaces
++/// hidden by `sidebar_hidden` keep their relative order. The main checkout
++/// stays first. None for a no-op or a target outside the group.
++pub(super) fn worktree_move_method(
++    snapshot: &ClientShellSnapshot,
++    keep_visible: Option<&str>,
++    workspace_id: &str,
++    before_workspace_id: Option<&str>,
++) -> Option<crate::api::schema::Method> {
++    let (members, linked) = linked_worktree_siblings(snapshot, keep_visible, workspace_id)?;
++    let id = |index: usize| snapshot.workspaces[index].workspace_id.clone();
++    let mut order = linked
++        .iter()
++        .copied()
++        .filter(|index| snapshot.workspaces[*index].workspace_id != workspace_id)
++        .collect::<Vec<_>>();
++    let insert = match before_workspace_id {
++        Some(target) => order
++            .iter()
++            .position(|index| snapshot.workspaces[*index].workspace_id == target)?,
++        None => order.len(),
++    };
++    let source = linked
++        .iter()
++        .copied()
++        .find(|index| snapshot.workspaces[*index].workspace_id == workspace_id)?;
++    order.insert(insert, source);
++    if order == linked {
++        return None;
++    }
++    let anchor = members.iter().copied().min()?;
++    let before = (anchor + 1..snapshot.workspaces.len())
++        .find(|index| !members.contains(index))
++        .map(id);
++    let workspace_ids = members
++        .iter()
++        .copied()
++        .filter(|index| !is_linked_worktree(snapshot, *index))
++        .chain(order)
++        .map(id)
++        .collect();
++    Some(crate::api::schema::Method::WorkspaceMoveBlock(
++        crate::api::schema::WorkspaceMoveBlockParams {
++            workspace_ids,
++            before_workspace_id: before,
++        },
++    ))
++}
++
++/// Keyboard step: one place up or down among linked siblings, stopping at
++/// either end rather than wrapping.
++pub(super) fn worktree_step_method(
++    snapshot: &ClientShellSnapshot,
++    keep_visible: Option<&str>,
++    workspace_id: &str,
++    down: bool,
++) -> Option<crate::api::schema::Method> {
++    let (_, linked) = linked_worktree_siblings(snapshot, keep_visible, workspace_id)?;
++    let position = linked
++        .iter()
++        .position(|index| snapshot.workspaces[*index].workspace_id == workspace_id)?;
++    let before = if down {
++        if position + 1 >= linked.len() {
++            return None;
++        }
++        linked.get(position + 2)
++    } else {
++        Some(linked.get(position.checked_sub(1)?)?)
++    };
++    let before = before.map(|index| snapshot.workspaces[*index].workspace_id.as_str());
++    worktree_move_method(snapshot, keep_visible, workspace_id, before)
++}
++
++/// Drop slots while dragging a linked worktree: the document row that shows
++/// the indicator and the sibling the source would precede (`None`: after the
++/// last). Only the source's own visible group is offered.
++pub(super) fn worktree_drop_slots(
++    inputs: &TreeInputs<'_>,
++    workspace_id: &str,
++) -> Vec<(Option<String>, usize)> {
++    let Some(snapshot) = active_endpoint_index(inputs)
++        .and_then(|endpoint| inputs.endpoints[endpoint].snapshot.as_deref())
++    else {
++        return Vec::new();
++    };
++    let Some((_, linked)) = linked_worktree_siblings(snapshot, inputs.keep_visible, workspace_id)
++    else {
++        return Vec::new();
++    };
++    let rows = document(inputs);
++    let position = |member: usize| {
++        rows.iter()
++            .position(|row| matches!(row, TreeRow::Space { index, .. } if *index == member))
++    };
++    let mut slots = Vec::new();
++    for &member in &linked {
++        // A folded repository has no rows to drop between.
++        let Some(row) = position(member) else {
++            return Vec::new();
++        };
++        slots.push((
++            Some(snapshot.workspaces[member].workspace_id.clone()),
++            row.saturating_sub(1),
++        ));
++    }
++    // After the last sibling's conversations.
++    let last = linked
++        .last()
++        .copied()
++        .and_then(position)
++        .unwrap_or_default();
++    let end = rows[last + 1..]
++        .iter()
++        .position(|row| !matches!(row, TreeRow::Agent { .. }))
++        .map_or(rows.len(), |offset| last + 1 + offset);
++    slots.push((None, end));
++    slots
 +}
 +
 +/// Agents in panel order, each with its workspace id.
@@ -2970,10 +3638,19 @@ index 6139fe0..fbf7028 100644
                  let collapsed_groups = if mobile && surface_available {
                      &empty_collapsed_groups
 diff --git a/src/config/keybinds.rs b/src/config/keybinds.rs
-index bec1af6..f16c27a 100644
+index bec1af6..369f450 100644
 --- a/src/config/keybinds.rs
 +++ b/src/config/keybinds.rs
-@@ -335,6 +335,8 @@ pub struct Keybinds {
+@@ -324,6 +324,8 @@ pub struct Keybinds {
+     pub new_worktree: ActionKeybinds,
+     pub open_worktree: ActionKeybinds,
+     pub remove_worktree: ActionKeybinds,
++    pub move_worktree_up: ActionKeybinds,
++    pub move_worktree_down: ActionKeybinds,
+     pub rename_workspace: ActionKeybinds,
+     pub close_workspace: ActionKeybinds,
+     pub workspace_picker: ActionKeybinds,
+@@ -335,6 +337,8 @@ pub struct Keybinds {
      pub next_workspace: ActionKeybinds,
      pub previous_agent: ActionKeybinds,
      pub next_agent: ActionKeybinds,
@@ -2982,7 +3659,16 @@ index bec1af6..f16c27a 100644
      pub focus_agent: Vec<IndexedKeybind>,
      pub new_tab: ActionKeybinds,
      pub rename_tab: ActionKeybinds,
-@@ -503,6 +505,8 @@ impl Config {
+@@ -492,6 +496,8 @@ impl Config {
+             new_worktree: empty_action!(),
+             open_worktree: empty_action!(),
+             remove_worktree: empty_action!(),
++            move_worktree_up: empty_action!(),
++            move_worktree_down: empty_action!(),
+             rename_workspace: empty_action!(),
+             close_workspace: empty_action!(),
+             workspace_picker: empty_action!(),
+@@ -503,6 +509,8 @@ impl Config {
              next_workspace: empty_action!(),
              previous_agent: empty_action!(),
              next_agent: empty_action!(),
@@ -2991,7 +3677,16 @@ index bec1af6..f16c27a 100644
              focus_agent: Vec::new(),
              new_tab: empty_action!(),
              rename_tab: empty_action!(),
-@@ -635,6 +639,8 @@ impl Config {
+@@ -620,6 +628,8 @@ impl Config {
+             apply_action!(keybinds.new_worktree, new_worktree, source);
+             apply_action!(keybinds.open_worktree, open_worktree, source);
+             apply_action!(keybinds.remove_worktree, remove_worktree, source);
++            apply_action!(keybinds.move_worktree_up, move_worktree_up, source);
++            apply_action!(keybinds.move_worktree_down, move_worktree_down, source);
+             apply_action!(keybinds.rename_workspace, rename_workspace, source);
+             apply_action!(keybinds.close_workspace, close_workspace, source);
+             apply_action!(keybinds.workspace_picker, workspace_picker, source);
+@@ -635,6 +645,8 @@ impl Config {
              apply_action!(keybinds.next_workspace, next_workspace, source);
              apply_action!(keybinds.previous_agent, previous_agent, source);
              apply_action!(keybinds.next_agent, next_agent, source);
@@ -3001,7 +3696,7 @@ index bec1af6..f16c27a 100644
                  keybinds.focus_agent,
                  focus_agent,
 diff --git a/src/config/model.rs b/src/config/model.rs
-index 6ef6274..929521a 100644
+index 6ef6274..689e1d6 100644
 --- a/src/config/model.rs
 +++ b/src/config/model.rs
 @@ -11,6 +11,20 @@ use super::{
@@ -3025,7 +3720,18 @@ index 6ef6274..929521a 100644
  #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
  #[serde(rename_all = "lowercase")]
  pub enum UpdateChannelConfig {
-@@ -379,6 +393,10 @@ pub struct KeysConfig {
+@@ -345,6 +359,10 @@ pub struct KeysConfig {
+     pub open_worktree: BindingConfig,
+     /// Delete the selected managed worktree checkout after confirmation. Unset by default.
+     pub remove_worktree: BindingConfig,
++    /// Move the focused linked worktree up within its repository. Unset by default.
++    pub move_worktree_up: BindingConfig,
++    /// Move the focused linked worktree down within its repository. Unset by default.
++    pub move_worktree_down: BindingConfig,
+     /// Rename the selected workspace. Default: "prefix+shift+w"
+     pub rename_workspace: BindingConfig,
+     /// Close the selected workspace. Default: "prefix+shift+d"
+@@ -379,6 +397,10 @@ pub struct KeysConfig {
      pub previous_agent: BindingConfig,
      /// Focus the next agent shown in the agent panel. Unset by default.
      pub next_agent: BindingConfig,
@@ -3036,7 +3742,18 @@ index 6ef6274..929521a 100644
      /// Focus an agent by index 1-9. Unset by default.
      pub focus_agent: BindingConfig,
      /// Local-client shortcut that sends a clipboard image to a remote Herdr session. Default: "ctrl+v".
-@@ -511,6 +529,10 @@ pub(crate) struct KeysConfigOverlay {
+@@ -477,6 +499,10 @@ pub(crate) struct KeysConfigOverlay {
+     #[serde(skip_serializing_if = "Option::is_none")]
+     remove_worktree: Option<BindingConfig>,
+     #[serde(skip_serializing_if = "Option::is_none")]
++    move_worktree_up: Option<BindingConfig>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    move_worktree_down: Option<BindingConfig>,
++    #[serde(skip_serializing_if = "Option::is_none")]
+     rename_workspace: Option<BindingConfig>,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     close_workspace: Option<BindingConfig>,
+@@ -511,6 +537,10 @@ pub(crate) struct KeysConfigOverlay {
      #[serde(skip_serializing_if = "Option::is_none")]
      next_agent: Option<BindingConfig>,
      #[serde(skip_serializing_if = "Option::is_none")]
@@ -3047,7 +3764,16 @@ index 6ef6274..929521a 100644
      focus_agent: Option<BindingConfig>,
      #[serde(skip_serializing_if = "Option::is_none")]
      remote_image_paste: Option<String>,
-@@ -633,6 +655,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
+@@ -616,6 +646,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
+         apply_field!(new_worktree);
+         apply_field!(open_worktree);
+         apply_field!(remove_worktree);
++        apply_field!(move_worktree_up);
++        apply_field!(move_worktree_down);
+         apply_field!(rename_workspace);
+         apply_field!(close_workspace);
+         apply_field!(workspace_picker);
+@@ -633,6 +665,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
          apply_field!(next_workspace);
          apply_field!(previous_agent);
          apply_field!(next_agent);
@@ -3056,7 +3782,16 @@ index 6ef6274..929521a 100644
          apply_field!(focus_agent);
          apply_field!(remote_image_paste);
          apply_field!(new_tab);
-@@ -737,6 +761,8 @@ impl KeysConfig {
+@@ -720,6 +754,8 @@ impl KeysConfig {
+         copy_effective_action_field!(new_worktree, keybinds.new_worktree);
+         copy_effective_action_field!(open_worktree, keybinds.open_worktree);
+         copy_effective_action_field!(remove_worktree, keybinds.remove_worktree);
++        copy_effective_action_field!(move_worktree_up, keybinds.move_worktree_up);
++        copy_effective_action_field!(move_worktree_down, keybinds.move_worktree_down);
+         copy_effective_action_field!(rename_workspace, keybinds.rename_workspace);
+         copy_effective_action_field!(close_workspace, keybinds.close_workspace);
+         copy_effective_action_field!(workspace_picker, keybinds.workspace_picker);
+@@ -737,6 +773,8 @@ impl KeysConfig {
          copy_effective_action_field!(next_workspace, keybinds.next_workspace);
          copy_effective_action_field!(previous_agent, keybinds.previous_agent);
          copy_effective_action_field!(next_agent, keybinds.next_agent);
@@ -3065,7 +3800,7 @@ index 6ef6274..929521a 100644
          copy_effective_indexed_field!(focus_agent, keybinds.focus_agent);
          copy_user_field!(remote_image_paste);
          copy_effective_action_field!(new_tab, keybinds.new_tab);
-@@ -938,12 +964,19 @@ pub struct UiConfig {
+@@ -938,12 +976,19 @@ pub struct UiConfig {
      pub pane_borders: PaneBordersConfig,
      /// Draw borders along the outside edge of the pane area. Default: true.
      pub pane_outer_borders: bool,
@@ -3085,7 +3820,16 @@ index 6ef6274..929521a 100644
      /// Hide the tab row when the workspace has one tab. Default: false.
      pub hide_tab_bar_when_single_tab: bool,
      /// Desktop tab row placement. Default: top.
-@@ -1105,6 +1138,8 @@ impl Default for KeysConfig {
+@@ -1088,6 +1133,8 @@ impl Default for KeysConfig {
+             new_worktree: BindingConfig::one("prefix+shift+g"),
+             open_worktree: BindingConfig::empty(),
+             remove_worktree: BindingConfig::empty(),
++            move_worktree_up: BindingConfig::empty(),
++            move_worktree_down: BindingConfig::empty(),
+             rename_workspace: BindingConfig::one("prefix+shift+w"),
+             close_workspace: BindingConfig::one("prefix+shift+d"),
+             workspace_picker: BindingConfig::one("prefix+w"),
+@@ -1105,6 +1152,8 @@ impl Default for KeysConfig {
              next_workspace: BindingConfig::empty(),
              previous_agent: BindingConfig::empty(),
              next_agent: BindingConfig::empty(),
@@ -3094,7 +3838,7 @@ index 6ef6274..929521a 100644
              focus_agent: BindingConfig::empty(),
              remote_image_paste: "ctrl+v".into(),
              new_tab: BindingConfig::one("prefix+c"),
-@@ -1175,9 +1210,12 @@ impl Default for UiConfig {
+@@ -1175,9 +1224,12 @@ impl Default for UiConfig {
              prompt_new_workspace_name: false,
              pane_borders: PaneBordersConfig::Auto,
              pane_outer_borders: true,
@@ -3107,7 +3851,7 @@ index 6ef6274..929521a 100644
              hide_tab_bar_when_single_tab: false,
              tab_bar_position: TabBarPositionConfig::Top,
              tab_bar_right: Vec::new(),
-@@ -1477,9 +1515,12 @@ status_indicators = "symbols"
+@@ -1477,9 +1529,12 @@ status_indicators = "symbols"
          let default_config = Config::default();
          assert_eq!(default_config.ui.pane_borders, PaneBordersConfig::Auto);
          assert!(default_config.ui.pane_outer_borders);
@@ -3120,7 +3864,7 @@ index 6ef6274..929521a 100644
          assert!(!default_config.ui.hide_tab_bar_when_single_tab);
          assert_eq!(
              default_config.ui.tab_bar_position,
-@@ -1492,9 +1533,12 @@ status_indicators = "symbols"
+@@ -1492,9 +1547,12 @@ status_indicators = "symbols"
  [ui]
  pane_borders = "always"
  pane_outer_borders = false
@@ -3133,7 +3877,7 @@ index 6ef6274..929521a 100644
  hide_tab_bar_when_single_tab = true
  tab_bar_position = "bottom"
  tab_bar_right = [
-@@ -1509,9 +1553,12 @@ tab_bar_right_separator = " · "
+@@ -1509,9 +1567,12 @@ tab_bar_right_separator = " · "
          let config: Config = toml::from_str(toml).unwrap();
          assert_eq!(config.ui.pane_borders, PaneBordersConfig::Always);
          assert!(!config.ui.pane_outer_borders);
@@ -3146,7 +3890,7 @@ index 6ef6274..929521a 100644
          assert!(config.ui.hide_tab_bar_when_single_tab);
          assert_eq!(config.ui.tab_bar_position, TabBarPositionConfig::Bottom);
          assert_eq!(config.ui.tab_bar_right.len(), 5);
-@@ -1522,6 +1569,18 @@ tab_bar_right_separator = " · "
+@@ -1522,6 +1583,18 @@ tab_bar_right_separator = " · "
          assert_eq!(config.ui.tab_bar_right_separator, " · ");
      }
  
@@ -3188,10 +3932,25 @@ index 9a4cb5e..f27445f 100644
                  vec![SpaceSidebarToken::StateIcon, SpaceSidebarToken::Workspace],
                  vec![SpaceSidebarToken::Branch, SpaceSidebarToken::GitStatus],
 diff --git a/src/input/keybind_help.rs b/src/input/keybind_help.rs
-index e9462b9..e5f0243 100644
+index e9462b9..e4c5846 100644
 --- a/src/input/keybind_help.rs
 +++ b/src/input/keybind_help.rs
-@@ -138,6 +138,11 @@ pub(crate) fn keybind_help_groups(
+@@ -122,6 +122,14 @@ pub(crate) fn keybind_help_groups(
+                     binding_label(&keybinds.remove_worktree),
+                     "delete worktree checkout",
+                 ),
++                entry(
++                    binding_label(&keybinds.move_worktree_up),
++                    "move worktree up",
++                ),
++                entry(
++                    binding_label(&keybinds.move_worktree_down),
++                    "move worktree down",
++                ),
+                 entry(
+                     binding_label(&keybinds.rename_workspace),
+                     "rename workspace",
+@@ -138,6 +146,11 @@ pub(crate) fn keybind_help_groups(
                  ),
                  entry(binding_label(&keybinds.previous_agent), "previous agent"),
                  entry(binding_label(&keybinds.next_agent), "next agent"),
@@ -3204,10 +3963,19 @@ index e9462b9..e5f0243 100644
                  entry(binding_label(&keybinds.new_tab), "new tab"),
                  entry(binding_label(&keybinds.rename_tab), "rename tab"),
 diff --git a/src/input/keybindings.rs b/src/input/keybindings.rs
-index d56de80..500e284 100644
+index d56de80..b014086 100644
 --- a/src/input/keybindings.rs
 +++ b/src/input/keybindings.rs
-@@ -32,6 +32,8 @@ pub(crate) enum KeybindAction {
+@@ -22,6 +22,8 @@ pub(crate) enum KeybindAction {
+     NewWorktree,
+     OpenWorktree,
+     RemoveWorktree,
++    MoveWorktreeUp,
++    MoveWorktreeDown,
+     RenameWorkspace,
+     CloseWorkspace,
+     SwitchWorkspace(usize),
+@@ -32,6 +34,8 @@ pub(crate) enum KeybindAction {
      NextWorkspace,
      PreviousAgent,
      NextAgent,
@@ -3216,7 +3984,19 @@ index d56de80..500e284 100644
      NewTab,
      RenameTab,
      PreviousTab,
-@@ -111,6 +113,8 @@ pub(crate) fn resolve_non_indexed_action(
+@@ -102,6 +106,11 @@ pub(crate) fn resolve_non_indexed_action(
+         (&keybinds.new_worktree, KeybindAction::NewWorktree),
+         (&keybinds.open_worktree, KeybindAction::OpenWorktree),
+         (&keybinds.remove_worktree, KeybindAction::RemoveWorktree),
++        (&keybinds.move_worktree_up, KeybindAction::MoveWorktreeUp),
++        (
++            &keybinds.move_worktree_down,
++            KeybindAction::MoveWorktreeDown,
++        ),
+         (&keybinds.rename_workspace, KeybindAction::RenameWorkspace),
+         (&keybinds.close_workspace, KeybindAction::CloseWorkspace),
+         (
+@@ -111,6 +120,8 @@ pub(crate) fn resolve_non_indexed_action(
          (&keybinds.next_workspace, KeybindAction::NextWorkspace),
          (&keybinds.previous_agent, KeybindAction::PreviousAgent),
          (&keybinds.next_agent, KeybindAction::NextAgent),
@@ -3306,10 +4086,19 @@ index c46a075..400c0b3 100644
      fn insert_pane_near_unfocused_keeps_focus_and_history() {
          let mut layout = sample_layout();
 diff --git a/src/main.rs b/src/main.rs
-index 8cfe9b0..4e42f50 100644
+index 8cfe9b0..a8b2219 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -159,6 +159,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -153,12 +153,18 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+ # new_worktree = "prefix+shift+g"
+ # open_worktree = ""    # optional, unset by default
+ # remove_worktree = ""  # optional, unset by default; opens confirmation
++# Reorder the focused linked worktree within its repository in the Spaces sidebar.
++# move_worktree_up = ""   # optional, unset by default
++# move_worktree_down = "" # optional, unset by default
+ # rename_workspace = "prefix+shift+w"
+ # close_workspace = "prefix+shift+d"
+ # previous_workspace = "" # optional, unset by default
  # next_workspace = ""     # optional, unset by default
  # previous_agent = ""     # optional, unset by default
  # next_agent = ""         # optional, unset by default
@@ -3319,7 +4108,7 @@ index 8cfe9b0..4e42f50 100644
  # focus_agent = ""        # optional indexed binding, e.g. "prefix+alt+1..9"
  # remote_image_paste = "ctrl+v" # only active in herdr --remote; empty disables raw-key image paste
  # new_tab = "prefix+c"
-@@ -295,6 +298,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -295,6 +301,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # Disable for tmux-style internal splitters without an outside frame.
  # pane_outer_borders = true
  
@@ -3329,7 +4118,7 @@ index 8cfe9b0..4e42f50 100644
  # Draw interactive scrollbars beside terminal panes.
  # Set false to reclaim the scrollbar column and keep it out of terminal-native selections.
  # pane_scrollbars = true
-@@ -305,6 +311,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -305,6 +314,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # Show detected/reported agent labels in split pane borders when no manual pane name is set.
  # show_agent_labels_on_pane_borders = false
  
