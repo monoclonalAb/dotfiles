@@ -147,6 +147,9 @@ test("MCP status stays at the right edge while other extension statuses stay on 
     modelRegistry: { isUsingOAuth: () => false },
     sessionManager: {
       getEntries: () => [],
+      getEntryCount: () => 0,
+      getSessionId: () => "test",
+      getLeafId: () => null,
       getCwd: () => "/tmp",
       getSessionName: () => undefined,
     },
@@ -207,6 +210,9 @@ test("TUI registration replaces the header and wins over the adapter's verbose s
     modelRegistry: { isUsingOAuth: () => false },
     sessionManager: {
       getEntries: () => [],
+      getEntryCount: () => 0,
+      getSessionId: () => "test",
+      getLeafId: () => null,
       getCwd: () => root,
       getSessionName: () => undefined,
     },
