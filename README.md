@@ -57,7 +57,7 @@ AeroSpace's Accessibility permission, tmux `C-a I`, and the first `nvim` launch.
 configuration (Homebrew and Herdr may still write their own caches and locks).
 
 What carries over: every file in the packages, including Pi's settings (default
-and enabled models, `pi-mcp-adapter`) and model overrides, the p10k prompt, and the
+and enabled models), MCP servers and model overrides, the p10k prompt, and the
 git identity. What does not: credentials and sign-ins, SSH keys,
 `~/.config/mcp/mcp.json`, machine-local LaunchAgents, app data (such as the
 Obsidian vault), and the [personal bits](#personal-bits--edit-or-skip) tied to
@@ -525,6 +525,9 @@ neovim     found 3 instance(s)
 Pi is the primary interactive harness on this machine. Register and verify
 agent-facing capabilities for Pi first; OMP entries are optional extras.
 After changing an extension, prompt or MCP file, run `/reload` in idle Pi sessions.
+Pi writes `/settings`, `/model` and changelog updates through the tracked
+[`settings.json`](pi/.pi/agent/settings.json) link, so review and commit them like
+any other change.
 
 ### Extensions and prompts
 
@@ -568,29 +571,35 @@ for guards and recovery.
 
 ### MCP servers
 
-Pi loads MCP servers through `pi-mcp-adapter`, a package listed in the tracked
-[`settings.json`](pi/.pi/agent/settings.json); Pi installs it on first start. Pi
-writes `/settings`, `/model` and changelog updates through that link, so review and
-commit them like any other change. The adapter merges configuration in rising precedence:
+Pi's built-in MCP support reads two files; there is no MCP package to install:
 
 | File | Owner | Use |
 | --- | --- | --- |
-| `~/.config/mcp/mcp.json` | Host-local, **not** in this repository | Hosted OAuth/token servers (Linear, Notion, Penpot); may hold secrets |
-| [`pi/.pi/agent/mcp.json`](pi/.pi/agent/mcp.json) → `~/.pi/agent/mcp.json` | This repository | Managed global servers below |
-| `<repo>/.pi/mcp.json` | Each project | Overrides; `/mcp enable` / `/mcp disable` write here |
+| [`pi/.pi/agent/mcp.json`](pi/.pi/agent/mcp.json) → `~/.pi/agent/mcp.json` | This repository | Global servers below; Linear and Notion are listed disabled |
+| `<repo>/.pi/mcp.json` | Each project, read only once the project is trusted | Per-project enable/disable |
 
-Confirm changes with `/reload` then `/mcp`.
+A project entry **replaces** the global entry of the same name, so it must repeat the
+full `command` or `url`, plus `"enabled": false` to disable it (see this repository's
+[`.pi/mcp.json`](.pi/mcp.json)). `/mcp` toggles and exposure changes are written to
+the file that defines the server; for global servers that is the tracked file, so
+review them like `settings.json` changes. Every enabled server connects when a session
+starts (there is no lazy mode); `pi mcp list` connects each one and reports errors,
+and `/reload` applies changes to a running session. OAuth sign-ins (`pi mcp login
+<server>`) are stored in `~/.pi/agent/mcp-auth.json`. Tools default to `codemode`
+exposure: the model calls them from `codemode` scripts. Penpot stays only in the
+host-local `~/.config/mcp/mcp.json`, which Pi no longer reads: its token is part of
+the URL, and Pi does not expand variables in URLs.
 
 - **gcloud** and **gcp-observability** use the same pinned packages as OMP and start
-  on demand (needs `npx` and the gcloud CLI). gcloud is read-only only because of
-  the `-c` [allowlist](omp/.omp/agent/gcloud-mcp-allowlist.json); keep it. Neither
-  restricts projects: they use your Google IAM, so pass explicit project IDs. The
-  host-local `~/Desktop/projects/DE/.pi/mcp.json` connects both eagerly there. If
-  auth has expired, run `gcloud auth login` and `gcloud auth application-default
+  with every session (needs `npx` and the gcloud CLI). gcloud is read-only only
+  because of the `-c` [allowlist](omp/.omp/agent/gcloud-mcp-allowlist.json); keep it.
+  Neither restricts projects: they use your Google IAM, so pass explicit project IDs.
+  If auth has expired, run `gcloud auth login` and `gcloud auth application-default
   login`, then `/mcp reconnect <server>`. Calling `run_gcloud_command` with
   `{"args":["version"]}` must be rejected by the allowlist.
 - **paper** connects to Paper Desktop at `http://127.0.0.1:29979/mcp` when a file
-  is open. It can edit the open design.
+  is open. It can edit the open design. While Paper is closed, each session start
+  reports it as failed; `/mcp reconnect paper` after opening Paper.
 - **workspace-context** is this repository's own read-only index of every repository
   under `~/Desktop/projects` and `~/dotfiles`
   ([README](bin/.local/lib/workspace-context-mcp/README.md)). It runs

@@ -20,9 +20,6 @@
     "blockImages": false
   },
   "hideThinkingBlock": true,
-  "packages": [
-    "npm:pi-mcp-adapter@2.32.1"
-  ],
   "quietStartup": true,
   "modelThinkingLevels": {
     "openai-codex/gpt-5.6-luna": "max",

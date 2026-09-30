@@ -62,7 +62,7 @@ consumer; do not fix generated output or add a second writer.
 | Pi extension command, UI, or display metadata | `pi/.pi/agent/extensions/README.md`, then owning extension | `bin/.local/bin/pi` and installed Pi API → focused suite → safe fresh-session check |
 | Pi prompt template | `pi/.pi/agent/prompts/*.md` | Global prompt discovery → explicit `/name` invocation |
 | Click Pi file links into Neovim | `pi/.pi/agent/extensions/local-file-links/README.md` | File URLs → Alacritty hint → `bin/.local/bin/terminal-open` → Neovim |
-| Add an MCP server | `pi/.pi/agent/mcp.json`, optionally `omp/.omp/agent/mcp.json` | `/reload`, then `/mcp` in Pi lists it |
+| Add an MCP server | `pi/.pi/agent/mcp.json`, optionally `omp/.omp/agent/mcp.json` | Pi's built-in MCP support; `pi mcp list` connects it, then `/reload` and `/mcp` |
 | OMP defaults, tools, skills | `omp/.omp/agent/` | Global deployment versus project `.omp/`; consuming task and installed harness, not the model name |
 | Workspace repository index for agents | `bin/.local/lib/workspace-context-mcp/README.md` | Launcher → stdio MCP; Node suite, then `workspace-context-mcp doctor` |
 | Shell or editor startup | `zsh/.zshenv`, `zsh/.config/zsh/.zshrc`, `nvim/.config/nvim/init.lua` | Startup sources → command/plugin consumer; distinguish syntax from startup side effects |
@@ -147,9 +147,9 @@ process are deployment/runtime outputs and do not belong in Git.
 
 **Pi is the primary interactive harness; OMP is secondary.** Register and verify
 agent capabilities for Pi first, then optionally mirror them to OMP. Pi's managed
-MCP registrations are in [`pi/.pi/agent/mcp.json`](../pi/.pi/agent/mcp.json)
-(merged by `pi-mcp-adapter` above host-local `~/.config/mcp/mcp.json` and below a
-project's `.pi/mcp.json`). [`omp/.omp/agent/`](../omp/.omp/agent/) contains
+MCP registrations are in [`pi/.pi/agent/mcp.json`](../pi/.pi/agent/mcp.json), read
+by Pi's built-in MCP support; a trusted project's `.pi/mcp.json` replaces entries
+of the same name. [`omp/.omp/agent/`](../omp/.omp/agent/) contains
 cross-repository OMP defaults, tooling catalogues, agents, and global or scoped
 skills. Scoped skills are inert until a project links them.
 [`pi/.pi/agent/extensions/`](../pi/.pi/agent/extensions/) contains globally

@@ -41,7 +41,7 @@ an execution plan for implementation history.
 | Q-002 | Knowledge-base structure and freshness rely on review | A lightweight check catches broken local links and uncatalogued required documents; a documented gardening pass handles semantic drift |
 | Q-003 | The theme orchestrator has no automated tests | State transitions and generated Alacritty, Herdr, and tmux outputs are exercised in temporary directories without contacting live applications |
 | Q-005 | Operational detail is concentrated in the long root README | Frequently changed subsystem rationale moves to one canonical linked document without weakening the README's setup path |
-| Q-006 | Pi MCP registration is verified by hand (`/reload`, `/mcp`) | A read-only check confirms every enabled command server in `omp/.omp/agent/mcp.json` is also in `pi/.pi/agent/mcp.json` and that the deployed file is the Stow link |
+| Q-006 | Pi MCP registration is checked only by `pi mcp list`, which starts every enabled server; nothing compares it with OMP's | A read-only check confirms every enabled command server in `omp/.omp/agent/mcp.json` is also in `pi/.pi/agent/mcp.json` and that the deployed file is the Stow link |
 | Q-007 | A Herdr live handoff regenerates internal terminal IDs, so next-agent's recycle guard can drop unread flags | An isolated old → new handoff keeps unread split siblings while still resetting genuinely recycled panes |
 
 ## Gardening rule
