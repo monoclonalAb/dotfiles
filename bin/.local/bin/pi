@@ -29,7 +29,7 @@ done
 # session flags. Let them pass through unchanged.
 apply_session_defaults=true
 case "${1-}" in
-    auth|config|install|remove|list|update) apply_session_defaults=false ;;
+    auth|config|install|remove|list|update|mcp) apply_session_defaults=false ;;
 esac
 
 # Insert session defaults where they remain options: before a literal "--"
