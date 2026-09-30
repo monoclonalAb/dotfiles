@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import {
   CONFIG_DIR_NAME,
@@ -13,9 +13,6 @@ import {
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
-
-export const MCP_STATUS_EVENT = "pi-mcp-adapter/status/v1";
-export const MCP_STATUS_KEY = "mcp";
 
 export interface ExtensionDescriptor {
   path: string;
@@ -226,45 +223,91 @@ export interface McpCounts {
   total: number;
 }
 
-export function mcpCounts(value: unknown): McpCounts | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const envelope = value as { version?: unknown; servers?: unknown };
-  if (envelope.version !== 1 || !Array.isArray(envelope.servers)) return undefined;
-  const enabled = envelope.servers.reduce((count, server) => {
-    if (!server || typeof server !== "object") return count;
-    return count + ((server as { disabled?: unknown }).disabled === true ? 0 : 1);
-  }, 0);
-  return { enabled, total: envelope.servers.length };
+type McpServerLike = { enabled?: unknown };
+type RegisteredMcpServerLike = { name: string; config: McpServerLike };
+
+const MCP_SERVER_NAME = /^[A-Za-z0-9_-]+$/;
+
+/** Entries Pi's built-in MCP loader keeps: a valid name with a stdio `command` or an HTTP `url`. */
+function mcpServerEntries(path: string): [string, McpServerLike][] {
+  try {
+    const servers = (JSON.parse(readFileSync(path, "utf8")) as { mcpServers?: unknown } | null)?.mcpServers;
+    if (!servers || typeof servers !== "object" || Array.isArray(servers)) return [];
+    return Object.entries(servers).filter((entry): entry is [string, McpServerLike] => {
+      const [name, value] = entry;
+      if (!MCP_SERVER_NAME.test(name) || !value || typeof value !== "object" || Array.isArray(value)) return false;
+      const server = value as { command?: unknown; url?: unknown; type?: unknown };
+      return server.type !== "sse" && (typeof server.command === "string" || typeof server.url === "string");
+    });
+  } catch {
+    return [];
+  }
 }
 
-/** Backwards-compatible access to the enabled half of the MCP status. */
-export function enabledMcpCount(value: unknown): number | undefined {
-  return mcpCounts(value)?.enabled;
+/**
+ * Count servers as Pi's built-in MCP support merges them: later files (the trusted project's
+ * `.pi/mcp.json`) replace earlier entries of the same name, extension-registered servers count
+ * unless a file defines their name, and `enabled: false` disables a server.
+ */
+export function mcpCounts(
+  configPaths: readonly string[],
+  registered: readonly RegisteredMcpServerLike[] = [],
+): McpCounts {
+  const servers = new Map<string, McpServerLike>();
+  for (const path of configPaths) {
+    for (const [name, config] of mcpServerEntries(path)) servers.set(name, config);
+  }
+  for (const { name, config } of registered) {
+    if (!servers.has(name)) servers.set(name, config);
+  }
+  let enabled = 0;
+  for (const config of servers.values()) if (config.enabled !== false) enabled++;
+  return { enabled, total: servers.size };
 }
 
-export function isRoutineMcpNotice(message: string, type?: "info" | "warning" | "error"): boolean {
-  if (type !== "info") return false;
-  return /^MCP: (?:All \d+ server\(s\) are disabled|\d+(?:\/\d+)? servers connected \(\d+ tools\))$/.test(message);
+function fileSignature(path: string): string {
+  try {
+    const stats = statSync(path);
+    return `${stats.mtimeMs}:${stats.size}`;
+  } catch {
+    return "missing";
+  }
 }
 
-function withoutMcpStatus(footerData: ReadonlyFooterDataProvider): ReadonlyFooterDataProvider {
-  return {
-    getGitBranch: () => footerData.getGitBranch(),
-    getExtensionStatuses: () => {
-      const statuses = new Map(footerData.getExtensionStatuses());
-      statuses.delete(MCP_STATUS_KEY);
-      return statuses;
-    },
-    getAvailableProviderCount: () => footerData.getAvailableProviderCount(),
-    onBranchChange: (callback) => footerData.onBranchChange(callback),
+/**
+ * The footer asks on every render, so recount only when a config file or the registered servers
+ * change. `/mcp` saves enable/disable toggles to the file that defines the server.
+ */
+export function createMcpCounter(
+  configPaths: () => readonly string[],
+  registered: () => readonly RegisteredMcpServerLike[],
+): () => McpCounts {
+  let key: string | undefined;
+  let counts: McpCounts = { enabled: 0, total: 0 };
+  return () => {
+    const paths = configPaths();
+    const servers = registered();
+    const next = JSON.stringify([
+      paths.map((path) => [path, fileSignature(path)]),
+      servers.map(({ name, config }) => [name, config.enabled]),
+    ]);
+    if (next !== key) {
+      key = next;
+      counts = mcpCounts(paths, servers);
+    }
+    return counts;
   };
 }
 
-/** Keep Pi's native footer, but reserve its right edge for the MCP status. */
+/** Keep Pi's native footer, but reserve its right edge for the MCP server count. */
 export class McpAlignedFooter implements Component {
   private readonly native: FooterComponent;
 
-  constructor(private readonly ctx: ExtensionContext, private readonly footerData: ReadonlyFooterDataProvider) {
+  constructor(
+    private readonly ctx: ExtensionContext,
+    private readonly footerData: ReadonlyFooterDataProvider,
+    private readonly mcpStatus: () => string | undefined,
+  ) {
     const sessionView = {
       get state() {
         return { model: ctx.model, thinkingLevel: ctx.thinkingLevel };
@@ -278,17 +321,16 @@ export class McpAlignedFooter implements Component {
         },
       },
     };
-    this.native = new FooterComponent(sessionView as never, withoutMcpStatus(footerData));
+    this.native = new FooterComponent(sessionView as never, footerData);
   }
 
   render(width: number): string[] {
     const lines = this.native.render(width);
-    const statuses = this.footerData.getExtensionStatuses();
-    const mcp = statuses.get(MCP_STATUS_KEY);
+    const mcp = this.mcpStatus();
     if (mcp === undefined) return lines;
 
-    const hasOtherStatuses = [...statuses.keys()].some((key) => key !== MCP_STATUS_KEY);
-    const left = hasOtherStatuses ? lines.pop() ?? "" : "";
+    // Pi renders extension statuses as the footer's last line; share it with the MCP count.
+    const left = this.footerData.getExtensionStatuses().size > 0 ? lines.pop() ?? "" : "";
     const right = truncateToWidth(mcp, Math.max(0, width), "");
     if (right.length === 0) {
       lines.push("");
@@ -312,45 +354,29 @@ export class McpAlignedFooter implements Component {
 }
 
 export function registerCompactUi(pi: ExtensionAPI, options: RegisterOptions = {}): void {
-  let current: ExtensionContext | undefined;
-  let generation = 0;
-  let restoreNotify: (() => void) | undefined;
   let restoreFooter: (() => void) | undefined;
 
-  const unsubscribeMcp = pi.events.on(MCP_STATUS_EVENT, (snapshot) => {
-    const counts = mcpCounts(snapshot);
-    const owner = current;
-    const activeGeneration = generation;
-    if (counts === undefined || !owner) return;
-    // pi-mcp-adapter publishes immediately before writing its own verbose status.
-    // Defer one microtask so this public snapshot remains the final compact value.
-    queueMicrotask(() => {
-      if (current !== owner || generation !== activeGeneration) return;
-      owner.ui.setStatus(MCP_STATUS_KEY, owner.ui.theme.fg("dim", `MCP: ${counts.enabled}/${counts.total}`));
-    });
-  });
-
   pi.on("session_start", (_event, ctx) => {
-    generation++;
-    restoreNotify?.();
-    restoreNotify = undefined;
     restoreFooter?.();
     restoreFooter = undefined;
-    current = ctx.mode === "tui" ? ctx : undefined;
-    if (!current) return;
+    if (ctx.mode !== "tui") return;
+    const agentDir = options.agentDir ?? getAgentDir();
+    const countMcp = createMcpCounter(
+      () => [
+        join(agentDir, "mcp.json"),
+        ...(ctx.isProjectTrusted() ? [join(ctx.cwd, CONFIG_DIR_NAME, "mcp.json")] : []),
+      ],
+      () => pi.getMcpServers(),
+    );
+    const mcpStatus = () => {
+      const { enabled, total } = countMcp();
+      return total > 0 ? ctx.ui.theme.fg("dim", `MCP: ${enabled}/${total}`) : undefined;
+    };
     const ui = ctx.ui;
-    const originalNotify = ui.notify;
-    const compactNotify = (message: string, type?: "info" | "warning" | "error") => {
-      if (!isRoutineMcpNotice(message, type)) originalNotify(message, type);
-    };
-    ui.notify = compactNotify;
-    restoreNotify = () => {
-      if (ui.notify === compactNotify) ui.notify = originalNotify;
-    };
-    ui.setFooter((_tui, _theme, footerData) => new McpAlignedFooter(ctx, footerData));
+    ui.setFooter((_tui, _theme, footerData) => new McpAlignedFooter(ctx, footerData, mcpStatus));
     restoreFooter = () => ui.setFooter(undefined);
     const contexts = contextPaths(ctx.getSystemPrompt());
-    const extensions = extensionDescriptors(pi, ctx, options.agentDir);
+    const extensions = extensionDescriptors(pi, ctx, agentDir);
     ctx.ui.setHeader((_tui, theme) => new StartupSummary(
       theme,
       contexts,
@@ -360,14 +386,8 @@ export function registerCompactUi(pi: ExtensionAPI, options: RegisterOptions = {
   });
 
   pi.on("session_shutdown", () => {
-    generation++;
-    restoreNotify?.();
-    restoreNotify = undefined;
     restoreFooter?.();
     restoreFooter = undefined;
-    current?.ui.setStatus(MCP_STATUS_KEY, undefined);
-    current = undefined;
-    unsubscribeMcp();
   });
 }
 

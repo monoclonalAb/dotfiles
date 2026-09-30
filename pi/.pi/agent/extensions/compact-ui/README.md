@@ -21,17 +21,19 @@ built-in help and multi-section resource listing; this extension then supplies t
 compact replacement. Pi settings remain local application state rather than a Stow
 source because they also contain machine-selected models and package state.
 
-The extension also consumes pi-mcp-adapter's public, sanitized status snapshot and
-reduces its native footer entry to a right-aligned `MCP: N/M`, where `N` is the
-number of enabled servers and `M` is the total. It preserves Pi's native footer
-through a small wrapper so quota and other statuses stay left-aligned while MCP
-occupies the right edge. It defers that display update by one microtask because the
-adapter publishes the snapshot immediately before its own verbose status. Routine all-disabled or
-startup-connected info notices are suppressed; MCP warnings/errors and `/mcp status`
-remain available.
+The footer also shows a right-aligned `MCP: N/M`, where `N` is the number of enabled
+servers and `M` the total. Pi's built-in MCP support publishes no status, so the
+extension counts the servers as that support merges them: `~/.pi/agent/mcp.json`,
+then the trusted project's `.pi/mcp.json` replacing entries of the same name, then
+servers registered by extensions; `"enabled": false` disables one. It re-reads the
+files only when their modification time or size changes, so `/mcp` toggles show on
+the next render. The count says nothing about connections; `/mcp` shows those. It
+preserves Pi's native footer through a small wrapper so quota and other statuses
+stay left-aligned while MCP occupies the right edge. With no servers configured the
+entry is hidden.
 
 No messages, tools, context files, provider requests, credentials, or MCP payloads
-are added or changed.
+are added or changed; the extension only reads `mcp.json` files.
 
 ## Verification
 
@@ -44,5 +46,7 @@ stow -n -v -t "$HOME" pi
 ```
 
 The unit suite checks resource summarization, bounded rendering, separated expansion,
-and the right-aligned enabled/total MCP fraction. The own-PTY test combines this extension with synthetic quotas and
-MCP state in an isolated quiet-startup Pi process; it makes no real provider request.
+the native `mcp.json` merge and recount, and the right-aligned enabled/total MCP
+fraction. The own-PTY test combines this extension with synthetic quotas and a
+synthetic `mcp.json` (edited mid-run) in an isolated quiet-startup Pi process with
+built-in MCP unloaded; it makes no real provider request or MCP connection.

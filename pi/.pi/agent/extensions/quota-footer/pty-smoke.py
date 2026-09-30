@@ -28,6 +28,7 @@ PACKAGE = Path(subprocess.check_output([NPM, "root", "-g"], text=True).strip()) 
 ANSI = re.compile(rb"\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]")
 QUOTA_VALUES = "31% | 14% · 0%".encode()
 MCP_STATUS = "MCP: 0/2".encode()
+MCP_EDITED = "MCP: 1/2".encode()
 SUMMARY = "Context: AGENTS.md · Extensions: 1 · ctrl+o".encode()
 
 
@@ -42,6 +43,13 @@ def main(theme):
             "quietStartup": True,
         }))
         (base / "AGENTS.md").write_text("Synthetic context; no secrets.\n")
+        # Native MCP config; --no-extensions leaves builtin:mcp unloaded, so nothing connects.
+        mcp_config = agent / "mcp.json"
+        mcp_servers = {
+            "stdio": {"command": "false", "enabled": False},
+            "http": {"url": "http://127.0.0.1:1/mcp", "enabled": False},
+        }
+        mcp_config.write_text(json.dumps({"mcpServers": mcp_servers}))
         (agent / "models.json").write_text(json.dumps({"providers": {"quota-test": {
             "baseUrl": "http://127.0.0.1:1/v1", "api": "openai-completions", "apiKey": "synthetic-only",
             "models": [{"id": "fixture", "reasoning": False}],
@@ -56,19 +64,10 @@ def main(theme):
 import {{ createQuotaReader }} from {json.dumps(str(ROOT / 'quota.ts'))};
 import {{ registerQuotaFooter }} from {json.dumps(str(ROOT / 'index.ts'))};
 import {{ ACCOUNTS_CHANGED_EVENT }} from {json.dumps(str(ROOT.parent / 'quota-router' / 'accounts.ts'))};
-import {{ MCP_STATUS_EVENT, registerCompactUi }} from {json.dumps(str(ROOT.parent / 'compact-ui' / 'index.ts'))};
+import {{ registerCompactUi }} from {json.dumps(str(ROOT.parent / 'compact-ui' / 'index.ts'))};
 import {{ appendFileSync, readFileSync, writeFileSync }} from 'node:fs';
 export default function(pi) {{
   registerCompactUi(pi);
-  pi.on('session_start', (_event, ctx) => {{
-    ctx.ui.notify('MCP: All 2 server(s) are disabled', 'info');
-    pi.events.emit(MCP_STATUS_EVENT, {{
-      version: 1,
-      servers: [{{ disabled: true }}, {{ disabled: true }}],
-    }});
-    // Mirror the adapter's write immediately after its public snapshot.
-    ctx.ui.setStatus('mcp', 'MCP: 0 servers enabled (2 disabled)');
-  }});
   pi.on('before_provider_request', () => {{
     writeFileSync({json.dumps(str(network_marker))}, 'unexpected model request');
     throw new Error('This smoke test must never request a model');
@@ -134,12 +133,26 @@ export default function(pi) {{
             wait_for(MCP_STATUS)
             wait_for(SUMMARY)
             startup = ANSI.sub(b"", bytes(output))
-            for unwanted in (b"escape interrupt", b"Press ctrl+o", b"Pi can explain", b"[Context]", b"Codex", b"Claude", b"servers enabled", b"server(s) are disabled"):
+            for unwanted in (b"escape interrupt", b"Press ctrl+o", b"Pi can explain", b"[Context]", b"Codex", b"Claude"):
                 assert unwanted not in startup, f"Unexpected startup fluff {unwanted!r}: {startup[-3000:]!r}"
             os.write(master, b"draft stays editable")
             wait_for(b"draft stays editable")
             resize(100)
             resize(50)
+            resize(80)
+            # A /mcp toggle rewrites mcp.json; the footer recounts on its next render.
+            mcp_servers["stdio"].pop("enabled")
+            mcp_config.write_text(json.dumps({"mcpServers": mcp_servers}, indent=2))
+            later = time.time() + 5
+            os.utime(mcp_config, (later, later))
+            start = len(output)
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 90, 0, 0))
+            os.kill(child.pid, signal.SIGWINCH)
+            wait_for(MCP_EDITED, start)
+            mcp_servers["stdio"]["enabled"] = False
+            mcp_config.write_text(json.dumps({"mcpServers": mcp_servers}))
+            later += 5
+            os.utime(mcp_config, (later, later))
             resize(80)
             os.write(master, b"\x03")  # Clear only this isolated draft.
             time.sleep(0.1)
@@ -170,7 +183,7 @@ export default function(pi) {{
             assert not network_marker.exists(), "Unexpected model request"
             assert not (agent / "sessions").exists(), "Unexpected session persistence"
             assert child.poll() is None, "Pi unexpectedly exited"
-            print(f"PASS ({theme}): quiet fullscreen Pi shows a one-line resource summary plus compact colored quotas/MCP at 50/80/100 columns, preserves draft input and stale shared usage through all-account /usage, account switches, 429 backoff and /reload; no model request or session persistence.")
+            print(f"PASS ({theme}): quiet fullscreen Pi shows a one-line resource summary plus compact colored quotas/native MCP counts at 50/80/100 columns, recounts an edited mcp.json, preserves draft input and stale shared usage through all-account /usage, account switches, 429 backoff and /reload; no model request or session persistence.")
         finally:
             if child.poll() is None:
                 child.terminate()

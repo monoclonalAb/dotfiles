@@ -1,6 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,13 +29,11 @@ mock.module("@earendil-works/pi-tui", () => tuiPackage);
 const { visibleWidth } = tuiPackage;
 const {
   contextPaths,
+  createMcpCounter,
   discoverExtensionEntries,
-  enabledMcpCount,
   extensionDescriptors,
-  isRoutineMcpNotice,
   McpAlignedFooter,
   mcpCounts,
-  MCP_STATUS_EVENT,
   registerCompactUi,
   StartupSummary,
 } = await import("./index.ts");
@@ -141,7 +139,6 @@ test("MCP status stays at the right edge while other extension statuses stay on 
   codingAgent.initTheme("dark", false);
   const statuses = new Map([
     ["00-quota-footer", "31% | 14% · 0%"],
-    ["mcp", "MCP: 0/2"],
     ["long-context", "ctx:1.05M"],
   ]);
   const footer = new McpAlignedFooter({
@@ -162,7 +159,7 @@ test("MCP status stays at the right edge while other extension statuses stay on 
     getExtensionStatuses: () => statuses,
     getAvailableProviderCount: () => 1,
     onBranchChange: () => () => {},
-  });
+  }, () => "MCP: 0/2");
   const line = stripVTControlCharacters(footer.render(60).at(-1) ?? "");
   expect(line).toContain("31% | 14% · 0%");
   expect(line).toContain("ctx:1.05M");
@@ -170,43 +167,83 @@ test("MCP status stays at the right edge while other extension statuses stay on 
   expect(visibleWidth(line)).toBe(60);
 });
 
-test("MCP count means enabled/total servers and only routine startup notices are suppressed", () => {
-  const snapshot = {
-    version: 1,
-    servers: [{ disabled: false }, { disabled: true }, { disabled: false }],
-  };
-  expect(mcpCounts(snapshot)).toEqual({ enabled: 2, total: 3 });
-  expect(enabledMcpCount(snapshot)).toBe(2);
-  expect(enabledMcpCount({ version: 2, servers: [] })).toBeUndefined();
-  expect(enabledMcpCount(null)).toBeUndefined();
-  expect(isRoutineMcpNotice("MCP: All 2 server(s) are disabled", "info")).toBe(true);
-  expect(isRoutineMcpNotice("MCP: 2/3 servers connected (10 tools)", "info")).toBe(true);
-  expect(isRoutineMcpNotice("MCP: Failed to connect to context7", "error")).toBe(false);
-  expect(isRoutineMcpNotice("MCP: All 2 server(s) are disabled", "warning")).toBe(false);
+async function writeMcp(path: string, servers: Record<string, unknown>) {
+  await writeFile(path, `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`);
+}
+
+test("MCP count follows the built-in merge: project entries replace global ones", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-compact-ui-mcp-"));
+  const global = join(root, "global.json");
+  const project = join(root, "project.json");
+  try {
+    await writeMcp(global, {
+      stdio: { command: "server" },
+      http: { url: "http://127.0.0.1:1/mcp" },
+      off: { url: "https://example.invalid/mcp", enabled: false },
+      "bad name": { command: "server" },
+      partial: { disabled: true },
+      legacy: { type: "sse", url: "https://example.invalid/sse" },
+    });
+    await writeMcp(project, {
+      stdio: { command: "server", enabled: false },
+      off: { url: "https://example.invalid/mcp" },
+      http: { enabled: false },
+    });
+    // Invalid entries are skipped; the partial project `http` override does not replace the global entry.
+    expect(mcpCounts([global])).toEqual({ enabled: 2, total: 3 });
+    expect(mcpCounts([global, project])).toEqual({ enabled: 2, total: 3 });
+    expect(mcpCounts([global, join(root, "missing.json")], [
+      { name: "stdio", config: { enabled: true } },
+      { name: "registered", config: {} },
+    ])).toEqual({ enabled: 3, total: 4 });
+    await writeFile(project, "{ not json");
+    expect(mcpCounts([global, project])).toEqual({ enabled: 2, total: 3 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
-test("TUI registration replaces the header and wins over the adapter's verbose status", async () => {
+test("MCP counter rereads config only after a file changes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-compact-ui-mcp-"));
+  const path = join(root, "mcp.json");
+  let paths = [path];
+  let listed = 0;
+  try {
+    await writeMcp(path, { one: { command: "server", enabled: false } });
+    const count = createMcpCounter(() => paths, () => {
+      listed++;
+      return [];
+    });
+    expect(count()).toEqual({ enabled: 0, total: 1 });
+    expect(count()).toEqual({ enabled: 0, total: 1 });
+    expect(listed).toBe(2);
+    await writeMcp(path, { one: { command: "server" }, two: { url: "http://127.0.0.1:1/mcp" } });
+    const later = new Date(Date.now() + 5_000);
+    await utimes(path, later, later);
+    expect(count()).toEqual({ enabled: 2, total: 2 });
+    paths = [];
+    expect(count()).toEqual({ enabled: 0, total: 0 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("TUI registration replaces the header and footer and counts native MCP config", async () => {
   const { root } = await fixture();
   const lifecycle = new Map<string, (event: unknown, ctx: any) => void>();
-  const bus = new Map<string, (value: unknown) => void>();
   let headerFactory: ((tui: unknown, theme: typeof plainTheme) => StartupSummary) | undefined;
-  const statuses = new Map<string, string>();
-  const notices: string[] = [];
+  let footerFactory: ((tui: unknown, theme: unknown, data: unknown) => { render(width: number): string[] }) | undefined;
+  let trusted = false;
   const pi = {
-    events: {
-      on(name: string, handler: (value: unknown) => void) {
-        bus.set(name, handler);
-        return () => bus.delete(name);
-      },
-    },
     on(name: string, handler: (event: unknown, ctx: any) => void) { lifecycle.set(name, handler); },
     getCommands: () => [],
     getAllTools: () => [],
+    getMcpServers: () => [],
   };
   const ctx = {
     mode: "tui",
     cwd: root,
-    isProjectTrusted: () => false,
+    isProjectTrusted: () => trusted,
     getSystemPrompt: () => `<project_instructions path="${root}/AGENTS.md">private</project_instructions>`,
     model: undefined,
     thinkingLevel: "off",
@@ -222,33 +259,35 @@ test("TUI registration replaces the header and wins over the adapter's verbose s
     getContextUsage: () => ({ percent: 0, contextWindow: 272000 }),
     ui: {
       theme: plainTheme,
-      notify(message: string, _type?: "info" | "warning" | "error") { notices.push(message); },
       setHeader(factory: typeof headerFactory) { headerFactory = factory; },
-      setFooter(_factory: unknown) {},
-      setStatus(key: string, value: string | undefined) {
-        if (value === undefined) statuses.delete(key); else statuses.set(key, value);
-      },
+      setFooter(factory: typeof footerFactory) { footerFactory = factory; },
     },
   };
+  const footerData = {
+    getGitBranch: () => null,
+    getExtensionStatuses: () => new Map(),
+    getAvailableProviderCount: () => 1,
+    onBranchChange: () => () => {},
+  };
   try {
+    codingAgent.initTheme("dark", false);
+    await writeMcp(join(root, "mcp.json"), {
+      one: { command: "server", enabled: false },
+      two: { url: "http://127.0.0.1:1/mcp", enabled: false },
+    });
+    await mkdir(join(root, ".pi"));
+    await writeMcp(join(root, ".pi", "mcp.json"), { one: { command: "server" } });
     registerCompactUi(pi as never, { agentDir: root, version: "test" });
     lifecycle.get("session_start")?.({}, ctx);
     expect(headerFactory?.({}, plainTheme).render(120)[0]).toContain("Context: AGENTS.md");
-    ctx.ui.notify("MCP: All 2 server(s) are disabled", "info");
-    ctx.ui.notify("MCP: Failed to connect", "error");
-    expect(notices).toEqual(["MCP: Failed to connect"]);
-
-    bus.get(MCP_STATUS_EVENT)?.({
-      version: 1,
-      servers: [{ disabled: true }, { disabled: true }],
-    });
-    statuses.set("mcp", "MCP: 0 servers enabled (2 disabled)");
-    await Promise.resolve();
-    expect(statuses.get("mcp")).toBe("MCP: 0/2");
+    const footer = footerFactory?.({}, plainTheme, footerData);
+    const lastLine = () => stripVTControlCharacters(footer?.render(60).at(-1) ?? "");
+    expect(lastLine().endsWith("MCP: 0/2")).toBe(true);
+    trusted = true;
+    expect(lastLine().endsWith("MCP: 1/2")).toBe(true);
 
     lifecycle.get("session_shutdown")?.({}, ctx);
-    expect(statuses.has("mcp")).toBe(false);
-    expect(bus.has(MCP_STATUS_EVENT)).toBe(false);
+    expect(footerFactory).toBeUndefined();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

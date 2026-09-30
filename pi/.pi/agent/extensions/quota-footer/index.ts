@@ -3,7 +3,7 @@ import { createAccountMonitor, createMonitor, detailText, statusText, type Accou
 import { createAccountSource } from "./quota.ts";
 import { ACCOUNTS_CHANGED_EVENT } from "../quota-router/accounts.ts";
 
-// Put the compact quota entry before MCP and optional statuses.
+// Put the compact quota entry before optional statuses.
 export const STATUS_KEY = "00-quota-footer";
 
 type Options = Partial<Pick<MonitorOptions, "read" | "intervalMs" | "timeoutMs" | "now">> & {
