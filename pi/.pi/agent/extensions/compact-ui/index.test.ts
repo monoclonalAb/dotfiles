@@ -96,6 +96,9 @@ test("extension summary deduplicates symlinks and includes package-owned tools",
       getCommands: () => [{
         source: "extension",
         sourceInfo: { path: join(root, "direct-link.ts"), source: "local" },
+      }, {
+        source: "extension",
+        sourceInfo: { path: "builtin:mcp", source: "builtin" },
       }],
       getAllTools: () => [{
         sourceInfo: { path: join(packageRoot, "index.ts"), source: "npm:example-package@1.2.3" },

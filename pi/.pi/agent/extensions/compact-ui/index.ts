@@ -140,7 +140,8 @@ export function extensionDescriptors(
 ): ExtensionDescriptor[] {
   const descriptors = new Map<string, ExtensionDescriptor>();
   const add = (path: string, source?: Source) => {
-    if (!path || path.startsWith("<")) return;
+    // Pi's own startup list hides synthetic sources, including built-ins such as `builtin:mcp`.
+    if (!path || path.startsWith("<") || path.startsWith("builtin:")) return;
     const key = canonical(path);
     const label = source ? npmLabel(source) ?? pathLabel(path) : pathLabel(path);
     if (!descriptors.has(key)) descriptors.set(key, { path, label });

@@ -13,7 +13,8 @@ to one line. Context names come
 from the path attributes in Pi's already-built system prompt—the extension does not
 log or display context contents. Extension labels mirror Pi's standard global/project
 discovery and are supplemented by extension-owned commands/tools so configured npm
-packages appear in the count.
+packages appear in the count. Built-in extensions such as `builtin:mcp` are left out,
+as in Pi's own list.
 
 Set **Quiet startup** to `true` in Pi's `/settings`. That setting suppresses Pi's
 built-in help and multi-section resource listing; this extension then supplies the
