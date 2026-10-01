@@ -372,7 +372,10 @@ test("native footer preserves colors/widths in light and dark themes without rep
   await until(() => stripVTControlCharacters(h.statuses.get(STATUS_KEY) ?? "") === "31% | 14% · 0%");
   const session = {
     state: { model: { id: "test-model", provider: "openai-codex", contextWindow: 272000 }, thinkingLevel: "high" },
-    sessionManager: { getEntries: () => [], getCwd: () => "/tmp/quota-test", getSessionName: () => undefined },
+    sessionManager: {
+      getEntries: () => [], getEntryCount: () => 0, getSessionId: () => "quota-test", getLeafId: () => null,
+      getCwd: () => "/tmp/quota-test", getSessionName: () => undefined,
+    },
     getContextUsage: () => ({ percent: 10, contextWindow: 272000 }),
     modelRuntime: { isUsingSubscription: () => true },
   };
