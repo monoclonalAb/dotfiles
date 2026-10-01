@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.99.1",
+  "lastChangelogVersion": "0.99.2",
   "theme": "light",
   "defaultProvider": "anthropic",
   "defaultModel": "claude-opus-5-5",
@@ -14,7 +14,7 @@
     "openai-codex/gpt-6-astra",
     "anthropic/claude-fable-5-1",
     "openai-codex/gpt-6-luna",
-    "openai-codex/gpt-6-sol"
+    "openai-codex/gpt-6.1-sol"
   ],
   "images": {
     "blockImages": false
