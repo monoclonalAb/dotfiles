@@ -39,16 +39,16 @@ products or silently losing history.
   `retainedTail`, but the installed JS implementation does not consume it.
   Base implementation on a pinned source revision and executable tests, not this
   field's appearance in the documentation.
-- The [Pi wrapper](../../../bin/.local/bin/pi) selects the next executable on
+- The [Pi wrapper](../../../bin/pi) selects the next executable on
   `PATH`; it does not own an audited patched Pi installation today.
-- The [extension policy](../../../pi/.pi/agent/extensions/README.md) requires
+- The [extension policy](../../../pi/extensions/README.md) requires
   explicit review for context/provider changes. New native behavior must default
   off; this plan is not approval to enable a global hook.
-- The [OMP Anthropic route](../../../pi/.pi/agent/extensions/omp-anthropic-route/README.md)
+- The [OMP Anthropic route](../../../pi/extensions/omp-anthropic-route/README.md)
   keeps Pi's stream parser. Its `transport.ts` overwrites `context_management`
   with `clear_thinking_20251015` / `keep: "all"`, or deletes it. This is not
   compaction and would clobber an independently added native-compaction flag.
-- Existing [quota routing](../../../pi/.pi/agent/extensions/quota-router/README.md)
+- Existing [quota routing](../../../pi/extensions/quota-router/README.md)
   can change the active account for every Pi session. Native state cannot be
   assumed portable between accounts just because the provider name is unchanged.
 - The worktree has substantial unrelated modifications/untracked work. This
@@ -279,8 +279,8 @@ support the public beta by appending a header it will overwrite or cannot parse.
    context size, and task-detail retention to ordinary Pi compaction. Only then
    consider preferred mode for everyday sessions, still gated by route.
 6. Update the owning root README Pi section, architecture, verification runbook,
-   and extension policy if adding controls. Preview only affected packages with
-   `stow -n -v -t "$HOME" pi` / `bin`; review unrelated pending actions. Deployment
+   and extension policy if adding controls. Preview with the read-only
+   `bin/dotfiles-link check`; review unrelated pending actions. Deployment
    requires separate approval. A changed Pi binary needs a fresh session/process;
    `/reload` alone does not load new core code. Leave existing agent panes alone.
 

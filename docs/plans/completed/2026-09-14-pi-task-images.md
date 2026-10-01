@@ -85,5 +85,5 @@ From `/Users/eric/dotfiles`:
 Complete. Reopen `C-a t`, keep task input focused, then Ctrl+V (or Alacritty
 Cmd+V). Markers select real attachments; a text description and image-capable
 model remain required. Operator behavior and recovery are documented in
-[Pi Tasks](../../../herdr/.config/herdr/plugins/task-launcher/README.md#clipboard-images).
+[Pi Tasks](../../../herdr/plugins/task-launcher/README.md#using-the-form).
 Real Mac clipboard/GUI acceptance remains an explicit manual check.

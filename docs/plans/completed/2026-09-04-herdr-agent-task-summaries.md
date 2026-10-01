@@ -16,8 +16,8 @@ Make every Herdr Agents row task-oriented: a state glyph and concise conversatio
 ## Context and constraints
 
 - The worktree already contains uncommitted Herdr sidebar/environment work that must be preserved.
-- [`../../../bin/.local/bin/theme`](../../../bin/.local/bin/theme) generates the live Herdr config; the generated file is not repository source.
-- Pi extensions must follow [`../../../pi/.pi/agent/extensions/README.md`](../../../pi/.pi/agent/extensions/README.md).
+- [`../../../bin/.local/bin/theme`](../../../bin/theme) generates the live Herdr config; the generated file is not repository source.
+- Pi extensions must follow [`../../../pi/.pi/agent/extensions/README.md`](../../../pi/extensions/README.md).
 - OMP already supplies useful terminal titles. Pi supplies only a repository title, so a display-only pane metadata token must bridge its user request into Herdr.
 - Full-tree `git diff --check` has known whitespace errors in the pre-existing Herdr patch; verification must scope around that file rather than normalizing unrelated patch content.
 

@@ -66,4 +66,4 @@ Keep Codex and Claude weekly and five-hour usage visible in Pi's native terminal
 
 ## Outcome
 
-Implemented and deployed [quota-footer](../../../pi/.pi/agent/extensions/quota-footer/README.md). Both native account endpoints work with Pi's own authentication. Spark is omitted and all state is memory-only. Run `/reload` in existing idle Pi conversations; new interactive sessions load automatically. No desktop app, daemon, new dependency, commit, push, or input to another agent pane.
+Implemented and deployed [quota-footer](../../../pi/extensions/quota-footer/README.md). Both native account endpoints work with Pi's own authentication. Spark is omitted and all state is memory-only. Run `/reload` in existing idle Pi conversations; new interactive sessions load automatically. No desktop app, daemon, new dependency, commit, push, or input to another agent pane.

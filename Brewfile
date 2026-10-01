@@ -2,7 +2,7 @@
 #
 #   brew bundle --file=~/dotfiles/Brewfile
 #
-# Run this BEFORE `stow`. See "Setting up a new Mac" in README.md for the full order.
+# Run this before linking (`dotfiles-link apply`). See "Setting up a new Mac" in README.md for the full order.
 # Every name here was checked against `brew info`, so the bundle won't die halfway
 # through on a typo.
 
@@ -15,7 +15,6 @@ tap "anomalyco/tap"   # opencode
 # Required — the configs break without these                                  #
 ###############################################################################
 
-brew "stow"                    # links this repo into $HOME
 brew "coreutils"               # gls; .zshrc's `ls` alias is broken without it
 
 # zsh: .zshrc `source`s these from /opt/homebrew/share with no existence check,
@@ -130,6 +129,9 @@ cask "temurin@21"              # jdtls shells out to `java`
 # dead, but nothing else breaks.
 # brew "fish"
 # brew "nushell"
+
+# Packages under .archive/ keep the old Stow layout; install stow only to restore one.
+# brew "stow"
 
 # Legacy window manager — superseded by AeroSpace. See "Window managers" in
 # README.md before re-adopting; yabai's scripting addition needs SIP partially

@@ -1,6 +1,6 @@
 # Execution plans
 
-Use a checked-in execution plan when a task spans multiple packages, changes a
+Use a checked-in execution plan when a task spans multiple tool folders, changes a
 generated/runtime boundary, has external side effects, introduces a migration,
 or is likely to outlive one working session. Small, reversible edits should not
 create permanent planning paperwork.

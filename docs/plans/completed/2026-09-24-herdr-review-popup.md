@@ -37,7 +37,7 @@ Line/range comments saved with `:wq`/`ZZ` arrive in that agent as one prompt.
 
 ## Progress
 
-- [x] Script [`herdr-review`](../../../bin/.local/bin/herdr-review), tests, keybinding, Brewfile, README/architecture/verification rows.
+- [x] Script [`herdr-review`](../../../bin/herdr-review), tests, keybinding, Brewfile, README/architecture/verification rows.
 - [x] Deployment, approved by the user ("MAKE IT LIVE").
 
 ## Decisions

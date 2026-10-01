@@ -17,10 +17,10 @@ on a particular model remembering a workflow or having another harness's tools.
 
 ## 2. Separate desired state from runtime state
 
-Tracked package files express desired configuration. Credentials, histories,
+Tracked files express desired configuration. Credentials, histories,
 caches, generated overlays, databases, and app-owned state are runtime data.
-GNU Stow links the former into real parent directories so the latter can remain
-local and untracked.
+`dotfiles-link` links the former into real parent directories so the latter can
+remain local and untracked.
 
 **Consequence:** do not solve state leakage by casually widening `.gitignore`.
 First move the writer's output across the correct ownership boundary.
@@ -46,7 +46,7 @@ diagnostic rather than adding another broad instruction.
 ## 5. Verify effects, not edits
 
 Reading a changed file proves only that text changed. Verification should cross
-the same boundary as the user-visible behaviour: source to Stow target, generated
+the same boundary as the user-visible behaviour: source to linked target, generated
 state to consumer, configuration to application, or event to plugin response.
 
 **Consequence:** every completion report names the checks actually run and any

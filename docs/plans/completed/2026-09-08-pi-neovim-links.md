@@ -96,4 +96,4 @@ Implemented and linked the new bin/pi sources; changed the already-linked
 Alacritty hints. No Neovim configuration changes or Herdr restart are needed.
 User action: `/reload`, then Cmd+Shift-click the visible `file://` URL inside Herdr
 (or Cmd-click in plain Alacritty). GUI verification is the remaining boundary;
-see the [operating guide](../../../pi/.pi/agent/extensions/local-file-links/README.md).
+see the [operating guide](../../../pi/extensions/local-file-links/README.md).

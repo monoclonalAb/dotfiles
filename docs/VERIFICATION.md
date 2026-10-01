@@ -15,18 +15,19 @@ Use temporary directories outside the repository for generated output.
 | Diff hygiene | `git diff --check` and `git status --short` | Whitespace and worktree changes, not correctness; inspect newly created files too |
 | Shell syntax | [Shell syntax commands](#shell-syntax) below | Syntax only; use the interpreter in the affected script's shebang |
 | Zsh syntax | [Shell syntax commands](#shell-syntax) below | Syntax only; does not exercise startup or commands |
-| Herdr attention ledger / jumps | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/.config/herdr/plugins/next-agent -p 'test_*.py'` | Ledger and mocked focus API; no live server |
-| Herdr next-agent terminal flow | `PYTHONDONTWRITEBYTECODE=1 python3 herdr/.config/herdr/plugins/next-agent/pty-smoke.py` | Installed Herdr; isolated server/client in its own PTY with synthetic lifecycle reports. `HERDR_TEST_BIN=<binary>` tests a build-only binary |
-| Herdr environment grouping | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/.config/herdr/plugins/spaces-env -p 'test_*.py'` | Includes temporary-state concurrency tests; no live server |
-| Pi task launcher | `node --test herdr/.config/herdr/plugins/task-launcher/*.test.mjs`, then `python3 herdr/.config/herdr/plugins/task-launcher/pty-smoke.py` | Installed npm Pi/Node; temporary Git fixtures, fake Herdr/Pi, loopback naming provider; no real clipboard or agent |
-| Pi task launcher prerequisites | `env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/sh herdr/.config/herdr/plugins/task-launcher/launch.sh --check` | Minimal-PATH Pi/Node resolution; no model requests |
-| Herdr review popup | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s bin/.local/lib/herdr-review -p 'test_*.py'` | Fake Herdr/tuicr; with tuicr installed, also drives real tuicr in a PTY. No live Herdr or agent input |
-| Terminal Neovim opener | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s bin/.local/lib/terminal-links -p 'test_*.py'` | Hint TOML/argv and headless Neovim; GUI launches mocked |
-| Workspace Context MCP | `node --test bin/.local/lib/workspace-context-mcp/*.test.mjs` | Temporary fixture workspace and a spawned stdio server; never reads the real workspace |
-| Pi extensions (Bun) | `bun test ./pi/.pi/agent/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `theme-sync`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `long-context`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links` |
-| Pi extensions (Node native) | `node --test pi/.pi/agent/extensions/<name>/*.test.mjs` | Real Pi SDK sessions with isolated HOME and synthetic providers. Applies to `agent-stuff`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route` |
-| Pi agent-stuff public API | `node pi/.pi/agent/extensions/agent-stuff/typecheck.mjs` | Installed `tsc` and Pi public types |
-| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/.pi/agent/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `theme-sync` and `quota-footer` (which also covers `compact-ui`) |
+| Links (`dotfiles-link`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/dotfiles-link -p 'test_*.py'`, then [the empty-home check](#documentation-and-links) | Fixture repository and temporary HOME; the second command applies the real `links` to a temporary directory. Neither reads or changes `$HOME` |
+| Herdr attention ledger / jumps | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/plugins/next-agent -p 'test_*.py'` | Ledger and mocked focus API; no live server |
+| Herdr next-agent terminal flow | `PYTHONDONTWRITEBYTECODE=1 python3 herdr/plugins/next-agent/pty-smoke.py` | Installed Herdr; isolated server/client in its own PTY with synthetic lifecycle reports. `HERDR_TEST_BIN=<binary>` tests a build-only binary |
+| Herdr environment grouping | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s herdr/plugins/spaces-env -p 'test_*.py'` | Includes temporary-state concurrency tests; no live server |
+| Pi task launcher | `node --test herdr/plugins/task-launcher/*.test.mjs`, then `python3 herdr/plugins/task-launcher/pty-smoke.py` | Installed npm Pi/Node; temporary Git fixtures, fake Herdr/Pi, loopback naming provider; no real clipboard or agent |
+| Pi task launcher prerequisites | `env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/sh herdr/plugins/task-launcher/launch.sh --check` | Minimal-PATH Pi/Node resolution; no model requests |
+| Herdr review popup | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/herdr-review -p 'test_*.py'` | Fake Herdr/tuicr; with tuicr installed, also drives real tuicr in a PTY. No live Herdr or agent input |
+| Terminal Neovim opener | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s lib/terminal-links -p 'test_*.py'` | Hint TOML/argv and headless Neovim; GUI launches mocked |
+| Workspace Context MCP | `node --test lib/workspace-context-mcp/*.test.mjs` | Temporary fixture workspace and a spawned stdio server; never reads the real workspace |
+| Pi extensions (Bun) | `bun test ./pi/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `theme-sync`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `long-context`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links` |
+| Pi extensions (Node native) | `node --test pi/extensions/<name>/*.test.mjs` | Real Pi SDK sessions with isolated HOME and synthetic providers. Applies to `agent-stuff`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route` |
+| Pi agent-stuff public API | `node pi/extensions/agent-stuff/typecheck.mjs` | Installed `tsc` and Pi public types |
+| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `theme-sync` and `quota-footer` (which also covers `compact-ui`) |
 
 Run Pi suites as separate commands: some install module mocks for the installed
 Pi packages. None make real provider requests, so they do not prove provider
@@ -40,21 +41,21 @@ operator's shell.
 
 ```sh
 (
-  for file in bin/.local/bin/pi bin/.local/bin/dotfiles-update bin/.local/bin/install-herdr-focus bin/.local/bin/workspace-context-mcp bin/.local/bin/tailscale; do
+  for file in bin/pi bin/dotfiles-update bin/install-herdr-focus bin/workspace-context-mcp bin/tailscale; do
     sh -n "$file" || exit 1
   done
 )
-bash -n bin/.local/bin/theme
-bash -n bin/.local/bin/dotfiles-bootstrap
-sh -n herdr/.config/herdr/plugins/task-launcher/launch.sh
+bash -n bin/theme
+bash -n bin/dotfiles-bootstrap
+sh -n herdr/plugins/task-launcher/launch.sh
 (
-  for file in zsh/.zshenv zsh/.config/zsh/.zshrc zsh/.config/zsh/.zprofile; do
+  for file in zsh/zshenv zsh/zshrc zsh/zprofile; do
     zsh -n "$file" || exit 1
   done
 )
 ```
 
-## Documentation and Stow
+## Documentation and links
 
 1. Resolve relative Markdown links and local HTML `src`/`href` targets from the
    containing document, including heading fragments. Exclude illustrative code
@@ -62,30 +63,29 @@ sh -n herdr/.config/herdr/plugins/task-launcher/launch.sh
    other repositories are prerequisites, not missing dotfiles files.
 2. Verify new/renamed headings still match incoming links. Check commands and
    factual claims against their source owner, not just link existence.
-3. Confirm the knowledge base deploys nothing:
+3. Confirm the whole `links` file applies to an empty home and deploys nothing
+   from `docs/` or `.archive/`:
 
    ```sh
-   stow -n -v -t "$HOME" docs
+   (
+     t=$(mktemp -d) || exit 1
+     trap 'rm -rf "$t"' EXIT
+     bin/dotfiles-link apply --quiet --home "$t" &&
+       bin/dotfiles-link check --quiet --home "$t" &&
+       ! find "$t" -type l -exec readlink {} + | grep -e '/docs/' -e '/\.archive/'
+   )
    ```
 
-   Expected: exit 0 and no link/unlink actions. This is a **dry run**, not a deploy.
-4. For package layout changes, substitute the owning package for `docs` and
-   inspect every proposed link and conflict. A successful dry run with pending
-   actions is not the same as an already deployed package. Never automatically
-   resolve a conflict with `--adopt`, deletion, or a blanket move of app state.
-5. If the owning package's dry run also lists unrelated pending files, create only
-   the new link from Stow's exact `LINK: <target> => <source>` line, then re-run the
-   dry run to confirm it no longer appears. Leave the other files to their owner.
-
-For an independent check that `docs/` leaves an empty target unchanged:
-
-```sh
-(
-  target=$(mktemp -d) || exit 1
-  trap 'rmdir "$target"' EXIT
-  stow -n -v -t "$target" docs
-)
-```
+   Expected: exit 0, and the second line reports nothing to create or review.
+   This writes only inside the temporary directory.
+4. For layout changes, run the read-only `bin/dotfiles-link check` against the
+   real `$HOME` and inspect every proposed action and conflict. A pending
+   `create` is not the same as a deployed file. Never resolve a conflict with
+   deletion or a blanket move of app state.
+5. If the check also lists unrelated pending actions, do not run `apply`. Create
+   only your new link by hand from its exact `create <target> -> <source>` line
+   (`ln -s "$PWD/<source>" <target>`), then re-run the check to confirm it no
+   longer appears. Leave the other actions to their owner.
 
 Link validation is currently a manual or ad-hoc check, not an enforced repository
 command; see [Q-002](QUALITY.md#open-technical-debt).
@@ -100,14 +100,14 @@ and side effects first; use them when the affected live path is in scope.
 | Shell | `zsh -ic 'exit'`, then the affected command | Runs startup hooks and may write local caches. Record warnings even if exit status is 0 |
 | Theme | `theme status`, then inspect the affected consumer | Diagnostic only; a status report does not prove visual updates. `theme apply`, `set`, `cycle`, and `opacity` write outputs and reload consumers |
 | Herdr config | `herdr config check` | Checks generated deployed config, **not** an unstaged or ungenerated base-file edit |
-| Herdr review target | `HERDR_ACTIVE_PANE_ID=<pane> HERDR_ACTIVE_TAB_ID=<tab> bin/.local/bin/herdr-review --check` inside Herdr | Read-only: resolves the agent, directory and tuicr command; opens nothing |
-| Pi Tasks native UI | [Pi Tasks verification](../herdr/.config/herdr/plugins/task-launcher/README.md#verification) | Needs the deployed plugin and regenerated config; keep the task text empty |
+| Herdr review target | `HERDR_ACTIVE_PANE_ID=<pane> HERDR_ACTIVE_TAB_ID=<tab> bin/herdr-review --check` inside Herdr | Read-only: resolves the agent, directory and tuicr command; opens nothing |
+| Pi Tasks native UI | [Pi Tasks verification](../herdr/plugins/task-launcher/README.md#verification) | Needs the deployed plugin and regenerated config; keep the task text empty |
 | tmux | `tmux source-file ~/.config/tmux/tmux.conf` | Changes the running server and executes configured hooks/plugins; not syntax-only |
 | Neovim | `nvim --headless '+qa'`, then `nvim +checkhealth` when appropriate | Startup can bootstrap/download plugins and language tools; only run against a reviewed, provisioned environment |
-| Workspace Context MCP | `bin/.local/bin/workspace-context-mcp doctor`, then `call <tool> '<json>'` | Reads the real workspace roots; no writes or network |
-| New-Mac bootstrap | `bin/.local/bin/dotfiles-bootstrap --check`; for a blank machine's view, `(t=$(mktemp -d) && env -i HOME="$t" PATH=/usr/bin:/bin bin/.local/bin/dotfiles-bootstrap --check; rm -rf "$t")` | Changes no configuration, but runs `brew bundle check`, a Stow dry run and Herdr status queries, which may write their own caches and locks. The default mode installs software; never run it as a check |
+| Workspace Context MCP | `bin/workspace-context-mcp doctor`, then `call <tool> '<json>'` | Reads the real workspace roots; no writes or network |
+| New-Mac bootstrap | `bin/dotfiles-bootstrap --check`; for a blank machine's view, `(t=$(mktemp -d) && env -i HOME="$t" PATH=/usr/bin:/bin bin/dotfiles-bootstrap --check; rm -rf "$t")` | Changes no configuration, but runs `brew bundle check`, `dotfiles-link check` and Herdr status queries, which may write their own caches and locks. The default mode installs software; never run it as a check |
 | Pi MCP registration | `pi mcp list` from the project directory, then `/reload` and `/mcp` in Pi | Starts every enabled server (npx, gcloud, local HTTP) and exits 1 on a config error or a server that did not connect; reads project `.pi/mcp.json` only in trusted projects. `pi mcp add`/`remove` write through the link into the repository |
-| Pi extension loading | Fresh Pi session and the affected command/UI | Startup hooks run. The [Anthropic route's OMP update check and model probe](../pi/.pi/agent/extensions/omp-anthropic-route/README.md#request-preflight) wait for the first direct Claude OAuth request (including SDK/extension requests), which may upgrade OMP and uses probe quota |
+| Pi extension loading | Fresh Pi session and the affected command/UI | Startup hooks run. The [Anthropic route's OMP update check and model probe](../pi/extensions/omp-anthropic-route/README.md#request-preflight) wait for the first direct Claude OAuth request (including SDK/extension requests), which may upgrade OMP and uses probe quota |
 | Patched Herdr binary | `install-herdr-focus --build-only <temporary-output-path>`, then `HERDR_CONFIG_PATH=<staged config> <binary> config check` | Network/toolchain build plus the patch's tests; does not replace the installed binary. `--version` must include `dotfiles.<patch-hash>` |
 
 Do not restart a live Herdr server, reload another agent conversation, or run

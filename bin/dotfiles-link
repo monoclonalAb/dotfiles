@@ -1,0 +1,547 @@
+#!/usr/bin/python3
+"""Link this repository into $HOME as listed in its `links` file.
+
+  dotfiles-link [check]   report what apply would do; changes nothing
+  dotfiles-link apply     create and repair links, remove dangling ones
+
+Options:
+  -q, --quiet   omit per-link actions; print problems and the summary only
+  --home DIR    link into DIR instead of $HOME (tests and rehearsals)
+
+apply refuses to change anything while a target is a real file or directory,
+a link that points outside this repository, or a location that resolves into
+the checkout: move it aside and rerun. Every directory below $HOME that holds a
+link must be a real directory, not a symlink. Links it creates are absolute.
+
+apply walks from $HOME one directory at a time without following symlinks, acts
+only through those open directories, and checks before and after each change
+that the directory is still at its planned path (undoing a change made while it
+had moved). It never creates over an existing path, and re-reads each link it
+repairs or removes immediately before changing it; a target that changed is
+skipped and reported. These checks catch ordinary concurrent writers; a process
+deliberately swapping a link or moving a directory in the instant between a
+check and the system call is not detected.
+check exits 0 only when every link is in place and there is nothing to report;
+apply exits 1 only when it refused or skipped a target that changed.
+"""
+import os
+import re
+import subprocess
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+MANIFEST = os.path.join(REPO, "links")
+
+# Carried over from the old .stowrc with Stow's matching rule: a pattern is a
+# regular expression that must match the END of the path relative to $HOME,
+# so `auth\.json` also covers `mcp-auth.json`. Files and directories inside a
+# mirrored folder that match are never linked: caches, and runtime files or
+# credentials that an application may write next to a managed file.
+IGNORE = [
+    r"\.DS_Store", r"__pycache__", r"lazy-lock\.json", r"temp\.tmp",
+    r"\.zsh_history", r"\.zsh_sessions", r"\.zcompdump.*", r"access_tokens\.md",
+    r"auth\.json", r"models-store\.json", r"\.config/tmux/plugins",
+    r"config\.yml\.lock", r".*\.toml\..*\.bak",
+]
+IGNORE_RES = [re.compile(f"({pattern})\\Z") for pattern in IGNORE]
+
+
+class Plan:
+    def __init__(self, home):
+        self.home = home
+        self.ok = 0
+        self.create = []    # (target, source)
+        self.repair = []    # (target, source, readlink value when planned)
+        self.prune = []     # (link, readlink value when planned): dangling, into the repository
+        self.conflicts = []
+        self.warnings = []  # stale links, unlisted files: reported, never fatal
+        self.errors = []    # bad `links` lines
+
+    def conflict(self, message):
+        if message not in self.conflicts:
+            self.conflicts.append(message)
+
+    def show(self, path):
+        if path == self.home:
+            return "~"
+        if path.startswith(self.home + os.sep):
+            return "~" + path[len(self.home):]
+        return path
+
+
+def ignored(home_relpath):
+    return any(pattern.search(home_relpath) for pattern in IGNORE_RES)
+
+
+def in_repo(path):
+    return path == REPO or path.startswith(REPO + os.sep)
+
+
+def pointee(link):
+    """A symlink's destination as an absolute path, without following it further."""
+    return os.path.normpath(os.path.join(os.path.realpath(os.path.dirname(link)), os.readlink(link)))
+
+
+REPO_STAT = os.stat(REPO)
+
+
+def resolves_into_repo(path):
+    """Whether path, or its deepest existing ancestor, is the checkout or inside it.
+
+    Compares filesystem identity rather than spelling, so a differently cased
+    path on a case-insensitive disk (`~/DOTFILES/x`) is still recognised.
+    """
+    probe = path
+    while not os.path.lexists(probe) and os.path.dirname(probe) != probe:
+        probe = os.path.dirname(probe)
+    current = os.path.realpath(probe)
+    while True:
+        try:
+            if os.path.samestat(os.stat(current), REPO_STAT):
+                return True
+        except OSError:
+            pass
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
+def read_manifest(plan):
+    home = plan.home
+    entries = []
+    if not os.path.isfile(MANIFEST):
+        plan.errors.append(f"missing {MANIFEST}")
+        return entries
+    with open(MANIFEST, encoding="utf-8") as fh:
+        for number, raw in enumerate(fh, 1):
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            where = f"links:{number}"
+            fields = line.split()
+            if len(fields) != 2:
+                plan.errors.append(f"{where}: expected '<repo path> <home path>'")
+                continue
+            source, target = fields
+            mirror = source.endswith("/")
+            if mirror != target.endswith("/"):
+                plan.errors.append(f"{where}: put a trailing slash on both paths or on neither")
+                continue
+            if not (target == "~/" or target.startswith("~/")):
+                plan.errors.append(f"{where}: the home path must start with ~/")
+                continue
+            target_path = os.path.normpath(home + target[1:])
+            inside = target_path.startswith(home + os.sep) or (mirror and target_path == home)
+            if not inside:
+                plan.errors.append(f"{where}: {target} is not inside the home directory")
+                continue
+            if in_repo(target_path):  # other spellings: location_problem() compares identity
+                plan.errors.append(f"{where}: {target} is inside the repository")
+                continue
+            source = source.rstrip("/")
+            source_path = os.path.normpath(os.path.join(REPO, source))
+            if not in_repo(source_path) or source_path == REPO:
+                plan.errors.append(f"{where}: {source} is outside the repository")
+                continue
+            if not os.path.lexists(source_path):
+                plan.errors.append(f"{where}: {source} does not exist")
+                continue
+            if mirror and not os.path.isdir(source_path):
+                plan.errors.append(f"{where}: {source}/ is not a directory")
+                continue
+            entries.append((os.path.relpath(source_path, REPO), target_path, mirror))
+    return entries
+
+
+def desired_links(entries, plan):
+    home = plan.home
+    links = {}
+    spellings = {}  # casefolded target -> first spelling; macOS disks ignore case
+
+    def add(target, source):
+        if target in links and links[target] != source:
+            plan.errors.append(f"{plan.show(target)} is listed for both {links[target]} and {source}")
+        first = spellings.setdefault(target.casefold(), target)
+        if first != target:
+            plan.errors.append(f"{plan.show(first)} and {plan.show(target)} differ only in case; "
+                               "on a case-insensitive disk they are the same path")
+        links[target] = source
+
+    for source, target, mirror in entries:
+        if not mirror:
+            add(target, source)
+            continue
+        base = os.path.join(REPO, source)
+        for root, dirs, files in os.walk(base):
+            sub = os.path.relpath(root, base)
+            dest_root = target if sub == "." else os.path.join(target, sub)
+            dirs[:] = sorted(d for d in dirs
+                             if not ignored(os.path.relpath(os.path.join(dest_root, d), home)))
+            for name in sorted(files):
+                dest = os.path.join(dest_root, name)
+                if not ignored(os.path.relpath(dest, home)):
+                    add(dest, os.path.relpath(os.path.join(root, name), REPO))
+
+    # A link inside another link's destination would be created inside
+    # whatever that link points at, possibly the checkout itself.
+    folded = {target.casefold() for target in links}
+    for target in sorted(links):
+        parent = os.path.dirname(target)
+        while parent.startswith(home + os.sep):
+            if parent.casefold() in folded:
+                plan.errors.append(f"{plan.show(target)} lies inside {plan.show(parent)}, which is itself listed as a link")
+                break
+            parent = os.path.dirname(parent)
+    return links
+
+
+def location_problem(directory, plan, cache):
+    """Why links cannot be made or removed inside directory, or None.
+
+    Every existing component below home must be a real directory: a directory
+    link would put "home" files somewhere else, possibly in the checkout.
+    Reports the topmost offending component.
+    """
+    if directory not in cache:
+        problem = None
+        chain = []
+        current = directory
+        while current != plan.home and current.startswith(plan.home + os.sep):
+            chain.append(current)
+            current = os.path.dirname(current)
+        for current in reversed(chain):
+            if not os.path.lexists(current):
+                break
+            if os.path.islink(current):
+                where = "into the repository" if resolves_into_repo(current) else "elsewhere"
+                problem = (f"{plan.show(current)} is a directory link {where}; links must sit in "
+                           "real directories under home")
+                break
+            if not os.path.isdir(current):
+                problem = f"{plan.show(current)} is a file, not a directory"
+                break
+        if problem is None and resolves_into_repo(directory):
+            problem = f"{plan.show(directory)} resolves into the repository"
+        cache[directory] = problem
+    return cache[directory]
+
+
+def classify(links, plan, cache):
+    for target, source in sorted(links.items()):
+        problem = location_problem(os.path.dirname(target), plan, cache)
+        if problem:
+            plan.conflict(problem)
+            continue
+        want = os.path.join(REPO, source)
+        if os.path.islink(target):
+            current = pointee(target)
+            if current == want:
+                plan.ok += 1
+            elif in_repo(current):
+                plan.repair.append((target, source, os.readlink(target)))
+            else:
+                plan.conflict(f"{plan.show(target)} links to {current}, outside this repository")
+        elif os.path.lexists(target):
+            kind = "directory" if os.path.isdir(target) else "file"
+            plan.conflict(f"{plan.show(target)} is a real {kind} in the way of {source}")
+        else:
+            plan.create.append((target, source))
+
+
+def samefile_quiet(path, stat_result):
+    try:
+        return os.path.samestat(os.lstat(path), stat_result)
+    except OSError:
+        return False
+
+
+def find_stale(entries, links, plan, cache):
+    """Links into the repository, inside mirrored folders, that links does not list."""
+    seen = set()
+    for _, target, mirror in entries:
+        if not mirror:
+            continue
+        problem = location_problem(target, plan, cache)
+        if problem:
+            plan.conflict(problem)  # also covers an empty mirror, which classify never sees
+            continue
+        if os.path.islink(target) or not os.path.isdir(target):
+            continue
+        for root, dirs, files in os.walk(target):
+            # A mirror high enough (e.g. ~/) contains the checkout: never enter it.
+            dirs[:] = [d for d in dirs if not samefile_quiet(os.path.join(root, d), REPO_STAT)]
+            for name in dirs + files:
+                path = os.path.join(root, name)
+                if path in links or not os.path.islink(path):
+                    continue
+                current = pointee(path)
+                if not in_repo(current):
+                    continue
+                try:
+                    identity = (os.lstat(path).st_dev, os.lstat(path).st_ino)
+                except OSError:
+                    continue
+                if identity in seen or resolves_into_repo(os.path.dirname(path)):
+                    continue  # overlapping mirrors (or case aliases) scan the same folder; never touch the checkout
+                seen.add(identity)
+                if os.path.lexists(current):
+                    plan.warnings.append(f"stale    {plan.show(path)} -> {os.path.relpath(current, REPO)} "
+                                         "is not listed in links; left in place")
+                else:
+                    plan.prune.append((path, os.readlink(path)))
+
+
+def find_unlisted(entries, plan):
+    """Tracked files in a top-level folder that no links line deploys."""
+    try:
+        out = subprocess.run(["git", "-C", REPO, "ls-files", "-z"], check=True,
+                             capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        plan.warnings.append("could not list tracked files with git; unlisted files were not checked")
+        return
+    sources = [source for source, _, _ in entries]
+    for path in out.split("\0"):
+        top, _, rest = path.partition("/")
+        if not rest or top.startswith(".") or top == "docs":
+            continue
+        if not os.path.lexists(os.path.join(REPO, path)):
+            continue  # deleted or moved in the worktree; nothing to deploy
+        if not any(path == s or path.startswith(s + "/") for s in sources):
+            plan.warnings.append(f"unlisted {path} is tracked but no links line deploys it")
+
+
+def build_plan(home):
+    plan = Plan(home)
+    entries = read_manifest(plan)
+    links = desired_links(entries, plan)
+    if not plan.errors:
+        cache = {}
+        classify(links, plan, cache)
+        find_stale(entries, links, plan, cache)
+    find_unlisted(entries, plan)
+    return plan
+
+
+NOFOLLOW_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+def open_parent(home_fd, plan, target, create):
+    """Open target's directory by walking from home without following symlinks.
+
+    Returns (directory fd, leaf name). Raises OSError when a component is a
+    symlink (ELOOP) or not a directory, so a parent swapped after planning
+    can never redirect the operation.
+    """
+    parts = os.path.relpath(os.path.dirname(target), plan.home).split(os.sep)
+    fd = os.dup(home_fd)
+    try:
+        for part in parts:
+            if part == ".":
+                continue
+            try:
+                child = os.open(part, NOFOLLOW_DIR, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                try:
+                    os.mkdir(part, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                child = os.open(part, NOFOLLOW_DIR, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd, os.path.basename(target)
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def link_value(fd, name):
+    try:
+        return os.readlink(name, dir_fd=fd)
+    except OSError:
+        return None  # missing, or no longer a symlink
+
+
+def still_in_place(fd, directory):
+    """Whether the directory open as fd is still the one at its planned path."""
+    try:
+        return os.path.samestat(os.fstat(fd), os.lstat(directory))
+    except OSError:
+        return False
+
+
+def execute(plan, home_fd):
+    """Carry out a conflict-free plan; returns (created, repaired, removed, skipped targets).
+
+    Each change happens through a parent directory opened from home_fd without
+    following symlinks, and only while that directory is verifiably still at
+    its planned path, checked before and after; a change made while it had
+    moved is undone. Errors are reported per target.
+    """
+    created, repaired, removed, changed = 0, 0, 0, []
+
+    def skip(path, why):
+        changed.append(f"{plan.show(path)} {why}; left alone")
+
+    def act(path, create, operation):
+        """Run operation(fd, name) in path's parent; returns its result or None when skipped."""
+        directory = os.path.dirname(path)
+        try:
+            fd, name = open_parent(home_fd, plan, path, create)
+        except OSError as error:
+            skip(path, f"has a parent that is no longer a real directory ({error.strerror})")
+            return None
+        try:
+            if not still_in_place(fd, directory):
+                skip(path, "has a parent that moved while apply ran")
+                return None
+            try:
+                result = operation(fd, name)
+            except OSError as error:
+                skip(path, f"could not be changed: {error.strerror}")
+                return None
+            if result and not still_in_place(fd, directory):
+                result()  # every operation returns its own undo
+                skip(path, "has a parent that moved while apply ran (change undone)")
+                return None
+            return result
+        finally:
+            os.close(fd)
+
+    for target, source in plan.create:
+        def create(fd, name, source=source, target=target):
+            want = os.path.join(REPO, source)
+            try:
+                os.symlink(want, name, dir_fd=fd)  # never replaces
+            except FileExistsError:
+                skip(target, "appeared while apply ran")
+                return None
+
+            def undo():
+                if link_value(fd, name) == want:
+                    os.unlink(name, dir_fd=fd)
+            return undo
+        if act(target, True, create):
+            created += 1
+
+    for target, source, planned in plan.repair:
+        def repair(fd, name, source=source, target=target, planned=planned):
+            if link_value(fd, name) != planned:
+                skip(target, "changed while apply ran")
+                return None
+            temporary = f"{name}.dotfiles-link-{os.getpid()}"
+            os.symlink(os.path.join(REPO, source), temporary, dir_fd=fd)
+            try:
+                if link_value(fd, name) != planned:
+                    skip(target, "changed while apply ran")
+                    return None
+                os.rename(temporary, name, src_dir_fd=fd, dst_dir_fd=fd)
+
+                def undo():
+                    if link_value(fd, name) == os.path.join(REPO, source):
+                        os.symlink(planned, temporary, dir_fd=fd)
+                        os.rename(temporary, name, src_dir_fd=fd, dst_dir_fd=fd)
+                return undo
+            finally:
+                if link_value(fd, temporary) is not None:
+                    os.unlink(temporary, dir_fd=fd)
+        if act(target, False, repair):
+            repaired += 1
+
+    for path, planned in plan.prune:
+        def prune(fd, name, path=path, planned=planned):
+            try:
+                os.stat(name, dir_fd=fd)  # follows the link: must still dangle
+                skip(path, "changed while apply ran")
+                return None
+            except FileNotFoundError:
+                pass
+            if link_value(fd, name) != planned:
+                skip(path, "changed while apply ran")
+                return None
+            os.unlink(name, dir_fd=fd)
+
+            def undo():
+                if link_value(fd, name) is None:
+                    os.symlink(planned, name, dir_fd=fd)
+            return undo
+        if act(path, False, prune):
+            removed += 1
+    return created, repaired, removed, changed
+
+
+def main(argv):
+    command, quiet, home = "check", False, os.environ.get("HOME", "")
+    args = list(argv)
+    while args:
+        arg = args.pop(0)
+        if arg in ("check", "apply"):
+            command = arg
+        elif arg in ("-q", "--quiet"):
+            quiet = True
+        elif arg == "--home" and args:
+            home = args.pop(0)
+        elif arg in ("-h", "--help"):
+            print(__doc__.strip())
+            return 0
+        else:
+            print(__doc__.strip(), file=sys.stderr)
+            return 2
+    if not home or not os.path.isdir(home):
+        print(f"dotfiles-link: home directory {home!r} does not exist", file=sys.stderr)
+        return 2
+    home = os.path.realpath(home)
+    # Pin home before planning: if its path is swapped afterwards, apply notices
+    # and refuses, and nothing can be written through the replacement.
+    home_fd = os.open(home, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        return run(command, quiet, home, home_fd)
+    finally:
+        os.close(home_fd)
+
+
+def run(command, quiet, home, home_fd):
+    plan = build_plan(home)
+
+    if not quiet:
+        for target, source in plan.create:
+            print(f"create   {plan.show(target)} -> {source}")
+        for target, source, _ in plan.repair:
+            print(f"repair   {plan.show(target)} -> {source} (was {os.path.relpath(pointee(target), REPO)})")
+        for path, _ in plan.prune:
+            print(f"remove   {plan.show(path)} (points at a missing repository file)")
+    for line in plan.errors:
+        print(f"error    {line}", file=sys.stderr)
+    for line in plan.conflicts:
+        print(f"conflict {line}", file=sys.stderr)
+    for line in plan.warnings:
+        print(line, file=sys.stderr)
+
+    pending = len(plan.create) + len(plan.repair) + len(plan.prune)
+    if command == "apply":
+        if plan.errors or plan.conflicts:
+            print("dotfiles-link: changed nothing. Fix the errors above, or move each "
+                  "conflicting path aside under an unused name, then rerun.", file=sys.stderr)
+            return 1
+        if not still_in_place(home_fd, home):
+            print(f"dotfiles-link: changed nothing: {home} is no longer the directory that was planned",
+                  file=sys.stderr)
+            return 1
+        created, repaired, removed, changed = execute(plan, home_fd)
+        for line in changed:
+            print(f"conflict {line}", file=sys.stderr)
+        skipped = f", {len(changed)} skipped because they changed while apply ran" if changed else ""
+        print(f"dotfiles-link: {plan.ok + created + repaired} links in place "
+              f"({created} created, {repaired} repaired, {removed} removed{skipped})")
+        return 1 if changed else 0
+
+    print(f"dotfiles-link: {plan.ok} links in place, {len(plan.create)} to create, "
+          f"{len(plan.repair)} to repair, {len(plan.prune)} to remove, "
+          f"{len(plan.conflicts) + len(plan.errors)} blocking, {len(plan.warnings)} to review")
+    return 0 if not (pending or plan.conflicts or plan.errors or plan.warnings) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

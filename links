@@ -1,0 +1,32 @@
+# Where each part of this repository is linked under $HOME.
+# Preview with `dotfiles-link check`, apply with `dotfiles-link apply`.
+#
+#   <repo path>   <home path>
+#
+# A trailing slash on both sides mirrors a folder: its directories stay real
+# under $HOME and every file inside gets its own symlink, so applications can
+# keep sessions, caches and credentials beside the managed files. New files in
+# a mirrored folder are picked up by the next apply. Without the slash, the
+# path itself is linked. Root files, docs/ and hidden folders (.omp/ and .pi/
+# hold this repository's own project config) are never linked.
+
+aerospace/      ~/.config/aerospace/
+alacritty/      ~/.config/alacritty/
+gh/             ~/.config/gh/
+ghostty/        ~/.config/ghostty/
+git/            ~/.config/git/
+herdr/          ~/.config/herdr/
+nvim/           ~/.config/nvim/
+tmux/           ~/.config/tmux/
+tuicr/          ~/.config/tuicr/
+
+zsh/zshenv      ~/.zshenv
+zsh/zshrc       ~/.config/zsh/.zshrc
+zsh/zprofile    ~/.config/zsh/.zprofile
+zsh/p10k.zsh    ~/.config/zsh/.p10k.zsh
+
+pi/             ~/.pi/agent/
+omp/            ~/.omp/agent/
+
+bin/            ~/.local/bin/
+lib/            ~/.local/lib/

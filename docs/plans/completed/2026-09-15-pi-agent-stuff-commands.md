@@ -84,5 +84,5 @@ pinned attribution, opt-in/context safeguards, fixture checks and an operator gu
 Owning extension policy, root tooling guide, architecture routing and verification
 runbook are updated. Unrelated work remains intact. Activation is a separate user
 decision: link only this extension's reviewed Stow leaves, then reload an idle Pi.
-See [the operator guide](../../../pi/.pi/agent/extensions/agent-stuff/README.md) for
+See [the operator guide](../../../pi/extensions/agent-stuff/README.md) for
 costs, local upstream differences and unverified live boundaries.

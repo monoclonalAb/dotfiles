@@ -1,0 +1,155 @@
+#!/bin/sh
+set -eu
+
+SOURCE_URL=https://github.com/herdrdev/herdr.git
+SOURCE_COMMIT=065ef9d6a531c49fb8bee7e818ef837065b21ee9 # upstream v0.9.1
+RUST_TOOLCHAIN=1.96.1
+
+usage() {
+  cat <<'EOF'
+Usage: install-herdr-focus [--build-only OUTPUT]
+
+Build the pinned Herdr 0.9.1 pane-chrome, Spaces-tree, machine-toggle and
+compact-prefix patch and run the patch's focused tests. By default the
+resulting binary is atomically installed at ~/.local/bin/herdr. --build-only
+copies it to OUTPUT without touching the installed binary or any running
+Herdr server.
+EOF
+}
+
+build_only=
+case ${1-} in
+  '') ;;
+  --build-only)
+    [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    build_only=$2
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+script_path=$(python3 - "$0" <<'PY'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).resolve())
+PY
+)
+repo_root=$(cd "$(dirname "$script_path")/.." && pwd -P)
+patch_file=$repo_root/herdr/patches/herdr-0.9.1-focused-pane.patch
+[ -f "$patch_file" ] || { echo "missing patch: $patch_file" >&2; exit 1; }
+
+rustup_bin=$(command -v rustup 2>/dev/null || true)
+if [ -z "$rustup_bin" ] && command -v brew >/dev/null 2>&1; then
+  rustup_prefix=$(brew --prefix rustup 2>/dev/null || true)
+  [ -z "$rustup_prefix" ] || rustup_bin=$rustup_prefix/bin/rustup
+fi
+[ -n "$rustup_bin" ] && [ -x "$rustup_bin" ] || {
+  echo 'rustup is required (install the Brewfile first)' >&2
+  exit 1
+}
+
+zig_bin=${ZIG-}
+if [ -z "$zig_bin" ] && command -v brew >/dev/null 2>&1; then
+  zig_prefix=$(brew --prefix zig 2>/dev/null || true)
+  [ -z "$zig_prefix" ] || zig_bin=$zig_prefix/bin/zig
+fi
+if [ -z "$zig_bin" ]; then
+  zig_bin=$(command -v zig 2>/dev/null || true)
+fi
+[ -n "$zig_bin" ] && [ -x "$zig_bin" ] || {
+  echo 'Zig 0.16.0 is required (install the Brewfile first, or set ZIG)' >&2
+  exit 1
+}
+case $("$zig_bin" version) in
+  0.16.0) ;;
+  *) echo "Zig 0.16.0 is required; found $("$zig_bin" version) at $zig_bin (set ZIG to override)" >&2; exit 1 ;;
+esac
+
+workdir=$(mktemp -d "${TMPDIR:-/tmp}/herdr-focus-build.XXXXXX")
+install_tmp=
+cleanup() {
+  rm -rf "$workdir"
+  [ -z "$install_tmp" ] || rm -f "$install_tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+source_dir=$workdir/source
+git init -q "$source_dir"
+git -C "$source_dir" remote add origin "$SOURCE_URL"
+git -C "$source_dir" fetch -q --depth 1 origin "$SOURCE_COMMIT"
+git -C "$source_dir" checkout -q --detach FETCH_HEAD
+actual_commit=$(git -C "$source_dir" rev-parse HEAD)
+[ "$actual_commit" = "$SOURCE_COMMIT" ] || {
+  echo "source commit mismatch: $actual_commit" >&2
+  exit 1
+}
+git -C "$source_dir" apply --check "$patch_file"
+git -C "$source_dir" apply "$patch_file"
+
+# Mark this exact patch in --version/status; pin the channel so inherited build
+# variables cannot disable the custom build's stock-update protection.
+HERDR_BUILD_CHANNEL=dotfiles
+HERDR_BUILD_ID=$(shasum -a 256 "$patch_file" | cut -c 1-12)
+export HERDR_BUILD_CHANNEL HERDR_BUILD_ID
+
+# Explicit tool versions keep the build independent of the caller's defaults.
+"$rustup_bin" toolchain install "$RUST_TOOLCHAIN" --profile minimal >/dev/null
+(
+  cd "$source_dir"
+  ZIG="$zig_bin" "$rustup_bin" run "$RUST_TOOLCHAIN" cargo build --locked --release
+)
+built_binary=$source_dir/target/release/herdr
+[ -x "$built_binary" ] || { echo 'build did not produce herdr' >&2; exit 1; }
+
+# Prove the patch on this exact source before installing anything: run the
+# focused tests the patch itself adds or modifies. The server side covers pane
+# chrome, config keys, the split guard, retained-frame fading and client-local
+# navigation's plugin focus events (without global PTY focus changes); the client
+# shell suite covers the inline Spaces tree, sidebar_hidden filtering, the
+# fixed footer, mouse hit-testing, worktree reordering, the machine-toggle keys
+# and the compact prefix indicator alongside the stock sidebar/mouse regression
+# tests.
+(
+  cd "$source_dir"
+  ZIG="$zig_bin" "$rustup_bin" run "$RUST_TOOLCHAIN" cargo test --locked --release --bin herdr -- \
+    config::model::tests::pane_appearance_defaults_and_parse \
+    config::model::tests::unfocused_pane_opacity_rejects_values_outside_unit_interval \
+    terminal::title::tests::strips_omp_task_prefix \
+    ui::panes::tests \
+    layout::tests \
+    app::tests::pane_split_request_rejects_unreadable_result \
+    server::headless::tests::retained_pty_update_keeps_unfocused_pane_faded \
+    server::headless::tests::retained_pty_update_keeps_attention_pane_at_midpoint_opacity \
+    server::headless::tests::client_navigation_emits_plugin_focus_events_only_for_changed_panes \
+    server::headless::tests::client_local_navigation_does_not_emit_global_focus_transitions \
+    server::headless::tests::client_shell_tab_focus_changes_only_the_source_connection \
+    server::headless::tests::public_focus_moves_shell_focus_between_tabs \
+    client::shell::tests \
+    update::tests::dotfiles_build_refuses_stock_updates_even_with_handoff \
+    --test-threads=1
+)
+
+if [ -n "$build_only" ]; then
+  mkdir -p "$(dirname "$build_only")"
+  install -m 755 "$built_binary" "$build_only"
+  echo "Built $("$build_only" --version) at $build_only"
+  exit 0
+fi
+
+destination=${HERDR_INSTALL_PATH:-$HOME/.local/bin/herdr}
+mkdir -p "$(dirname "$destination")"
+install_tmp=$destination.new.$$
+install -m 755 "$built_binary" "$install_tmp"
+if [ "$(uname -s)" = Darwin ]; then
+  codesign --force --sign - "$install_tmp"
+fi
+mv -f "$install_tmp" "$destination"
+install_tmp=
+echo "Installed $("$destination" --version) at $destination"
+echo 'No server was restarted. Client chrome activates on a fresh attach; server features activate on the next natural server start.'

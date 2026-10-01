@@ -1,17 +1,20 @@
 # dotfiles
 
-My macOS dotfiles, managed with [GNU Stow](https://www.gnu.org/software/stow/).
+My macOS dotfiles. Each top-level folder holds one tool's configuration, laid
+out flat (`nvim/init.lua`, `zsh/zshrc`). The [`links`](links) file says where each
+folder or file goes under `$HOME`, and [`dotfiles-link`](bin/dotfiles-link) creates
+the symlinks. `docs/`, root files and hidden folders are never linked.
 
-Each active top-level folder is a **Stow package** that mirrors its real path under
-`$HOME`, except `docs/`, which is deliberately excluded from deployment. The
-[`.stowrc`](.stowrc) uses `--no-folding`: parent directories remain real and managed
-files become symlinks. Content edits here can therefore change live configuration
-immediately — no copy or restow is needed for an already-linked file.
+A folder listed with a trailing slash is *mirrored*: its directories stay real under
+`$HOME` and every file inside is its own symlink, so applications keep their
+sessions, caches and credentials beside the managed files without writing into this
+repository. Content edits here change live configuration immediately; only a new,
+moved or deleted file needs `dotfiles-link apply`.
 
 ```text
-nvim/.config/nvim/init.lua  --stow--> ~/.config/nvim/init.lua  (file symlink)
-zsh/.config/zsh/.zshrc      --stow--> ~/.config/zsh/.zshrc      (file symlink)
-zsh/.zshenv                --stow--> ~/.zshenv               (sets ZDOTDIR)
+nvim/            -> ~/.config/nvim/          (mirrored: one symlink per file)
+zsh/zshrc        -> ~/.config/zsh/.zshrc     (file symlink)
+zsh/zshenv       -> ~/.zshenv                (sets ZDOTDIR)
 ```
 
 ## Find the right guide
@@ -42,21 +45,21 @@ xcode-select --install      # wait for the installer to finish
 /opt/homebrew/bin/brew install gh
 /opt/homebrew/bin/gh auth login                  # choose HTTPS and "authenticate Git"
 /opt/homebrew/bin/gh repo clone monoclonalAb/dotfiles ~/dotfiles
-~/dotfiles/bin/.local/bin/dotfiles-bootstrap
+~/dotfiles/bin/dotfiles-bootstrap
 ```
 
-[`dotfiles-bootstrap`](bin/.local/bin/dotfiles-bootstrap) automates the numbered
+[`dotfiles-bootstrap`](bin/dotfiles-bootstrap) automates the numbered
 steps below: Command Line Tools, Homebrew, rustup, the Brewfile, nvm + Node LTS,
-Pi and TypeScript, Stow (all packages), the theme seed, tpm, the patched Herdr
+Pi and TypeScript, every link, the theme seed, tpm, the patched Herdr
 build, and Herdr's plugins and agent integrations. It acts only on what is missing,
-so rerun it after fixing a failure. It stops rather than resolving a Stow conflict
+so rerun it after fixing a failure. It stops rather than resolving a link conflict
 (see [step 7](#7-link-everything)), never upgrades installed packages, and ends by
 printing what it cannot do: sign-ins (`gh`, Pi `/login`, gcloud, Tailscale),
 AeroSpace's Accessibility permission, tmux `C-a I`, and the first `nvim` launch.
 `dotfiles-bootstrap --check` reports the same steps without changing any
 configuration (Homebrew and Herdr may still write their own caches and locks).
 
-What carries over: every file in the packages, including Pi's settings (default
+What carries over: every linked file, including Pi's settings (default
 and enabled models), MCP servers and model overrides, the p10k prompt, and the
 git identity. What does not: credentials and sign-ins, SSH keys,
 `~/.config/mcp/mcp.json`, machine-local LaunchAgents, app data (such as the
@@ -66,7 +69,7 @@ this Mac.
 The numbered steps are the manual equivalent and explain each prerequisite.
 
 **Order matters.** Homebrew and rustup have to be in place *before* the first new zsh
-starts, and `stow` has to run *before* p10k / tpm / nvim, because those write into
+starts, and linking has to happen *before* p10k / tpm / nvim, because those write into
 directories this repo owns. Following the steps top to bottom handles that.
 
 ### 1. Xcode Command Line Tools
@@ -95,7 +98,7 @@ needs `python3`.
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --no-modify-path
 ```
 
-`--no-modify-path` stops rustup creating `~/.zshenv` (which would then block Stow)
+`--no-modify-path` stops rustup creating `~/.zshenv` (which would then block linking)
 and editing other shell files; the linked `.zshenv` already loads Cargo.
 
 `~/.zshenv` sources `~/.cargo/env` **unconditionally**. Skip this step and every single
@@ -111,7 +114,7 @@ gh repo clone monoclonalAb/dotfiles ~/dotfiles
 
 Keep the clone at `~/dotfiles`: Pi and OMP MCP configuration refers to that path.
 A plain clone is correct — **no `--recurse-submodules`**. The tmux plugin submodules were
-removed when this repo moved to Stow; tpm installs them now (step 8). The Catppuccin
+removed from this repo; tpm installs them now (step 8). The Catppuccin
 theme for Alacritty is vendored into the repo, so it needs nothing at install time.
 
 ### 5. Install the packages
@@ -134,7 +137,7 @@ npm install -g @earendil-works/pi-coding-agent typescript@5
 
 `PROFILE=/dev/null` keeps nvm's installer from appending to a shell file. The global
 packages are Pi itself (the `pi` wrapper in `bin` execs it) and the TypeScript
-fallback that [`lsp.json`](omp/.omp/agent/lsp.json) points at; install them with
+fallback that [`lsp.json`](omp/lsp.json) points at; install them with
 nvm's npm, not Homebrew's.
 
 Most of the Mason LSPs (`html`, `cssls`, `tailwindcss`, `jsonls`, `yamlls`) are npm
@@ -143,21 +146,20 @@ packages, and the `pwa-node` debug adapter shells out to `node`. `.zshrc` alread
 
 ### 7. Link everything
 
-Dry-run first. On a Mac that has already been used, this *will* report conflicts:
-
-The repository `.stowrc` disables directory folding. Stow creates real parent
-directories and links only managed files, so app-written runtime state such as Pi
-credentials and generated extensions stays outside this repository.
+Preview first. On a Mac that has already been used, this *will* report conflicts:
 
 ```sh
-cd ~/dotfiles
-stow -n -v -t "$HOME" */
+~/dotfiles/bin/dotfiles-link check
 ```
 
-A conflict means a target is occupied by an unmanaged file/directory or a
-conflicting link. Inspect it and preserve anything valuable before moving it
-aside and re-running. The following are examples, not unconditional commands;
-use an unused backup name and never replace a previous backup:
+It lists every link it would create or repair, then problems: `conflict` lines,
+`unlisted` tracked files that no line in [`links`](links) deploys, and `stale` links
+into the repository that `links` no longer lists. A conflict means a target is a real
+file or directory or a link pointing outside this repository, or that it sits under
+a directory symlink: every folder below `$HOME` that holds a link must be a real
+directory. Inspect it and preserve anything valuable before moving it aside and
+re-running. The following are examples, not unconditional commands; use an unused
+backup name and never replace a previous backup:
 
 ```sh
 mv ~/.zshenv ~/.zshenv.bak          # macOS ships one
@@ -167,19 +169,21 @@ mv ~/.config/nvim ~/.config/nvim.bak
 Then link for real:
 
 ```sh
-stow -t "$HOME" */
+~/dotfiles/bin/dotfiles-link apply
 ```
 
-`*/` only matches non-hidden directories, so `README.md`, `Brewfile`, `.stowrc`, and
-the archived `.archive/` packages are skipped automatically. The `.stowrc` ignore rules
-also keep runtime state local: Zsh history and sessions, Neovim's lockfile, tmux
-plugins, OMP's lockfile, and Pi credentials and model cache.
-Tracked configuration remains as individual symlinks inside real directories.
+`apply` changes nothing while any conflict remains. It creates absolute symlinks,
+repairs links that point at an old location inside this repository, and removes
+links in mirrored folders whose repository file no longer exists. Its ignore list
+(in the script: the old `.stowrc` patterns, matched against the end of each path
+under `$HOME` as Stow did) keeps runtime files that may land in the checkout from
+being linked: caches, Neovim's lockfile, tmux plugins, OMP's lockfile, and Pi credentials
+and model cache.
 
 Check it landed:
 
 ```sh
-ls -la ~/.config    # managed files inside these real directories are symlinks
+dotfiles-link check   # exit 0: every link in place, nothing to review
 ```
 
 ### 8. Set up each tool
@@ -190,10 +194,10 @@ ls -la ~/.config    # managed files inside these real directories are symlinks
 exec zsh
 ```
 
-The Powerlevel10k prompt is tracked at `zsh/.config/zsh/.p10k.zsh`, so it arrives
+The Powerlevel10k prompt is tracked at `zsh/p10k.zsh`, so it arrives
 configured. `p10k configure` deletes the link and writes a real file; to keep a new
 style, move it back with
-`mv ~/.config/zsh/.p10k.zsh ~/dotfiles/zsh/.config/zsh/.p10k.zsh && (cd ~/dotfiles && stow -t "$HOME" zsh)`
+`mv ~/.config/zsh/.p10k.zsh ~/dotfiles/zsh/p10k.zsh && dotfiles-link apply`
 and commit. `.zprofile` adds Homebrew to `PATH` when the installer did not (the
 script installer's suggested `~/.zprofile` line is never read because `ZDOTDIR` is set).
 
@@ -201,7 +205,7 @@ script installer's suggested `~/.zprofile` line is never read because `ZDOTDIR` 
 by the Brewfile. **Cmd-click** a `file://` URL to open it in a new Neovim window
 (**Cmd+Shift-click** inside Herdr); web links still open in the browser and
 **Ctrl+Shift+O** picks hints by keyboard. Pi's
-[local-file-links](pi/.pi/agent/extensions/local-file-links/README.md) extension makes
+[local-file-links](pi/extensions/local-file-links/README.md) extension makes
 its file links clickable.
 
 **Theme** — seed the shared Catppuccin state, which Alacritty, Herdr, tmux, Neovim and Pi share
@@ -217,8 +221,8 @@ error to `$TMPDIR/Alacritty-*.log` — harmless, and this clears it.
 **Tailscale**
 
 Install the `tailscale-app` cask, sign in to the existing tailnet, and enable MagicDNS in
-the tailnet's DNS settings. The cask ships no `tailscale` command on `PATH`; the `bin`
-package's [`tailscale`](bin/.local/bin/tailscale) wrapper execs the bundled binary
+the tailnet's DNS settings. The cask ships no `tailscale` command on `PATH`; the
+[`tailscale`](bin/tailscale) wrapper in `bin/` execs the bundled binary
 instead of symlinking it, so the executable keeps its application-bundle identity.
 
 **Herdr**
@@ -226,7 +230,7 @@ instead of symlinking it, so the executable keeps its application-bundle identit
 Herdr's runtime `config.toml` is generated from `config.base.toml` by `theme`, so
 run the Theme step above first. This repo builds Herdr from upstream v0.9.1
 (`065ef9d6a531c49fb8bee7e818ef837065b21ee9`) plus
-[`herdr-0.9.1-focused-pane.patch`](herdr/.config/herdr/patches/herdr-0.9.1-focused-pane.patch),
+[`herdr-0.9.1-focused-pane.patch`](herdr/patches/herdr-0.9.1-focused-pane.patch),
 which adds:
 
 - heavy focused-pane borders and attention chrome: blocked panes use the palette's
@@ -280,7 +284,7 @@ the live keymap. The custom keys:
 | Key | Action |
 | --- | --- |
 | `C-a u` / `C-a Shift-u` | Jump to the next conversation needing attention / back to where the jumps started |
-| `C-a t` | Start a [Pi task](herdr/.config/herdr/plugins/task-launcher/README.md) in a new worktree Space |
+| `C-a t` | Start a [Pi task](herdr/plugins/task-launcher/README.md) in a new worktree Space |
 | `C-a v` | Review the focused agent's uncommitted changes in tuicr and send the comments back |
 | `C-a ;` / `C-a :` | Toggle Personal/Work / send the current Space to the other environment |
 | `C-a '` | Switch this client to the next online machine (e.g. the saved `home`) |
@@ -295,12 +299,12 @@ state. The focused conversation counts as reviewed even if it finishes while the
 terminal is in the background (the macOS notification still fires). It also sounds the active-tab OMP prompts Herdr's own toasts skip. Its settings
 live in `~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
 Conversation rows use OMP's terminal title, or for Pi the
-[`herdr-task-summary`](pi/.pi/agent/extensions/herdr-task-summary/summary.ts) token: a
+[`herdr-task-summary`](pi/extensions/herdr-task-summary/summary.ts) token: a
 2–6-word title generated in the background by a small, tool-free request to the
 selected model (this uses provider quota). A letter-scramble animation shows while it
 is pending; failures keep the previous title.
 
-**Reviewing changes.** `C-a v` runs [`herdr-review`](bin/.local/bin/herdr-review), which
+**Reviewing changes.** `C-a v` runs [`herdr-review`](bin/herdr-review), which
 opens [tuicr](https://tuicr.dev) in a popup on the focused agent's working tree
 (or the only agent in the tab). Select lines with `v`/`V`, comment with `c`, then
 `:wq`/`ZZ` sends all comments to the agent as one prompt; `:q`/`ZQ` sends nothing.
@@ -343,7 +347,7 @@ The Tree-sitter parser installer likewise requires `tree-sitter-cli`, which the 
 Note `lazy-lock.json` is gitignored, so a fresh install pulls the latest stable version of
 every plugin rather than the versions pinned on the old machine.
 
-**git** — the `git` package links [`~/.config/git/config`](git/.config/git/config)
+**git** — the `git` folder links [`~/.config/git/config`](git/config)
 (name, email, `init.defaultBranch`) and the global `ignore` file; Git reads both via
 XDG. Keep `~/.gitconfig` absent: when it exists, Git reads it too and
 `git config --global` writes there instead of to the tracked file. Credentials use the
@@ -379,8 +383,8 @@ readlink ~/.config/zsh/.zshrc     # confirm the link's source before editing
 ```
 
 If an older installation still has a whole-directory link into the checkout,
-inspect its runtime files before migrating it. Do not use `stow --adopt` or copy
-app state into Git to resolve a conflict.
+inspect its runtime files before migrating it; `dotfiles-link` refuses to link
+through one. Do not copy app state into Git to resolve a conflict.
 
 ## Personal bits — edit or skip
 
@@ -390,15 +394,15 @@ machine. Fix or delete as you go.
 
 | Where | What | Do what |
 |---|---|---|
-| `zsh/.zshenv` — Cargo environment | `. "$HOME/.cargo/env"` | install rustup (step 3) — this one **does** error at startup |
-| `zsh/.config/zsh/.zshrc` — `pmd` alias | `$HOME/pmd-bin-7.16.0` | unzip PMD 7.16.0 there, or drop the alias |
-| `zsh/.config/zsh/.zshrc` — `life`, `todo`, `resumes` aliases | `~/Desktop/life`, `~/Desktop/resumes` | create the dirs, or drop the aliases |
-| `zsh/.config/zsh/.zshrc` — `prosperity` alias | `/Users/ericzheng/Desktop/prosperity/…` | drop it — absolute path, old project |
-| `zsh/.config/zsh/.zshrc` — PATH block | `/Library/TeX/texbin`, `/usr/local/share/dotnet` | harmless if absent; they're just PATH entries |
-| `zsh/.config/zsh/.zshrc` — conda initialisation | conda block at `/opt/anaconda3` | install Anaconda there, or delete the block |
+| `zsh/zshenv` — Cargo environment | `. "$HOME/.cargo/env"` | install rustup (step 3) — this one **does** error at startup |
+| `zsh/zshrc` — `pmd` alias | `$HOME/pmd-bin-7.16.0` | unzip PMD 7.16.0 there, or drop the alias |
+| `zsh/zshrc` — `life`, `todo`, `resumes` aliases | `~/Desktop/life`, `~/Desktop/resumes` | create the dirs, or drop the aliases |
+| `zsh/zshrc` — `prosperity` alias | `/Users/ericzheng/Desktop/prosperity/…` | drop it — absolute path, old project |
+| `zsh/zshrc` — PATH block | `/Library/TeX/texbin`, `/usr/local/share/dotnet` | harmless if absent; they're just PATH entries |
+| `zsh/zshrc` — conda initialisation | conda block at `/opt/anaconda3` | install Anaconda there, or delete the block |
 | `.archive/fish/.config/fish/config.fish` | the same conda block | ditto |
-| `nvim/.config/nvim/lua/plugins/obsidian.lua` | Obsidian integration loads only when `~/Documents/obsidian` exists | create your vault there; ordinary Markdown works without one |
-| `pi/.pi/agent/mcp.json`, `omp/.omp/agent/{mcp,lsp,dap}.json` | absolute `/Users/eric/...` paths (JSON cannot expand `~`) | same username and `~/dotfiles` clone: nothing; otherwise `dotfiles-bootstrap` lists the files to edit |
+| `nvim/lua/plugins/obsidian.lua` | Obsidian integration loads only when `~/Documents/obsidian` exists | create your vault there; ordinary Markdown works without one |
+| `pi/mcp.json`, `omp/{mcp,lsp,dap}.json` | absolute `/Users/eric/...` paths (JSON cannot expand `~`) | same username and `~/dotfiles` clone: nothing; otherwise `dotfiles-bootstrap` lists the files to edit |
 
 ## Optional extras
 
@@ -425,11 +429,13 @@ This repo actively uses one tiling WM:
 
 ## Archived configurations
 
-The complete `fish`, `neofetch`, `yabai`, `skhd`, `wezterm`, and `yazi` Stow packages
-are kept under `.archive/`; they are not active configurations. Because `.archive/` is
-hidden, the default `*/` workflow omits it.
+The complete `fish`, `neofetch`, `yabai`, `skhd`, `wezterm`, and `yazi` packages
+are kept under `.archive/` in the old GNU Stow layout (`<tool>/.config/<tool>/`); they
+are not active configurations, and `links` never lists hidden folders.
 
-Restore or remove exactly one archived package without moving it:
+Restore or remove exactly one archived package without moving it (needs
+`brew install stow`; to make it active again, flatten it into a top-level folder and
+add a `links` line instead):
 
 ```sh
 stow -d .archive -t "$HOME" <package>
@@ -443,7 +449,7 @@ passwordless sudoers entry.
 
 ## What's managed vs. left alone
 
-| Managed (stow packages) | Left in `~/.config` (real dirs, untracked) |
+| Managed (listed in `links`) | Left in `~/.config` (real dirs, untracked) |
 |---|---|
 | nvim, herdr, tmux, zsh (+`~/.zshenv`, p10k prompt), alacritty, ghostty, aerospace, git (identity + ignore), gh (`config.yml` only), tuicr, bin, omp, pi (settings, models, extensions, prompts, MCP) | **Games:** StardewValley · **Secrets/app-state:** gh credentials (`hosts.yml`), github-copilot, gcloud, mcp (`mcp.json`), launchpad, Herdr runtime (sessions, logs, plugin state, generated `config.toml`) · **Default templates only:** cmux, opencode, amp · **Skipped:** raycast (extension bundles), herdr-dev (plugin test fixtures) |
 
@@ -452,17 +458,18 @@ Also outside the repository: credentials (`~/.pi/agent/auth.json`, gcloud, `~/.s
 Codex, Gemini, opencode, cmux).
 
 
-Secrets and runtime state must remain outside this repo. With leaf linking,
+Secrets and runtime state must remain outside this repo. With mirrored folders,
 new app-written files normally stay in real `$HOME` directories rather than
-landing in the checkout. [`.gitignore`](.gitignore) and [`.stowrc`](.stowrc) cover
-specific known outputs, not every possible secret filename. Older folded links
+landing in the checkout. [`.gitignore`](.gitignore) and the ignore list in
+[`dotfiles-link`](bin/dotfiles-link) cover specific known outputs, not every
+possible secret filename. Older folded links
 or a misconfigured writer can still leak state: inspect unexpected files and
 `git status` before committing, without dumping credential contents.
 
 ## Theme toggle
 
 Alacritty, Herdr, tmux, Neovim and Pi share Catppuccin, with terminal opacity driven by
-`bin/.local/bin/theme` (on `PATH` via `~/.local/bin`).
+`bin/theme` (on `PATH` via `~/.local/bin`).
 
 | Hotkey (in Alacritty) | Effect |
 |---|---|
@@ -485,7 +492,7 @@ Changes reach Alacritty via `live_config_reload`; Herdr receives a generated con
 with the exact flavour's colours; tmux uses `source-file`; and every running Neovim
 updates over RPC (plus a `FocusGained` fallback). New windows read the state on startup.
 
-Pi's [theme-sync extension](pi/.pi/agent/extensions/theme-sync/README.md) polls the
+Pi's [theme-sync extension](pi/extensions/theme-sync/README.md) polls the
 same state and follows it within about half a second, overriding Pi's own `/settings`
 theme without rewriting it.
 
@@ -493,7 +500,7 @@ theme without rewriting it.
 merged with the *importing* file last, so a key set in `alacritty.toml` itself overrides
 the generated overlay rather than being overridden by it. `window.opacity` and
 `window.decorations_theme_variant` therefore live in
-`alacritty/.config/alacritty/window-theme-defaults.toml` (imported before the state file),
+`alacritty/window-theme-defaults.toml` (imported before the state file),
 and the `[window]` table in `alacritty.toml` leaves both unset — colours likewise. Putting
 either key back into `alacritty.toml` silently pins it and makes `Ctrl+Shift+B` a no-op.
 
@@ -526,33 +533,33 @@ Pi is the primary interactive harness on this machine. Register and verify
 agent-facing capabilities for Pi first; OMP entries are optional extras.
 After changing an extension, prompt or MCP file, run `/reload` in idle Pi sessions.
 Pi writes `/settings`, `/model` and changelog updates through the tracked
-[`settings.json`](pi/.pi/agent/settings.json) link, so review and commit them like
+[`settings.json`](pi/settings.json) link, so review and commit them like
 any other change.
 
 ### Extensions and prompts
 
-Global extensions live in [`pi/.pi/agent/extensions/`](pi/.pi/agent/extensions/);
-read its [policy](pi/.pi/agent/extensions/README.md) before adding anything that
+Global extensions live in [`pi/extensions/`](pi/extensions/);
+read its [policy](pi/extensions/README.md) before adding anything that
 touches model context.
 
 | Extension | Adds |
 | --- | --- |
-| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](bin/.local/bin/pi) wrapper passes `--no-skills`) |
+| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](bin/pi) wrapper passes `--no-skills`) |
 | `session-controls.ts` | `/clear` and `/drop` |
 | `copy-prompt.ts` | `alt+shift+c` copies the draft |
-| [`modal-vim-navigation`](pi/.pi/agent/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
-| [`agent-stuff`](pi/.pi/agent/extensions/agent-stuff/README.md) | `/review`, `/end-review`, `/answer` (Ctrl+.), `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
+| [`modal-vim-navigation`](pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
+| [`agent-stuff`](pi/extensions/agent-stuff/README.md) | `/review`, `/end-review`, `/answer` (Ctrl+.), `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
 | `long-context` | `/long-context` switches GPT-5.6 / GPT-6 Astra to the 1.05M window (long-context pricing above 272K) |
-| [`codex-fast`](pi/.pi/agent/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
-| [`quota-footer`](pi/.pi/agent/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
-| [`quota-router`](pi/.pi/agent/extensions/quota-router/README.md) | `/accounts` and `/route`: park a second login and continue on it when one hits a usage limit |
-| [`compact-ui`](pi/.pi/agent/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and an `MCP: N/M` footer |
-| [`theme-sync`](pi/.pi/agent/extensions/theme-sync/README.md) | Follows the shared Catppuccin flavour |
-| [`local-file-links`](pi/.pi/agent/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
+| [`codex-fast`](pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
+| [`quota-footer`](pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
+| [`quota-router`](pi/extensions/quota-router/README.md) | `/accounts` and `/route`: park a second login and continue on it when one hits a usage limit |
+| [`compact-ui`](pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and an `MCP: N/M` footer |
+| [`theme-sync`](pi/extensions/theme-sync/README.md) | Follows the shared Catppuccin flavour |
+| [`local-file-links`](pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
 | `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task) |
-| [`omp-anthropic-route`](pi/.pi/agent/extensions/omp-anthropic-route/README.md) | Claude OAuth requests in OMP's reviewed shape (below) |
+| [`omp-anthropic-route`](pi/extensions/omp-anthropic-route/README.md) | Claude OAuth requests in OMP's reviewed shape (below) |
 
-Prompt templates in [`pi/.pi/agent/prompts/`](pi/.pi/agent/prompts/) run only when
+Prompt templates in [`pi/prompts/`](pi/prompts/) run only when
 invoked: `/discuss` (interview, then an implementation-ready summary), `/eli5 <topic>`
 (a throwaway visual HTML explainer), `/domain-first [scope]`, `/test-sweep [scope]`
 and `/feedback [correction]`.
@@ -566,7 +573,7 @@ failed or refused update only warns and keeps the installed CLI (retried next
 session); a missing CLI or failed model probe blocks instead of falling back.
 Startup, model selection and reload are passive; API keys, proxies and other
 providers are untouched. `/omp-anthropic-route` shows the cached status. See the
-[request preflight](pi/.pi/agent/extensions/omp-anthropic-route/README.md#request-preflight)
+[request preflight](pi/extensions/omp-anthropic-route/README.md#request-preflight)
 for guards and recovery.
 
 ### MCP servers
@@ -575,7 +582,7 @@ Pi's built-in MCP support reads two files; there is no MCP package to install:
 
 | File | Owner | Use |
 | --- | --- | --- |
-| [`pi/.pi/agent/mcp.json`](pi/.pi/agent/mcp.json) → `~/.pi/agent/mcp.json` | This repository | Global servers below; Linear and Notion are listed disabled |
+| [`pi/mcp.json`](pi/mcp.json) → `~/.pi/agent/mcp.json` | This repository | Global servers below; Linear and Notion are listed disabled |
 | `<repo>/.pi/mcp.json` | Each project, read only once the project is trusted | Per-project enable/disable |
 
 A project entry **replaces** the global entry of the same name, so it must repeat the
@@ -592,7 +599,7 @@ the URL, and Pi does not expand variables in URLs.
 
 - **gcloud** and **gcp-observability** use the same pinned packages as OMP and start
   with every session (needs `npx` and the gcloud CLI). gcloud is read-only only
-  because of the `-c` [allowlist](omp/.omp/agent/gcloud-mcp-allowlist.json); keep it.
+  because of the `-c` [allowlist](omp/gcloud-mcp-allowlist.json); keep it.
   Neither restricts projects: they use your Google IAM, so pass explicit project IDs.
   If auth has expired, run `gcloud auth login` and `gcloud auth application-default
   login`, then `/mcp reconnect <server>`. Calling `run_gcloud_command` with
@@ -602,16 +609,16 @@ the URL, and Pi does not expand variables in URLs.
   reports it as failed; `/mcp reconnect paper` after opening Paper.
 - **workspace-context** is this repository's own read-only index of every repository
   under `~/Desktop/projects` and `~/dotfiles`
-  ([README](bin/.local/lib/workspace-context-mcp/README.md)). It runs
-  `~/.local/bin/workspace-context-mcp serve`, so the `bin` package must be stowed;
+  ([README](lib/workspace-context-mcp/README.md)). It runs
+  `~/.local/bin/workspace-context-mcp serve`, so `bin/` and `lib/` must be linked;
   `workspace-context-mcp doctor` inspects it without an agent. OMP enables it too.
   It is disabled for this repository in [`.pi/mcp.json`](.pi/mcp.json).
 
 ## omp agent tooling
 
-[`omp/.omp/agent/mcp.json`](omp/.omp/agent/mcp.json) is an opt-in catalogue except
+[`omp/mcp.json`](omp/mcp.json) is an opt-in catalogue except
 for the globally enabled read-only `gcloud`, `gcp-observability`, and local
-[`workspace-context`](bin/.local/lib/workspace-context-mcp/README.md) servers.
+[`workspace-context`](lib/workspace-context-mcp/README.md) servers.
 The remaining entries are disabled globally. This repository enables Context7,
 DeepWiki, and grep.app in [`.omp/mcp.json`](.omp/mcp.json). Enable other reviewed
 servers per repository in `<repo>/.omp/mcp.json`; each file
@@ -627,7 +634,7 @@ CLI-only: install it with `uv tool install semgrep`, then run `semgrep scan --co
 | --- | --- | --- | --- |
 | Library/API docs | `web_search` | Context7 · Ref.tools · GitMCP · AWS Knowledge/Docs · MS Learn · Cloudflare docs · Terraform registry | context7 (dotfiles MCP; elsewhere inspect project/plugin config) |
 | Repo Q&A | — | DeepWiki · GitMCP · Octocode | deepwiki (dotfiles, de-dashboard) |
-| Local workspace context | — | [`workspace-context`](bin/.local/lib/workspace-context-mcp/README.md) (this repo, read-only stdio) | Pi global (`pi/.pi/agent/mcp.json`); also OMP global |
+| Local workspace context | — | [`workspace-context`](lib/workspace-context-mcp/README.md) (this repo, read-only stdio) | Pi global (`pi/mcp.json`); also OMP global |
 | Public code search | `grep` (local only) | grep.app · Octocode · `gh search` via the `github` tool | grep (dotfiles, de-dashboard) |
 | Browser drive + inspect | `browser` (Puppeteer, CDP, relay) | Playwright MCP · Chrome DevTools MCP | built-in |
 | Semantic code intel | `lsp` (50+ servers) | Serena | built-in |
@@ -650,7 +657,7 @@ CLI-only: install it with `uv tool install semgrep`, then run `semgrep scan --co
 This table describes OMP capabilities, not tools guaranteed in Pi or any model
 session. Other repositories' activation state is host-local; inspect it before
 relying on it. For prerequisites and alternatives, use the owning
-[OMP tooling catalogue](omp/.omp/agent/TOOLING.md).
+[OMP tooling catalogue](omp/TOOLING.md).
 
 For evals and tracing, use Promptfoo as a CLI by default:
 `npx promptfoo@latest eval` takes YAML, runs locally, and gates CI without an MCP
@@ -719,18 +726,18 @@ finish or deliberately preserve local work; this is not a verification command:
 dotfiles-update
 ```
 
-It fast-forwards from origin, restows every package, then runs `brew bundle` and
+It fast-forwards from origin, runs `dotfiles-link apply`, then runs `brew bundle` and
 `theme apply` when their inputs changed and reloads tmux when its config changed.
 Slow or disruptive follow-ups are printed instead of run: rebuilding the patched
 Herdr binary (`install-herdr-focus`) and restarting the shell. It never rewrites
 local commits or uncommitted changes; when the pull cannot fast-forward it stops
-and says so. It warns about a dirty worktree but does **not** refuse to restow it:
-uncommitted package changes can therefore become deployed. Do not run it during
+and says so. It warns about a dirty worktree but does **not** refuse to relink it:
+uncommitted new files can therefore become deployed. Do not run it during
 another task's unfinished work.
 
 Machines set up before the Pi status integration was added also need
 `herdr integration install pi` once, then `/reload` in each existing idle Pi conversation.
-Stow does not install Herdr-owned integrations; confirm them with `herdr integration status`.
+`dotfiles-link` does not install Herdr-owned integrations; confirm them with `herdr integration status`.
 
 `dotfiles-update` does not install new npm globals, tpm, or Herdr plugins. Run
 `dotfiles-bootstrap --check` after an update to see whether anything the new state
@@ -740,8 +747,23 @@ On a clone too old to have the script yet, pull once by hand and run it from the
 repo — after that it is on `PATH` as usual:
 
 ```sh
-cd ~/dotfiles && git pull --ff-only && ./bin/.local/bin/dotfiles-update
+cd ~/dotfiles && git pull --ff-only && ./bin/dotfiles-update
 ```
+
+**One-time move from the old Stow layout.** A machine whose links still point into
+`<tool>/.config/<tool>/` paths must not use its old `dotfiles-update` for this
+update: that copy keeps running after the pull and calls Stow on the flat tree,
+which fails on conflicts, while every existing link now points at a moved file.
+Move it over by hand instead; `dotfiles-link` repairs each old link in place:
+
+```sh
+cd ~/dotfiles && git pull --ff-only
+./bin/dotfiles-link check     # expect only `repair` and `create` lines
+./bin/dotfiles-link apply
+```
+
+If the old updater already ran, run the same two `dotfiles-link` commands. After
+that, `dotfiles-update` works as usual. `brew uninstall stow` is optional.
 
 Two things keep updates trustworthy:
 
@@ -756,11 +778,21 @@ Two things keep updates trustworthy:
 ## Common tasks
 
 ```sh
-cd ~/dotfiles
-stow -t "$HOME" nvim        # (re)link one package
-stow -D -t "$HOME" nvim     # unlink a package (then it can be moved back to a real dir)
-stow -n -v -t "$HOME" nvim  # dry-run: preview link actions / conflicts
+dotfiles-link check    # preview: links to create/repair, conflicts, unlisted files
+dotfiles-link apply    # link everything in `links`; refuses while a conflict remains
 ```
+
+- **Add a file** to a mirrored folder (`nvim/`, `pi/`, `bin/` and so on): create it,
+  then run `dotfiles-link apply`. A file anywhere else also needs a line in
+  [`links`](links); `check` reports it as `unlisted` until it has one.
+- **Add a tool:** create `<tool>/` at the top level, add a `links` line (with a
+  trailing slash on both sides to mirror it), then run `dotfiles-link apply`.
+- **Remove or rename a file:** `git mv` or `git rm` it, then `dotfiles-link apply`
+  removes the dangling link it left in a mirrored folder.
+- **Stop managing a tool:** first list its links, because `dotfiles-link` only
+  scans folders that `links` still names:
+  `find ~/.config/<tool> -type l -lname "$HOME/dotfiles/*"`. Delete its `links`
+  line, then remove those links by hand.
 
 ## Troubleshooting
 
@@ -770,7 +802,7 @@ stow -n -v -t "$HOME" nvim  # dry-run: preview link actions / conflicts
 | `no such file or directory: /opt/homebrew/share/powerlevel10k/…` | `brew bundle` didn't run; or Intel Mac — review the hardcoded Homebrew `source` paths in `.zshrc` for `/usr/local/share/...` |
 | `gls: command not found` from the `ls` alias | `brew install coreutils` |
 | Boxes / tofu instead of icons | Nerd Font not installed, or not selected in the terminal |
-| `stow: WARNING! stowing X would cause conflicts` | a real file/dir occupies the target — `mv` it aside and re-run |
+| `dotfiles-link: changed nothing` with `conflict` lines | a real file/dir, or a link outside the repo, occupies the target — inspect it, `mv` it aside and re-run |
 | Telescope `live_grep` returns nothing, silently | `ripgrep` missing |
 | Tree-sitter errors on every startup | `tree-sitter-cli` missing — run `brew bundle` and restart Neovim |
 | Web LSPs or TypeScript fail to start | Node/npm missing — source `~/.nvm/nvm.sh`, run `nvm install --lts`, and restart Neovim |

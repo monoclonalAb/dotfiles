@@ -1,8 +1,9 @@
 # Repository guide
 
-Personal macOS dotfiles managed with GNU Stow. Repository files are desired
+Personal macOS dotfiles: one flat top-level folder per tool, linked into `$HOME`
+by `bin/dotfiles-link` as listed in [`links`](links). Repository files are desired
 state; linked files under `$HOME` are the deployed view. **Editing an existing
-package source may immediately change this Mac's live configuration.**
+linked source may immediately change this Mac's live configuration.**
 
 ## Start here
 
@@ -13,12 +14,12 @@ package source may immediately change this Mac's live configuration.**
 3. Locate the source owner in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
    Read the affected source, its caller/consumer, and nearest tests before editing.
    For setup or operator behaviour, read the relevant [`README.md`](README.md) section.
-4. Define the observable outcome and focused check. For multi-package, migration,
+4. Define the observable outcome and focused check. For multi-folder, migration,
    safety-sensitive, or multi-session work, use [`docs/plans/README.md`](docs/plans/README.md).
 
 ## Scope and evidence
 
-- This file governs work in this repository. `omp/.omp/agent/AGENTS.md` is also
+- This file governs work in this repository. `omp/AGENTS.md` is also
   a deployable cross-project OMP default; its skills and tooling catalogue are
   not instructions to enable or execute every capability listed there.
 - Use only tools actually exposed in this session. OMP tool names do not imply
@@ -35,9 +36,10 @@ package source may immediately change this Mac's live configuration.**
 
 ## Non-negotiable boundaries
 
-- Edit package sources here, never their `$HOME` symlink paths.
-- Every top-level non-hidden directory participates in Stow except `docs/`, whose
-  `.stow-local-ignore` excludes the knowledge base. New directories need review.
+- Edit sources here, never their `$HOME` symlink paths.
+- Every top-level non-hidden directory except `docs/` is deployed through a
+  `links` line; `docs/`, root files and hidden folders are never linked. New
+  directories and `links` lines need review.
 - Keep mutable state and generated output outside the repository, not merely
   gitignored, especially `~/.local/state/theme/` and generated
   `~/.config/herdr/config.toml`.
@@ -48,18 +50,19 @@ package source may immediately change this Mac's live configuration.**
 - GUI, hotkey, and launchd commands must establish their required minimal `PATH`.
 - A docs/example command is not authorisation to install, deploy, send messages,
   commit, or push. Do these only when requested or explicitly agreed.
-- Do not run `dotfiles-update`, wildcard Stow, application restarts, or commands
-  that send input to other agent panes as routine verification.
+- Do not run `dotfiles-update`, `dotfiles-link apply`, application restarts, or
+  commands that send input to other agent panes as routine verification.
 
 ## Change workflow
 
 1. Make the smallest coherent change at the canonical owner. Avoid duplicate
    configuration and opportunistic cleanup. Parallelise only independent work;
    assign disjoint files if delegating and re-read shared files before editing.
-2. For package files created, moved, or removed, preview only the affected package:
-   `stow -n -v -t "$HOME" <package>`. Review the plan; apply it only when updating
-   this machine is part of the task. Do not stow unrelated changes or use `--adopt`
-   to resolve conflicts.
+2. For files created, moved, or removed, preview with the read-only
+   `bin/dotfiles-link check` and review every action and conflict it lists. Run
+   `dotfiles-link apply` only when updating this machine is part of the task and
+   the preview lists nothing unrelated. Never resolve a conflict by deleting or
+   adopting app state.
 3. Exercise the changed path using [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
    Start with source-only checks, then the relevant live consumer when safe and
    in scope. A parser pass is not integration evidence.

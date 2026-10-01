@@ -1,0 +1,221 @@
+#!/bin/bash
+# Set up a Mac from this dotfiles clone, or report what is still missing.
+#
+#   ~/dotfiles/bin/dotfiles-bootstrap      # first run (before anything is linked)
+#   dotfiles-bootstrap                     # later runs, from PATH
+#   dotfiles-bootstrap --check             # read-only report
+#
+# Every step is idempotent: it inspects the machine and acts only on what is
+# missing, so rerunning after a fix or an interrupted run is safe. It never
+# upgrades installed packages, never moves or overwrites a file dotfiles-link
+# reports as a conflict, and never signs in to anything; sign-ins are listed at
+# the end.
+# See README "Setting up a new Mac" for the steps this automates.
+set -eu
+
+usage() {
+    cat <<'EOF'
+Usage: dotfiles-bootstrap [--check]
+
+Installs the Command Line Tools, Homebrew, rustup, the Brewfile, nvm + Node LTS,
+Pi and TypeScript, links the repository with dotfiles-link, seeds the theme, installs tpm,
+builds the patched Herdr, and links its plugins and agent integrations.
+
+  --check   report each step's state without changing anything
+EOF
+}
+
+check=false
+case "${1-}" in
+    '') ;;
+    --check) check=true ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+esac
+
+# May run from a fresh Terminal before any dotfiles are linked; do not rely on
+# the interactive shell's PATH.
+PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$HOME/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH
+export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_BUNDLE_NO_UPGRADE=1
+
+script=$0
+while [ -L "$script" ]; do
+    target=$(readlink "$script")
+    case $target in
+        /*) script=$target ;;
+        *) script=$(dirname "$script")/$target ;;
+    esac
+done
+repo=$(cd "$(dirname "$script")/.." && pwd)
+
+# Global npm packages the managed configuration invokes, installed with nvm's
+# npm. typescript@5 is the tsserver fallback omp/lsp.json points at.
+npm_globals='@earendil-works/pi-coding-agent typescript@5'
+herdr_plugins='next-agent spaces-env task-launcher'
+herdr_integrations='pi omp'
+
+pending=0
+step() { printf '\n==> %s\n' "$1"; }
+ok() { printf '    ok: %s\n' "$1"; }
+todo() { printf '    %s: %s\n' "$($check && echo missing || echo installing)" "$1"; pending=$((pending + 1)); }
+warn() { printf '    warning: %s\n' "$1" >&2; }
+die() { printf 'dotfiles-bootstrap: %s\n' "$1" >&2; exit 1; }
+
+nvm_run() { # Run a command with nvm's default Node; nvm.sh is not set -u safe.
+    NVM_DIR="$HOME/.nvm" bash -c '. "$NVM_DIR/nvm.sh" --no-use && nvm use --silent default >/dev/null && "$@"' nvm_run "$@"
+}
+
+step 'Preflight'
+[ "$(uname -s)" = Darwin ] || die 'this repository targets macOS'
+[ "$(uname -m)" = arm64 ] || warn '.zshrc sources /opt/homebrew paths; on Intel review them (README Troubleshooting)'
+[ "$repo" = "$HOME/dotfiles" ] || warn "clone is at $repo, but Pi/OMP MCP configs reference ~/dotfiles"
+# Without the Command Line Tools, /usr/bin/git opens their installer instead.
+if [ "$HOME" != /Users/eric ] && xcode-select -p >/dev/null 2>&1; then
+    warn "these tracked files hard-code /Users/eric; edit them for $HOME:"
+    git -C "$repo" grep -l '/Users/eric/' -- ':!docs' ':!*.md' ':!.archive' 2>/dev/null | sed 's/^/      /' >&2 || true
+fi
+ok "repository $repo"
+
+step 'Xcode Command Line Tools'
+if xcode-select -p >/dev/null 2>&1; then
+    ok "$(xcode-select -p)"
+else
+    todo 'Command Line Tools'
+    $check || { xcode-select --install || true; die 'finish the Command Line Tools installer, then rerun'; }
+fi
+
+step 'Homebrew'
+if [ -x /opt/homebrew/bin/brew ]; then
+    ok "$(/opt/homebrew/bin/brew --version | head -n 1)"
+else
+    todo 'Homebrew (asks for your password)'
+    $check || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+
+step 'Rust (rustup)'
+# ~/.zshenv sources ~/.cargo/env unconditionally. --no-modify-path: .zshenv is
+# a link into this repository and already does what rustup would append.
+if [ -f "$HOME/.cargo/env" ]; then
+    ok "$HOME/.cargo/env"
+else
+    todo 'rustup'
+    $check || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+fi
+
+step 'Brewfile'
+if ! command -v brew >/dev/null 2>&1; then
+    todo 'brew bundle (after Homebrew)'
+elif brew bundle check --file="$repo/Brewfile" >/dev/null 2>&1; then
+    ok 'every Brewfile entry is installed'
+else
+    todo "$(brew bundle check --file="$repo/Brewfile" --verbose 2>&1 | grep -c '^→') Brewfile entries"
+    if ! $check; then
+        brew bundle install --file="$repo/Brewfile" || warn 'brew bundle reported failures; rerun after fixing them'
+    fi
+fi
+
+step 'Node (nvm) and global npm packages'
+# PROFILE=/dev/null: nvm's installer would otherwise append to a shell rc file;
+# .zshrc already loads nvm.
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+    ok 'nvm'
+else
+    todo 'nvm'
+    $check || curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | PROFILE=/dev/null bash
+fi
+if [ -s "$HOME/.nvm/nvm.sh" ] && nvm_run node --version >/dev/null 2>&1; then
+    ok "node $(nvm_run node --version)"
+else
+    todo 'Node LTS (nvm default)'
+    $check || NVM_DIR="$HOME/.nvm" bash -c '. "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default "lts/*"'
+fi
+for package in $npm_globals; do
+    name=${package%@*}; [ -n "$name" ] || name=$package
+    if [ -s "$HOME/.nvm/nvm.sh" ] && nvm_run npm ls -g --depth=0 "$name" >/dev/null 2>&1; then
+        ok "npm -g $name"
+    else
+        todo "npm -g $package"
+        $check || nvm_run npm install -g "$package"
+    fi
+done
+
+step 'Links (dotfiles-link)'
+# The linker needs /usr/bin/python3, which the Command Line Tools provide.
+if report=$("$repo/bin/dotfiles-link" check --quiet 2>&1); then
+    ok "$(printf '%s\n' "$report" | tail -n 1)"
+else
+    printf '%s\n' "$report" | sed 's/^/    /' >&2
+    todo 'links'
+    if ! $check; then
+        "$repo/bin/dotfiles-link" apply --quiet || die 'dotfiles-link found conflicts. Inspect each target, move it aside under an unused name, then rerun (README "Link everything").'
+    fi
+fi
+
+step 'Theme state'
+if [ -f "$HOME/.local/state/theme/flavour" ]; then
+    ok "$(cat "$HOME/.local/state/theme/flavour") (existing choice kept)"
+else
+    todo 'theme latte 0.6'
+    $check || "$repo/bin/theme" set latte 0.6 || warn 'theme set failed; run it by hand'
+fi
+
+step 'tmux plugin manager'
+if [ -d "$HOME/.config/tmux/plugins/tpm" ]; then
+    ok 'tpm'
+else
+    todo 'tpm'
+    $check || git clone --depth 1 https://github.com/tmux-plugins/tpm "$HOME/.config/tmux/plugins/tpm"
+fi
+
+step 'Herdr'
+herdr=$HOME/.local/bin/herdr
+if [ -x "$herdr" ] && "$herdr" --version 2>/dev/null | grep -q 'dotfiles\.'; then
+    ok "$("$herdr" --version)"
+else
+    todo 'patched Herdr (install-herdr-focus builds for several minutes)'
+    $check || "$repo/bin/install-herdr-focus" || warn 'install-herdr-focus failed; the Homebrew herdr stays in use until it succeeds'
+fi
+[ -x "$herdr" ] || herdr=$(command -v herdr || true)
+if [ -z "$herdr" ]; then
+    todo 'herdr plugins and integrations (after Herdr is installed)'
+else
+    linked=$("$herdr" plugin list --json 2>/dev/null || true)
+    for plugin in $herdr_plugins; do
+        if printf '%s' "$linked" | grep -q "\"martinro\\.$plugin\""; then
+            ok "plugin $plugin"
+        else
+            todo "plugin $plugin"
+            $check || "$herdr" plugin link "$HOME/.config/herdr/plugins/$plugin" --enabled || warn "herdr plugin link $plugin failed"
+        fi
+    done
+    for agent in $herdr_integrations; do
+        state=$("$herdr" integration status 2>/dev/null | sed -n "s/^$agent: //p")
+        case $state in
+            ''|'not installed'*|outdated*)
+                todo "$agent integration (${state:-unknown})"
+                $check || "$herdr" integration install "$agent" || warn "herdr integration install $agent failed"
+                ;;
+            *) ok "$agent integration: $state" ;;
+        esac
+    done
+fi
+
+step 'Summary'
+if $check; then
+    [ "$pending" -eq 0 ] && echo '    nothing to install' || echo "    $pending item(s) missing; run dotfiles-bootstrap to install them"
+fi
+cat <<'EOF'
+
+Manual steps (sign-ins and permissions are never automated):
+  exec zsh                                      # load the linked shell config
+  gh auth login                                 # GitHub CLI + git over HTTPS
+  pi, then /login                               # Anthropic and OpenAI Codex accounts
+  gcloud auth login && gcloud auth application-default login
+  open -a Tailscale; open -a AeroSpace          # sign in / grant Accessibility
+  tmux, then C-a I                              # install tmux plugins
+  nvim                                          # lazy.nvim + Mason provision on first launch
+  herdr machine add <ssh-target> --label home   # optional, for C-a '
+Host-local files to recreate by hand: ~/.ssh keys, ~/.config/mcp/mcp.json
+(Linear/Notion/Penpot), and anything under "Personal bits" in the README.
+EOF

@@ -47,7 +47,7 @@ All checks ran from `/Users/eric/dotfiles` against installed Pi 0.85.1.
 - `python3` own-PTY harness — **passed** bundled Pi fullscreen rendering of Ctrl+V and Alacritty-style empty bracketed paste as `[img #1]` / `[img #2]`, followed by ordinary text paste. Injected reader used synthetic PNGs; confirmed two mode-0600 files, then removed the isolated fixture tree. No submitted prompt, real clipboard read or other-pane input.
 - `stow -n -v -t "$HOME" docs` — **passed**, no link/unlink actions. Package source paths are unchanged; the existing deployed editor symlink resolves to the edited source, so no Stow deployment is required.
 - `git diff --check` — **passed**. Unrelated task-launcher changes remain intact.
-- Real macOS clipboard through a live Alacritty/Herdr window — **not run**. User should `/reload`, paste a screenshot with each shortcut and clear the draft; [operator instructions](../../../pi/.pi/agent/extensions/modal-vim-navigation/README.md#clipboard-images).
+- Real macOS clipboard through a live Alacritty/Herdr window — **not run**. User should `/reload`, paste a screenshot with each shortcut and clear the draft; [operator instructions](../../../pi/extensions/modal-vim-navigation/README.md#clipboard-images).
 
 ## Risks and recovery
 

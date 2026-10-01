@@ -8,24 +8,24 @@
 **/lazy-lock.json
 **/temp.tmp
 
-# zsh runtime + secrets — now nested under zsh/.config/zsh/, so use ** globs
+# zsh runtime + secrets, wherever they appear
 **/.zsh_history
 **/.zsh_sessions/
 **/.zcompdump*
 **/access_tokens.md
 
 # Generated Alacritty backup files.
-alacritty/.config/alacritty/*.toml.*.bak
+alacritty/*.toml.*.bak
 
 # tmux plugins — installed by tpm, not hand-edited.
 # Restore on a new machine: git clone https://github.com/tmux-plugins/tpm
 #   ~/.config/tmux/plugins/tpm  then start tmux and press <prefix> + I
-tmux/.config/tmux/plugins/
+tmux/plugins/
 
-# OMP runtime lock next to the stowed user configuration.
-omp/.omp/agent/config.yml.lock
+# OMP runtime lock, written next to the linked config.yml it resolves to.
+omp/config.yml.lock
 
 # OMP generated runtime state.
-omp/.omp/agent/*.db*
-omp/.omp/agent/memories/
-omp/.omp/agent/last-changelog-version
+omp/*.db*
+omp/memories/
+omp/last-changelog-version

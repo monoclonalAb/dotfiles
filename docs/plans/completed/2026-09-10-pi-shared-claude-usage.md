@@ -91,7 +91,7 @@ usage reading instead of competing for a cooldown that shares no result.
 
 ## Outcome
 
-Implemented [shared Claude usage](../../../pi/.pi/agent/extensions/quota-footer/README.md).
+Implemented [shared Claude usage](../../../pi/extensions/quota-footer/README.md).
 Existing sessions need a user-initiated `/reload` once idle. All old readers should
 be reloaded so the next permitted success publishes a cache; an existing cooldown
 may still need to elapse. No daemon, new dependency, credentials on disk, model
