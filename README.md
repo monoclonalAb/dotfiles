@@ -570,12 +570,14 @@ any other change.
 ### LithosAI models
 
 [`pi/models.json`](pi/models.json) adds DeepSeek V4.1 Flash (Base tier) through
-LithosAI's OpenAI-compatible API without changing the default model. Export
-`LITHOSAI_API_KEY` privately in the environment that starts Pi; never put its
-value in this repository. Then select it with `/model`, or start a new session:
+LithosAI's OpenAI-compatible API. [`pi/settings.json`](pi/settings.json) scopes
+it first at max reasoning (a `:max` thinking suffix), so a new session starts on
+it and `Ctrl+P` switches to Opus 5.5 next. The model entry resolves the key from
+the macOS keychain item `lithosai`; keep its value out of this repository.
+Override the startup choice per session when needed:
 
 ```sh
-pi --provider lithosai --model deepseek-ai/DeepSeek-V4.1-Flash --thinking high
+pi --model anthropic/claude-opus-5-5
 ```
 
 Opening `/model` reloads the model configuration. The entry enables text and
@@ -612,8 +614,11 @@ touches model context.
 Prompt templates in [`pi/prompts/`](pi/prompts/) run only when
 invoked: `/discuss` (interview, then an implementation-ready summary), `/eli5 <topic>`
 (a throwaway visual HTML explainer), `/domain-first [scope]`, `/test-sweep [scope]`,
-`/feedback [correction]` and `/pr [notes]` (commit, push and open or update a
-draft PR with a short description; screenshots only when asked).
+`/feedback [correction]`, `/pr [notes]` (commit, push and open or update a
+draft PR with a short description; screenshots only when asked) and
+`/ship [notes]` (commit this task's changes and push them straight to the
+current branch, even the default branch, with no PR; for changes small enough
+to skip review).
 
 **Claude via OMP.** The first direct Claude OAuth request after starting Pi or
 `/reload` tries to update Homebrew `omp` to the latest stable release, then sends
