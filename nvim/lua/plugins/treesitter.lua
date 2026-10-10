@@ -23,6 +23,7 @@ local ensure_installed = {
     "python",
     "java",
     "typescript",
+    "rust",            -- also needed for ```rust fences in markdown (injections never auto-install)
     "markdown",        -- required by render-markdown.nvim / obsidian.nvim
     "markdown_inline", -- required by render-markdown.nvim / obsidian.nvim
 }
