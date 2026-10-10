@@ -10,7 +10,7 @@
 # upgrades installed packages, never moves or overwrites a file dotfiles-link
 # reports as a conflict, and never signs in to anything; sign-ins are listed at
 # the end.
-# See README "Setting up a new Mac" for the steps this automates.
+# See docs/SETUP.md for the manual steps this automates.
 set -eu
 
 usage() {
@@ -68,7 +68,7 @@ nvm_run() { # Run a command with nvm's default Node; nvm.sh is not set -u safe.
 
 step 'Preflight'
 [ "$(uname -s)" = Darwin ] || die 'this repository targets macOS'
-[ "$(uname -m)" = arm64 ] || warn '.zshrc sources /opt/homebrew paths; on Intel review them (README Troubleshooting)'
+[ "$(uname -m)" = arm64 ] || warn '.zshrc sources /opt/homebrew paths; on Intel review them (docs/SETUP.md Troubleshooting)'
 [ "$repo" = "$HOME/dotfiles" ] || warn "clone is at $repo, but Pi/OMP MCP configs reference ~/dotfiles"
 # Without the Command Line Tools, /usr/bin/git opens their installer instead.
 if [ "$HOME" != /Users/eric ] && xcode-select -p >/dev/null 2>&1; then
@@ -148,7 +148,7 @@ else
     printf '%s\n' "$report" | sed 's/^/    /' >&2
     todo 'links'
     if ! $check; then
-        "$repo/bin/dotfiles-link" apply --quiet || die 'dotfiles-link found conflicts. Inspect each target, move it aside under an unused name, then rerun (README "Link everything").'
+        "$repo/bin/dotfiles-link" apply --quiet || die 'dotfiles-link found conflicts. Inspect each target, move it aside under an unused name, then rerun (docs/SETUP.md "Link everything").'
     fi
 fi
 
@@ -217,5 +217,5 @@ Manual steps (sign-ins and permissions are never automated):
   nvim                                          # lazy.nvim + Mason provision on first launch
   herdr machine add <ssh-target> --label home   # optional, for C-a '
 Host-local files to recreate by hand: ~/.ssh keys, ~/.config/mcp/mcp.json
-(Linear/Notion/Penpot), and anything under "Personal bits" in the README.
+(Linear/Notion/Penpot), and anything under "Personal bits" in docs/SETUP.md.
 EOF

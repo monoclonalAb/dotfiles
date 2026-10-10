@@ -35,7 +35,7 @@ new=$(git rev-parse HEAD)
 
 # Relink even when HEAD is unchanged: it is cheap and repairs missing links.
 # On conflicts dotfiles-link changes nothing and names each path in the way;
-# move it aside and rerun (see README "Link everything").
+# move it aside and rerun (see docs/SETUP.md "Link everything").
 "$repo/bin/dotfiles-link" apply --quiet
 
 if [ "$old" = "$new" ]; then

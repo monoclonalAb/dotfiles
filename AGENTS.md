@@ -13,7 +13,8 @@ linked source may immediately change this Mac's live configuration.**
    A full documentation audit is not required for ordinary changes.
 3. Locate the source owner in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
    Read the affected source, its caller/consumer, and nearest tests before editing.
-   For setup or operator behaviour, read the relevant [`README.md`](README.md) section.
+   For setup or operator behaviour, start at [`README.md`](README.md); it links
+   the topic guide (setup, Herdr, theme, Pi/OMP) under `docs/`.
 4. Define the observable outcome and focused check. For multi-folder, migration,
    safety-sensitive, or multi-session work, use [`docs/plans/README.md`](docs/plans/README.md).
 

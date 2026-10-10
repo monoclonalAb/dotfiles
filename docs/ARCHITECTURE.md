@@ -37,7 +37,7 @@ credential-bearing `hosts.yml` is local.
 | User commands and automation | [`bin/`](../bin/), [`lib/`](../lib/) (helpers and tests, linked to `~/.local/lib/`) | Cross-application orchestration and audited builds. Machine-local scheduled jobs (LaunchAgents and their scripts) stay in `$HOME`, outside this repository: the repo carries portable per-tool configuration for a new Mac, not single-machine workflows |
 | Git clients | [`git/`](../git/), [`gh/`](../gh/), [`tuicr/`](../tuicr/) | Global identity and ignore behaviour, non-secret GitHub CLI preferences, and tuicr review-view defaults |
 | Agent harnesses | [`omp/`](../omp/), [`pi/`](../pi/), [`.omp/`](../.omp/) | Global OMP configuration and skills, Pi extensions, and this repository's project-scoped tools |
-| Human operations | [`README.md`](../README.md) | New-machine setup, live operation, common tasks, and troubleshooting |
+| Human operations | [`README.md`](../README.md), [`SETUP.md`](SETUP.md), [`HERDR.md`](HERDR.md), [`THEME.md`](THEME.md), [`AGENT-TOOLS.md`](AGENT-TOOLS.md) | Short entry point, then new-machine setup, live operation, and troubleshooting per topic |
 | Agent knowledge | [`AGENTS.md`](../AGENTS.md), [`docs/`](./) | Progressive task routing, architecture, principles, quality, and plans |
 | Frozen history | [`.archive/`](../.archive/) | Inactive tool folders in the same flat layout, each belonging in `~/.config/<tool>/`; retained for explicit restoration only |
 
@@ -53,7 +53,7 @@ consumer; do not fix generated output or add a second writer.
 
 | Requested change | Start at source | Follow through / focused evidence |
 | --- | --- | --- |
-| Install or update the workstation | `Brewfile`, `links`, `bin/dotfiles-link`, `bin/dotfiles-bootstrap`, `bin/dotfiles-update` | Root README → `dotfiles-link check` preview; `dotfiles-bootstrap --check` for missing prerequisites; installs and updates have live side effects |
+| Install or update the workstation | `Brewfile`, `links`, `bin/dotfiles-link`, `bin/dotfiles-bootstrap`, `bin/dotfiles-update` | Root README and `docs/SETUP.md` → `dotfiles-link check` preview; `dotfiles-bootstrap --check` for missing prerequisites; installs and updates have live side effects |
 | Theme, colour, opacity | `bin/theme` | Alacritty imports, Herdr base, tmux source, Neovim `lua/theme.lua` → generated output → live consumer; Pi `theme-sync` polls the flavour |
 | Herdr attention glyphs or jumps | `herdr/plugins/next-agent/next_agent.py` | Lifecycle integration → attention ledger → theme metadata rows and pinned patch; ledger tests alone do not prove lifecycle delivery |
 | Personal/Work Space filtering | `herdr/plugins/spaces-env/spaces_env.py` | Runtime assignment state → sidebar/agent-view metadata; `test_spaces_env.py` |

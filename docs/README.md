@@ -1,8 +1,9 @@
 # Repository knowledge base
 
 This directory is the versioned map of how the dotfiles system is shaped, why
-its boundaries exist, and where confidence is weak. It complements the root
-[`README.md`](../README.md), which remains the human setup and operations guide.
+its boundaries exist, and where confidence is weak. The root
+[`README.md`](../README.md) is the short entry point; the operator guides below
+hold setup and day-to-day operation.
 Executable configuration and tests are the final authority; when they disagree
 with a document, reconcile the two in the same change.
 
@@ -22,6 +23,10 @@ repository evidence or checks.
 | [`QUALITY.md`](QUALITY.md) | Evidence-based subsystem grades and technical debt | Snapshot | Each grade links to evidence and a concrete gap |
 | [`VERIFICATION.md`](VERIFICATION.md) | Focused commands, prerequisites, side effects, and reporting | Runbook | Commands point to existing tests and distinguish source-only checks from live operation |
 | [`plans/README.md`](plans/README.md) | Versioned execution-plan lifecycle and template | Normative | New substantial plans must follow the documented lifecycle |
+| [`SETUP.md`](SETUP.md) | Manual new-Mac steps, personal paths, optional extras, update special cases, troubleshooting | Operator guide | Steps mirror `bin/dotfiles-bootstrap`; commands change the Mac |
+| [`HERDR.md`](HERDR.md) | Patched Herdr install, keys, plugins, attention states, troubleshooting | Operator guide | `herdr/config.base.toml`, `herdr/patches/`, `herdr/plugins/`, `bin/install-herdr-focus` |
+| [`THEME.md`](THEME.md) | Theme hotkeys, commands, propagation and pitfalls | Operator guide | `bin/theme` and its `status` output |
+| [`AGENT-TOOLS.md`](AGENT-TOOLS.md) | Pi models, extensions, prompts and MCP; OMP MCP, capabilities, skills | Operator guide | `pi/settings.json`, `pi/models.json`, `pi/mcp.json`, `omp/mcp.json`, extension READMEs |
 
 No line in [`../links`](../links) deploys this directory, and `dotfiles-link` never
 reports it as unlisted: repository documentation must not appear as files in `$HOME`.
@@ -44,7 +49,7 @@ than assuming a linked README was automatically loaded.
 | [Vim navigation](../pi/extensions/modal-vim-navigation/README.md) and [Anthropic route](../pi/extensions/omp-anthropic-route/README.md) | Extension-specific operation and constraints; follow the policy before changing source |
 | [Active plans](plans/README.md#active-plan-index) | In-progress task state; revalidate against the worktree before resuming |
 | [Completed plans](plans/completed/) | Historical decisions and checks, not current system health or standing permission to deploy |
-| [Vendored Catppuccin README](../alacritty/themes/catppuccin/README.md) | Upstream reference; use this repository's [theme workflow](../README.md#theme-toggle), not its standalone install recipe |
+| [Vendored Catppuccin README](../alacritty/themes/catppuccin/README.md) | Upstream reference; use this repository's [theme workflow](THEME.md), not its standalone install recipe |
 
 A documentation review may inspect skills without invoking their procedures.
 Private-repository references inside scoped skills resolve in the consuming
@@ -60,8 +65,8 @@ project; do not fetch customer data or run cloud actions for a docs-only audit.
   improvements or cleanup: use [`QUALITY.md`](QUALITY.md).
 - Making a change whose context must survive one session: create an execution
   plan using [`plans/README.md`](plans/README.md).
-- Installing or operating the workstation: go directly to
-  [`../README.md`](../README.md).
+- Installing or operating the workstation: start at
+  [`../README.md`](../README.md), then the matching operator guide above.
 
 ## Maintenance rules
 

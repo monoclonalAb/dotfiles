@@ -31,7 +31,7 @@ Display-only extensions (no approval needed, but keep them that way):
   (no files); a successful title or a new empty session clears it.
 
 Herdr's official `herdr-agent-state.ts` is generated outside this repository by
-`herdr integration install pi` (see the [Herdr setup](../../README.md)).
+`herdr integration install pi` (see the [Herdr setup](../../docs/HERDR.md#install)).
 It is the lifecycle-status owner; `herdr-task-summary/` is not a replacement for it.
 The audited v8 integration reports state and session identity over local IPC without
 registering tools, injecting messages, or changing model context. Keep it Herdr-owned

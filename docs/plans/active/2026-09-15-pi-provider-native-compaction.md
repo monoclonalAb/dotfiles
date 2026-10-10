@@ -278,8 +278,8 @@ support the public beta by appending a header it will overwrite or cannot parse.
 5. Complete the live continuation/restart tests and compare latency, cost, active
    context size, and task-detail retention to ordinary Pi compaction. Only then
    consider preferred mode for everyday sessions, still gated by route.
-6. Update the owning root README Pi section, architecture, verification runbook,
-   and extension policy if adding controls. Preview with the read-only
+6. Update the owning Pi section in `docs/AGENT-TOOLS.md`, architecture,
+   verification runbook, and extension policy if adding controls. Preview with the read-only
    `bin/dotfiles-link check`; review unrelated pending actions. Deployment
    requires separate approval. A changed Pi binary needs a fresh session/process;
    `/reload` alone does not load new core code. Leave existing agent panes alone.

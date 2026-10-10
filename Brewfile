@@ -2,7 +2,7 @@
 #
 #   brew bundle --file=~/dotfiles/Brewfile
 #
-# Run this before linking (`dotfiles-link apply`). See "Setting up a new Mac" in README.md for the full order.
+# Run this before linking (`dotfiles-link apply`). See docs/SETUP.md for the full order.
 # Every name here was checked against `brew info`, so the bundle won't die halfway
 # through on a typo.
 
@@ -26,7 +26,7 @@ brew "zsh-vi-mode"
 
 brew "neovim"                  # 0.11+ — lsp.lua uses vim.lsp.config()
 brew "herdr"                   # base install only; ~/.local/bin/herdr (install-herdr-focus) shadows it and owns the running config
-brew "zig"                     # install-herdr-focus requires Zig 0.16.0 for Herdr 0.9.1; rustup comes from README step 3, not Homebrew
+brew "zig"                     # install-herdr-focus requires Zig 0.16.0 for Herdr 0.9.1; rustup comes from docs/SETUP.md step 3, not Homebrew
 brew "python@3.14"             # herdr-next-agent plugin runtime
 brew "tmux"
 brew "ripgrep"                 # telescope live_grep, todo-comments, trouble

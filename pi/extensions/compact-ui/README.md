@@ -19,8 +19,8 @@ as in Pi's own list.
 Set **Quiet startup** to `true` in Pi's `/settings`. That setting suppresses Pi's
 built-in help and multi-section resource listing; this extension then supplies the
 compact replacement. Pi writes the setting through the tracked `pi/settings.json`
-link, so review and commit it like any other change (see the root README's
-[Pi section](../../../README.md#pi-agent-tooling)).
+link, so review and commit it like any other change (see the
+[Pi section](../../../docs/AGENT-TOOLS.md#pi) of the agent tools guide).
 
 The footer also shows a right-aligned `MCP: N/M`, where `N` is the number of enabled
 servers and `M` the total. Pi's built-in MCP support publishes no status, so the
