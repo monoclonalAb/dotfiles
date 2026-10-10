@@ -607,8 +607,9 @@ touches model context.
 
 Prompt templates in [`pi/prompts/`](pi/prompts/) run only when
 invoked: `/discuss` (interview, then an implementation-ready summary), `/eli5 <topic>`
-(a throwaway visual HTML explainer), `/domain-first [scope]`, `/test-sweep [scope]`
-and `/feedback [correction]`.
+(a throwaway visual HTML explainer), `/domain-first [scope]`, `/test-sweep [scope]`,
+`/feedback [correction]` and `/pr [notes]` (commit, push and open or update a
+draft PR with a short description; screenshots only when asked).
 
 **Claude via OMP.** The first direct Claude OAuth request after starting Pi or
 `/reload` tries to update Homebrew `omp` to the latest stable release, then sends
