@@ -1,0 +1,43 @@
+id = "martinro.pr-status"
+name = "Worktree PR Status"
+version = "0.1.0-local"
+min_herdr_version = "0.8.0"
+description = "Name linked worktree Spaces after their GitHub pull request and show its state."
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "refresh"
+title = "Refresh worktree pull requests now"
+contexts = ["global", "workspace"]
+command = ["python3.14", "pr_status.py", "refresh"]
+
+# No timer hook exists: refreshes ride on these events and pr_status.py
+# throttles the gh lookups they trigger.
+[[startup]]
+command = ["python3.14", "pr_status.py"]
+
+[[events]]
+on = "workspace.created"
+command = ["python3.14", "pr_status.py"]
+
+[[events]]
+on = "workspace.focused"
+command = ["python3.14", "pr_status.py"]
+
+[[events]]
+on = "worktree.created"
+command = ["python3.14", "pr_status.py"]
+
+[[events]]
+on = "worktree.opened"
+command = ["python3.14", "pr_status.py"]
+
+# Client-local navigation reports pane focus rather than Space focus.
+[[events]]
+on = "pane.focused"
+command = ["python3.14", "pr_status.py"]
+
+# An agent finishing a turn is when a new pull request usually appears.
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3.14", "pr_status.py"]

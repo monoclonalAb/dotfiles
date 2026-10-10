@@ -242,6 +242,8 @@ which adds:
   to reorder it within its repository (the main checkout stays first);
 - the reserved `sidebar_hidden` Space token that spaces-env uses to hide the other
   environment (the focused Space always stays visible);
+- reserved `pr_number` / `pr_title` / `pr_state` Space tokens, which pr-status uses
+  to name a worktree after its pull request and show the PR state;
 - `keys.next_machine` / `keys.previous_machine` for switching between saved machines,
   and `keys.move_worktree_up` / `keys.move_worktree_down` for reordering worktrees.
 
@@ -266,6 +268,7 @@ Then finish the setup:
 herdr plugin link ~/.config/herdr/plugins/next-agent --enabled
 herdr plugin link ~/.config/herdr/plugins/spaces-env --enabled
 herdr plugin link ~/.config/herdr/plugins/task-launcher --enabled
+herdr plugin link ~/.config/herdr/plugins/pr-status --enabled
 herdr integration install pi
 herdr integration install omp
 herdr integration status      # Pi and OMP should both be current
@@ -303,6 +306,19 @@ Conversation rows use OMP's terminal title, or for Pi the
 2–6-word title generated in the background by a small, tool-free request to the
 selected model (this uses provider quota). A letter-scramble animation shows while it
 is pending; failures keep the previous title.
+
+**Pull requests.** When a linked worktree's branch has a GitHub pull request, the
+[pr-status](herdr/plugins/pr-status/pr_status.py) plugin renames its sidebar row to
+`#123 PR title` and puts GitHub's state icon in front: green open, grey draft,
+purple merged, red closed (Nerd Font Octicons). Only the sidebar changes; the Space's
+real name, branch and worktree stay as they are. Main checkouts are never looked up.
+The plugin asks `gh pr view` in the checkout, so `gh` must be signed in. Herdr has
+no timer for plugins, so it checks again when something happens (a focus change,
+an agent finishing, a new Space): the Space you are in after 30 seconds, others
+after 5 minutes, merged or closed ones after 30 minutes. Herdr startup checks everything.
+To check now: `herdr plugin action invoke martinro.pr-status.refresh`. If `gh`
+fails (offline, signed out), the last result stays. The cache is
+`~/.local/state/herdr/plugins/martinro.pr-status/state.json`.
 
 **Reviewing changes.** `C-a v` runs [`herdr-review`](bin/herdr-review), which
 opens [tuicr](https://tuicr.dev) in a popup on the focused agent's working tree
@@ -811,6 +827,7 @@ dotfiles-link apply    # link everything in `links`; refuses while a conflict re
 | Web LSPs or TypeScript fail to start | Node/npm missing — source `~/.nvm/nvm.sh`, run `nvm install --lts`, and restart Neovim |
 | Herdr ignores a config edit | Run `herdr server reload-config`, or press `C-a R` |
 | `C-a '` says `home is not ready` or `no other machine is saved` | Save the machine with `herdr machine add <ssh-target> --label home` and check `herdr machine list --json`. A stock client (`herdr --version` without the patch) has no `next_machine` key: rerun `install-herdr-focus` |
+| A worktree shows its branch, not its pull request | Run `herdr plugin action invoke martinro.pr-status.refresh`, then `herdr plugin log list --plugin martinro.pr-status` for the `gh` result, and `gh pr view` in that checkout. If the plugin reports tokens but the row is unchanged, the client predates the feature: rerun `install-herdr-focus` and reattach |
 | `C-a K` / `C-a J` does nothing | Only a linked worktree moves, within its repository and not past either end; the main checkout stays first. If `herdr config check` reports unknown `keys.move_worktree_*` keys, the installed binary predates the feature: rerun `install-herdr-focus` |
 | Herdr conversation symbol stays idle while Pi works | Check `herdr integration status`; install/update with `herdr integration install pi`, then `/reload` in that Pi session once idle. `herdr agent explain <pane-id> --json` should show screen detection skipped once lifecycle reports are active; `default_known_agent_idle_fallback` means Herdr is still guessing from the screen |
 | tmux statusline unstyled, plugins absent | tpm not cloned, or `C-a I` never pressed |

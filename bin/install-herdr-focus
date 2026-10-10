@@ -111,10 +111,10 @@ built_binary=$source_dir/target/release/herdr
 # focused tests the patch itself adds or modifies. The server side covers pane
 # chrome, config keys, the split guard, retained-frame fading and client-local
 # navigation's plugin focus events (without global PTY focus changes); the client
-# shell suite covers the inline Spaces tree, sidebar_hidden filtering, the
-# fixed footer, mouse hit-testing, worktree reordering, the machine-toggle keys
-# and the compact prefix indicator alongside the stock sidebar/mouse regression
-# tests.
+# shell suite covers the inline Spaces tree, sidebar_hidden filtering, pull-request
+# names and state icons, the fixed footer, mouse hit-testing, worktree reordering,
+# the machine-toggle keys and the compact prefix indicator alongside the stock
+# sidebar/mouse regression tests.
 (
   cd "$source_dir"
   ZIG="$zig_bin" "$rustup_bin" run "$RUST_TOOLCHAIN" cargo test --locked --release --bin herdr -- \

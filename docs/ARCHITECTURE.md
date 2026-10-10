@@ -57,6 +57,7 @@ consumer; do not fix generated output or add a second writer.
 | Theme, colour, opacity | `bin/theme` | Alacritty imports, Herdr base, tmux source, Neovim `lua/theme.lua` → generated output → live consumer; Pi `theme-sync` polls the flavour |
 | Herdr attention glyphs or jumps | `herdr/plugins/next-agent/next_agent.py` | Lifecycle integration → attention ledger → theme metadata rows and pinned patch; ledger tests alone do not prove lifecycle delivery |
 | Personal/Work Space filtering | `herdr/plugins/spaces-env/spaces_env.py` | Runtime assignment state → sidebar/agent-view metadata; `test_spaces_env.py` |
+| Worktree pull-request names and state icons | `herdr/plugins/pr-status/pr_status.py` | Herdr events → `gh pr view` per linked worktree → `pr_*` Space tokens → pinned patch's Spaces tree; `test_pr_status.py`, then `pty-smoke.py` with the build |
 | Herdr rendering or binary behaviour | `herdr/patches/` | `bin/install-herdr-focus` → built binary → next client attach / server start |
 | Start a Pi task from Herdr | `herdr/plugins/task-launcher/README.md` | `prefix+t` → plugin popup → Herdr worktree API → Pi tab; Node suite and PTY smoke test |
 | Review an agent's changes | `bin/herdr-review` | `prefix+v` popup → tuicr in the agent's cwd → `herdr agent prompt`; unittest suite, then `--check` |
@@ -126,7 +127,7 @@ polls the same `flavour` file and applies an in-memory theme. It writes nothing.
 
 ### 3. Herdr source and plugin customisation
 
-There are five distinct owners:
+There are six distinct owners:
 
 - [`herdr/config.base.toml`](../herdr/config.base.toml)
   owns stable user configuration.
@@ -144,6 +145,11 @@ There are five distinct owners:
 - [`herdr/plugins/spaces-env/`](../herdr/plugins/spaces-env/)
   owns the fixed Personal/Work Space environments. Its assignments and MRU order
   are runtime state under `~/.local/state/herdr/plugins/martinro.spaces-env/`.
+- [`herdr/plugins/pr-status/`](../herdr/plugins/pr-status/)
+  owns the pull-request lookup for linked worktrees. It reports display-only
+  `pr_number` / `pr_title` / `pr_state` Space tokens; the patched client draws
+  the name and state icon. Its lookup cache is runtime state under
+  `~/.local/state/herdr/plugins/martinro.pr-status/`.
 - [`herdr/plugins/task-launcher/`](../herdr/plugins/task-launcher/README.md)
   owns the Pi Tasks popup: it names the task with the selected model, creates a
   worktree Space through Herdr, and starts Pi as that Space's only tab. Preferences

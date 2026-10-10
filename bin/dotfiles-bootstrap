@@ -52,7 +52,7 @@ repo=$(cd "$(dirname "$script")/.." && pwd)
 # Global npm packages the managed configuration invokes, installed with nvm's
 # npm. typescript@5 is the tsserver fallback omp/lsp.json points at.
 npm_globals='@earendil-works/pi-coding-agent typescript@5'
-herdr_plugins='next-agent spaces-env task-launcher'
+herdr_plugins='next-agent spaces-env task-launcher pr-status'
 herdr_integrations='pi omp'
 
 pending=0

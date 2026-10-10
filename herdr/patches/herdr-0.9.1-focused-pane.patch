@@ -1073,10 +1073,10 @@ index 787d8a7..7afa676 100644
 +mod tree;
 diff --git a/src/client/shell/tests/tree.rs b/src/client/shell/tests/tree.rs
 new file mode 100644
-index 0000000..beab9ff
+index 0000000..a61c06c
 --- /dev/null
 +++ b/src/client/shell/tests/tree.rs
-@@ -0,0 +1,1214 @@
+@@ -0,0 +1,1318 @@
 +//! Inline Spaces tree (`ui.sidebar.spaces.inline_agents`): document shape,
 +//! `sidebar_hidden` filtering, disclosure, fixed footer and hit-testing.
 +use super::*;
@@ -2291,12 +2291,116 @@ index 0000000..beab9ff
 +            .any(|(_, entry)| entry == description));
 +    }
 +}
++
++fn report_pull_request(snapshot: &mut ClientShellSnapshot, number: usize, tokens: &[(&str, &str)]) {
++    snapshot.workspaces[number - 1].tokens = tokens
++        .iter()
++        .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
++        .collect();
++}
++
++/// Foreground of the first cell on `row` showing `symbol`.
++fn symbol_fg(frame: &FrameData, row: u16, symbol: &str) -> Option<u32> {
++    let width = usize::from(frame.width);
++    frame.cells[usize::from(row) * width..(usize::from(row) + 1) * width]
++        .iter()
++        .find(|cell| cell.symbol == symbol)
++        .map(|cell| cell.fg)
++}
++
++#[test]
++fn pull_request_tokens_name_the_space_and_lead_with_a_state_glyph() {
++    use crate::client::shell::tree::{PR_NUMBER_TOKEN, PR_STATE_TOKEN, PR_TITLE_TOKEN};
++    let mut snapshot = worktree_fixture(1);
++    report_pull_request(
++        &mut snapshot,
++        3,
++        &[
++            (PR_NUMBER_TOKEN, "42"),
++            (PR_TITLE_TOKEN, "Fix login"),
++            (PR_STATE_TOKEN, "open"),
++        ],
++    );
++    // Unknown state: renamed, but no glyph. A title without a number is ignored.
++    report_pull_request(
++        &mut snapshot,
++        4,
++        &[(PR_NUMBER_TOKEN, "7"), (PR_STATE_TOKEN, "queued")],
++    );
++    report_pull_request(&mut snapshot, 5, &[(PR_TITLE_TOKEN, "orphan title")]);
++    let mut state = tree_state(snapshot);
++    let rows = tall_rows(&mut state);
++    assert!(rows[5].starts_with(" ├─ main"), "{:?}", rows[5]);
++    assert!(
++        rows[7].starts_with(" ├─ \u{f407} #42 Fix login"),
++        "{:?}",
++        rows[7]
++    );
++    assert!(rows[9].starts_with(" ├─ #7"), "{:?}", rows[9]);
++    assert!(rows[11].starts_with(" └─ gamma"), "{:?}", rows[11]);
++
++    let palette = state.config.palette.clone();
++    for (value, symbol, color) in [
++        ("open", "\u{f407}", palette.green),
++        ("draft", "\u{f4dd}", palette.overlay0),
++        ("merged", "\u{f419}", palette.mauve),
++        ("closed", "\u{f4dc}", palette.red),
++    ] {
++        let mut snapshot = worktree_fixture(1);
++        report_pull_request(
++            &mut snapshot,
++            3,
++            &[
++                (PR_NUMBER_TOKEN, "42"),
++                (PR_TITLE_TOKEN, "Fix login"),
++                (PR_STATE_TOKEN, value),
++            ],
++        );
++        let mut state = tree_state(snapshot);
++        let frame = state.compose(106, 24).expect("composed frame");
++        let row = workspace_row(&state, "ws_3").expect("alpha row");
++        assert_eq!(
++            symbol_fg(&frame, row, symbol),
++            Some(crate::protocol::color_to_u32(color)),
++            "{value}"
++        );
++    }
++}
++
++#[test]
++fn long_pull_request_title_truncates_before_the_glyph_or_counts() {
++    use crate::client::shell::tree::{PR_NUMBER_TOKEN, PR_STATE_TOKEN, PR_TITLE_TOKEN};
++    let mut snapshot = worktree_fixture(1);
++    // gamma has one conversation, so its row carries a count suffix.
++    report_pull_request(
++        &mut snapshot,
++        5,
++        &[
++            (PR_NUMBER_TOKEN, "1234"),
++            (
++                PR_TITLE_TOKEN,
++                "feat: match two-word owner names with spouse or exact-address proof",
++            ),
++            (PR_STATE_TOKEN, "draft"),
++        ],
++    );
++    let mut state = tree_state(snapshot);
++    let rows = tall_rows(&mut state);
++    assert!(
++        rows[11].starts_with(" └─ \u{f4dd} #1234 feat:"),
++        "{:?}",
++        rows[11]
++    );
++    assert!(rows[11].contains('…'), "{:?}", rows[11]);
++    assert!(rows[11].ends_with("○ 1"), "{:?}", rows[11]);
++    assert_eq!(rows[12], "    └─ ○ gamma task");
++}
 diff --git a/src/client/shell/tree.rs b/src/client/shell/tree.rs
 new file mode 100644
-index 0000000..30d2552
+index 0000000..27509d0
 --- /dev/null
 +++ b/src/client/shell/tree.rs
-@@ -0,0 +1,1302 @@
+@@ -0,0 +1,1350 @@
 +//! Inline Spaces tree (`ui.sidebar.spaces.inline_agents`).
 +//!
 +//! One row document shared by rendering, scrolling, disclosure and hit-testing:
@@ -2318,6 +2422,45 @@ index 0000000..30d2552
 +/// Space (and, while navigating, the selected one) always stays visible so
 +/// focus and selection can never point at a hidden row.
 +pub(crate) const SIDEBAR_HIDDEN_TOKEN: &str = "sidebar_hidden";
++
++/// Reserved workspace metadata tokens for the checkout's pull request (the
++/// local pr-status plugin reports them). With a number, the tree names the
++/// Space `#<number> <title>` instead of its branch or custom name, led by a
++/// glyph for a known state: `open`, `draft`, `merged` or `closed`.
++pub(crate) const PR_NUMBER_TOKEN: &str = "pr_number";
++pub(crate) const PR_TITLE_TOKEN: &str = "pr_title";
++pub(crate) const PR_STATE_TOKEN: &str = "pr_state";
++
++fn workspace_token<'a>(workspace: &'a ClientShellWorkspace, key: &str) -> Option<&'a str> {
++    workspace
++        .tokens
++        .iter()
++        .find(|(name, value)| name == key && !value.trim().is_empty())
++        .map(|(_, value)| value.as_str())
++}
++
++fn pull_request_label(workspace: &ClientShellWorkspace) -> Option<String> {
++    let number = workspace_token(workspace, PR_NUMBER_TOKEN)?;
++    Some(match workspace_token(workspace, PR_TITLE_TOKEN) {
++        Some(title) => format!("#{number} {title}"),
++        None => format!("#{number}"),
++    })
++}
++
++/// Nerd Font Octicons in the palette's nearest GitHub state colours.
++fn pull_request_glyph(
++    workspace: &ClientShellWorkspace,
++    palette: &Palette,
++) -> Option<(&'static str, ratatui::style::Color)> {
++    workspace_token(workspace, PR_NUMBER_TOKEN)?;
++    match workspace_token(workspace, PR_STATE_TOKEN)? {
++        "open" => Some(("\u{f407}", palette.green)),
++        "draft" => Some(("\u{f4dd}", palette.overlay0)),
++        "merged" => Some(("\u{f419}", palette.mauve)),
++        "closed" => Some(("\u{f4dc}", palette.red)),
++        _ => None,
++    }
++}
 +
 +pub(super) fn workspace_sidebar_hidden(
 +    workspace: &ClientShellWorkspace,
@@ -2962,6 +3105,9 @@ index 0000000..30d2552
 +}
 +
 +fn space_label(workspace: &ClientShellWorkspace, indented: bool) -> String {
++    if let Some(label) = pull_request_label(workspace) {
++        return label;
++    }
 +    if !indented {
 +        return workspace.label.clone();
 +    }
@@ -3260,6 +3406,12 @@ index 0000000..30d2552
 +                    style = style.bg(palette.active_row_bg);
 +                }
 +                let label = space_label(workspace, *indented);
++                let mut label_width = label_width;
++                if let Some((symbol, color)) = pull_request_glyph(workspace, palette) {
++                    let glyph = format!("{symbol} ");
++                    label_width = label_width.saturating_sub(usize::from(display_width(&glyph)));
++                    spans.push(Span::styled(glyph, Style::default().fg(color)));
++                }
 +                let status = workspace.agent_status;
 +                let token_values = workspace.tokens.iter().cloned().collect::<HashMap<_, _>>();
 +                let token_rows = crate::ui::sidebar_space_rows(
