@@ -135,6 +135,10 @@ The global servers:
   enabled, so sessions started here connect it. OMP enables it too.
 - **linear** and **notion** are hosted OAuth servers; sign in once with
   `pi mcp login linear` / `pi mcp login notion`.
+- **beacon** is a local HTTP server (`http://127.0.0.1:47321/mcp`) for the
+  Beacon productivity app. Its `Authorization` header is a `!` command that
+  reads the bearer secret from `~/.config/launchpad/secrets/mcp.secret` at
+  connect time; keep that value outside this repository.
 
 ## OMP
 

@@ -38,6 +38,13 @@
     },
     "notion": {
       "url": "https://mcp.notion.com/mcp"
+    },
+    "beacon": {
+      "url": "http://127.0.0.1:47321/mcp",
+      "headers": {
+        "Authorization": "!echo Bearer $(cat ~/.config/launchpad/secrets/mcp.secret)"
+      },
+      "description": "Read and change Beacon (the owner's productivity app on this Mac): tasks, habits, events, Calendar.app, books, finances, Screen Time and notes. Call beacon_get_context first."
     }
   }
 }
