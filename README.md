@@ -440,6 +440,10 @@ Not installed by the Brewfile; add them only if you want the feature.
 - **.NET SDK** — `.zshrc` puts `/usr/local/share/dotnet` on PATH.
 - **Claude Code CLI** — `.zshrc` aliases `claude` with `--dangerously-skip-permissions`.
   Drop the alias if you'd rather be asked.
+- **direnv** — `brew install direnv`. `.zshrc` installs its hook only when `direnv` is
+  on PATH, so per-project `.envrc` files load on `cd` (after `direnv allow`).
+  A new shell loads its starting directory's `.envrc` silently (to avoid p10k's
+  instant-prompt warning), so errors there, such as a blocked `.envrc`, are not shown.
 - **conducterm** — `tmux.conf` sources `~/.conducterm/conducterm.tmux` with `-q`, so its
   absence is completely silent. Alacritty's `option_as_alt = "Both"` exists for its
   keybindings.

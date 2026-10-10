@@ -125,3 +125,12 @@ for gcloud_sdk in /opt/homebrew/share/google-cloud-sdk "$HOME/google-cloud-sdk";
   fi
 done
 unset gcloud_sdk
+
+# Load and unload per-directory .envrc files. Keep this last so direnv sees the
+# final PATH and its precmd hook runs after the other prompt hooks.
+if command -v direnv >/dev/null 2>&1; then
+  # Load the startup directory's .envrc quietly: output before the first prompt
+  # trips p10k's instant-prompt warning. Later cd's still log normally.
+  eval "$(direnv export zsh 2>/dev/null)"
+  eval "$(direnv hook zsh)"
+fi
