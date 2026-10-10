@@ -140,10 +140,11 @@ The global servers:
   Beacon productivity app. Its `Authorization` header is a `!` command that
   reads the bearer secret from `~/.config/launchpad/secrets/mcp.secret` at
   connect time; keep that value outside this repository.
-- **hark** runs `/Users/eric/Desktop/projects/personal/hark-mcp/server.mjs`
-  with `node`: a personal assistant over an unofficial API that reads and sends
-  conversations, waits for replies and answers asks. The server file lives
-  outside this repository, at that absolute path.
+- **hark** starts through [`bin/hark-mcp`](../bin/hark-mcp), which resolves
+  Node and runs the personal assistant server at
+  `~/Desktop/projects/personal/hark-mcp/server.mjs` (override with
+  `HARK_MCP_HOME`). That project lives outside this repository; moving it is a
+  one-line change in the launcher.
 
 ## OMP
 

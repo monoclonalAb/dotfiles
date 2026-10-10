@@ -1,0 +1,36 @@
+#!/bin/sh
+# Launches the Hark MCP server (stdio) for Pi or another MCP host.
+# MCP hosts start this without a login shell, so resolve Node explicitly:
+# HARK_MCP_NODE, then PATH, then nvm's newest install, then Homebrew.
+set -eu
+
+hark_home=${HARK_MCP_HOME:-$HOME/Desktop/projects/personal/hark-mcp}
+entry=$hark_home/server.mjs
+if [ ! -f "$entry" ]; then
+    printf '%s\n' "hark-mcp: server not found at $entry" >&2
+    exit 127
+fi
+
+node_bin=${HARK_MCP_NODE:-}
+if [ -z "$node_bin" ] && command -v node >/dev/null 2>&1; then
+    node_bin=$(command -v node)
+fi
+if [ -z "$node_bin" ]; then
+    for candidate in "$HOME"/.nvm/versions/node/v*/bin/node; do
+        [ -x "$candidate" ] && node_bin=$candidate
+    done
+fi
+if [ -z "$node_bin" ]; then
+    for candidate in /opt/homebrew/bin/node /usr/local/bin/node; do
+        if [ -x "$candidate" ]; then
+            node_bin=$candidate
+            break
+        fi
+    done
+fi
+if [ -z "$node_bin" ]; then
+    printf '%s\n' 'hark-mcp: could not find a Node.js executable (set HARK_MCP_NODE)' >&2
+    exit 127
+fi
+
+exec "$node_bin" "$entry" "$@"
