@@ -642,16 +642,15 @@ Pi's built-in MCP support reads two files; there is no MCP package to install:
 | `<repo>/.pi/mcp.json` | Each project, read only once the project is trusted | Per-project enable/disable |
 
 A project entry **replaces** the global entry of the same name, so it must repeat the
-full `command` or `url`, plus `"enabled": false` to disable it (see this repository's
-[`.pi/mcp.json`](.pi/mcp.json)). `/mcp` toggles and exposure changes are written to
-the file that defines the server; for global servers that is the tracked file, so
-review them like `settings.json` changes. Every enabled server connects when a session
-starts (there is no lazy mode); `pi mcp list` connects each one and reports errors,
-and `/reload` applies changes to a running session. OAuth sign-ins (`pi mcp login
-<server>`) are stored in `~/.pi/agent/mcp-auth.json`. Tools default to `codemode`
-exposure: the model calls them from `codemode` scripts. Penpot stays only in the
-host-local `~/.config/mcp/mcp.json`, which Pi no longer reads: its token is part of
-the URL, and Pi does not expand variables in URLs.
+full `command` or `url`, plus `"enabled": false` to disable it. `/mcp` toggles and
+exposure changes are written to the file that defines the server; for global servers
+that is the tracked file, so review them like `settings.json` changes. Every enabled
+server connects when a session starts (there is no lazy mode); `pi mcp list` connects
+each one and reports errors, and `/reload` applies changes to a running session.
+OAuth sign-ins (`pi mcp login <server>`) are stored in `~/.pi/agent/mcp-auth.json`.
+Tools default to `codemode` exposure: the model calls them from `codemode` scripts.
+Penpot stays only in the host-local `~/.config/mcp/mcp.json`, which Pi no longer
+reads: its token is part of the URL, and Pi does not expand variables in URLs.
 
 - **gcloud** and **gcp-observability** use the same pinned packages as OMP and start
   with every session (needs `npx` and the gcloud CLI). gcloud is read-only only
@@ -668,7 +667,8 @@ the URL, and Pi does not expand variables in URLs.
   ([README](lib/workspace-context-mcp/README.md)). It runs
   `~/.local/bin/workspace-context-mcp serve`, so `bin/` and `lib/` must be linked;
   `workspace-context-mcp doctor` inspects it without an agent. OMP enables it too.
-  It is disabled for this repository in [`.pi/mcp.json`](.pi/mcp.json).
+  This repository's [`.pi/mcp.json`](.pi/mcp.json) repeats the definition with the
+  server enabled, so sessions started here connect it.
 - **linear** and **notion** are hosted OAuth servers reached over HTTPS; sign in
   once with `pi mcp login linear` / `pi mcp login notion`.
 

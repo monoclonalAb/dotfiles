@@ -4,8 +4,7 @@
       "command": "/Users/eric/.local/bin/workspace-context-mcp",
       "args": [
         "serve"
-      ],
-      "enabled": false
+      ]
     }
   }
 }
