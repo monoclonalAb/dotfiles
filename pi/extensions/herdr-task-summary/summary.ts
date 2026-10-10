@@ -2,10 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const HERDR_SUMMARY_TOKEN = "task_summary";
+export const HERDR_SUMMARY_ERROR_TOKEN = "task_summary_error";
 export const HERDR_SUMMARY_SOURCE = "pi-task-summary";
 export const EMPTY_SESSION_SUMMARY = "New conversation";
 export const MAX_SUMMARY_LENGTH = 72;
-export const MAX_SUMMARY_WORDS = 6;
+/** The prompt asks for at most 6 words; up to 8 are accepted because titles are never clipped. */
+export const MAX_SUMMARY_WORDS = 8;
+export const MAX_FAILURE_LENGTH = 200;
 export const MAX_REQUEST_LENGTH = 3000;
 export const MAX_RECENT_REQUESTS = 4;
 
@@ -88,22 +91,51 @@ export function loadingSummaryFrame(summary: string, frame: number): string {
   });
 }
 
+const UNSAFE_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+const TITLE_CHARACTER = /[\p{L}\p{N} _./'’()+&:#-]/u;
+
+/** Why model output is not a usable title, or the cleaned title. Never clips. */
+export function checkSummary(text: string): { title: string } | { problem: string } {
+  const cleaned = text.trim().replace(/^["'`“”]+|["'`“”.:]+$/gu, "").trim()
+    // A "Title:" preamble is a label for the answer, not part of it.
+    .replace(/^(?:sidebar\s+)?title\s*:\s*/iu, "").replace(/^["'`“”]+/u, "").trim();
+  if (UNSAFE_CHARACTER.test(cleaned)) return { problem: "contains a line break or control character" };
+  const title = cleaned.replace(/\s+/gu, " ");
+  if (!title) return { problem: "empty reply" };
+  const words = title.split(" ").length;
+  if (words < 2) return { problem: "only one word" };
+  if (words > MAX_SUMMARY_WORDS) return { problem: `${words} words (limit ${MAX_SUMMARY_WORDS})` };
+  const length = Array.from(title).length;
+  if (length > MAX_SUMMARY_LENGTH) return { problem: `${length} characters (limit ${MAX_SUMMARY_LENGTH})` };
+  if (!/^[\p{L}\p{N}#]/u.test(title)) return { problem: `starts with "${Array.from(title)[0]}"` };
+  const unsupported = Array.from(title).find((character) => !TITLE_CHARACTER.test(character));
+  if (unsupported) return { problem: `unsupported character "${unsupported}"` };
+  // Issue and pull request numbers ("PR #450") only; "# Heading" is Markdown.
+  if (/#(?!\d)/u.test(title)) return { problem: '"#" not followed by a number' };
+  return { title };
+}
+
 /** Reject bad model output instead of turning it into another clipped excerpt. */
 export function validateSummary(text: string): string | undefined {
-  const title = text.trim().replace(/^["'`“”]+|["'`“”.]+$/gu, "").trim();
-  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(title)) return undefined;
-  const normalized = title.replace(/\s+/gu, " ");
-  const words = normalized.split(" ");
-  if (words.length < 2 || words.length > MAX_SUMMARY_WORDS
-      || Array.from(normalized).length > MAX_SUMMARY_LENGTH
-      || !/^[\p{L}\p{N}][\p{L}\p{N} _./'’()+&-]*$/u.test(normalized)) return undefined;
-  return normalized;
+  const result = checkSummary(text);
+  return "title" in result ? result.title : undefined;
+}
+
+/** One-line, bounded failure reason for display-only metadata. */
+export function failureNote(reason: string, now = new Date()): string {
+  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const note = `${time} ${reason}`.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ").trim();
+  const characters = Array.from(note);
+  return characters.length <= MAX_FAILURE_LENGTH ? note
+    : characters.slice(0, MAX_FAILURE_LENGTH - 1).join("") + "…";
 }
 
 export async function generateTaskSummary(
   requests: readonly string[],
   ctx: Pick<ExtensionContext, "model" | "modelRegistry">,
   signal: AbortSignal,
+  /** Called with the reason whenever a completed reply yields no title. */
+  onRejected: (reason: string) => void = () => {},
 ): Promise<string | undefined> {
   if (!requests.length || !ctx.model || signal.aborted) return undefined;
   const response = await ctx.modelRegistry.complete(ctx.model, {
@@ -126,10 +158,22 @@ export async function generateTaskSummary(
     // Never share the main agent's provider-side conversation/connection identity.
     sessionId: randomUUID(),
   });
-  if (signal.aborted || response.stopReason !== "stop") return undefined;
-  if (response.content.some((block) => block.type === "toolCall")) return undefined;
-  return validateSummary(response.content.filter((block) => block.type === "text")
-    .map((block) => block.text).join("\n"));
+  if (signal.aborted) return undefined;
+  if (response.stopReason !== "stop") {
+    const detail = (response as { errorMessage?: unknown }).errorMessage;
+    onRejected(`model stopped with "${response.stopReason}"${typeof detail === "string" && detail ? `: ${detail}` : ""}`);
+    return undefined;
+  }
+  if (response.content.some((block) => block.type === "toolCall")) {
+    onRejected("reply was a tool call");
+    return undefined;
+  }
+  const text = response.content.filter((block) => block.type === "text")
+    .map((block) => block.text).join("\n");
+  const result = checkSummary(text);
+  if ("title" in result) return result.title;
+  onRejected(`rejected "${text.trim().slice(0, 80)}": ${result.problem}`);
+  return undefined;
 }
 
 /** Best-effort display metadata reporting; no session or main-model context is touched. */
@@ -137,6 +181,8 @@ export async function reportTaskSummary(
   summary: string | undefined,
   environment: HerdrEnvironment,
   run: CommandRunner,
+  /** A failure note sets `task_summary_error`, null clears it, undefined leaves it alone. */
+  failure?: string | null,
 ): Promise<boolean> {
   const paneId = environment.HERDR_PANE_ID?.trim();
   if (environment.HERDR_ENV !== "1" || !paneId) return false;
@@ -150,6 +196,10 @@ export async function reportTaskSummary(
     HERDR_SUMMARY_SOURCE,
     "--agent",
     "pi",
+    // Before the title token, which stays last.
+    ...(failure === undefined ? []
+      : failure === null ? ["--clear-token", HERDR_SUMMARY_ERROR_TOKEN]
+      : ["--token", `${HERDR_SUMMARY_ERROR_TOKEN}=${failure}`]),
     ...(summary
       ? ["--token", `${HERDR_SUMMARY_TOKEN}=${summary}`]
       : ["--clear-token", HERDR_SUMMARY_TOKEN]),

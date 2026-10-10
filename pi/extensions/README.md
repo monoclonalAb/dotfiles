@@ -26,7 +26,9 @@ Display-only extensions (no approval needed, but keep them that way):
   without changing them and names the task with a separate, tool-free
   `ctx.modelRegistry.complete` request containing only recent user text (never the
   system prompt, tool output or images). That request costs provider usage. Titles
-  stay in memory and nothing is written to the session.
+  stay in memory and nothing is written to the session. When naming fails, the
+  timestamped reason goes to the pane's display-only `task_summary_error` token
+  (no files); a successful title or a new empty session clears it.
 
 Herdr's official `herdr-agent-state.ts` is generated outside this repository by
 `herdr integration install pi` (see the [Herdr setup](../../README.md)).

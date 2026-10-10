@@ -8,10 +8,14 @@ import test from "node:test";
 import { registerHerdrTaskSummary } from "./index.ts";
 import {
   EMPTY_SESSION_SUMMARY,
+  HERDR_SUMMARY_ERROR_TOKEN,
   HERDR_SUMMARY_SOURCE,
   HERDR_SUMMARY_TOKEN,
+  MAX_FAILURE_LENGTH,
   MAX_RECENT_REQUESTS,
   MAX_REQUEST_LENGTH,
+  checkSummary,
+  failureNote,
   generateTaskSummary,
   loadingSummaryFrame,
   recentRequests,
@@ -44,6 +48,8 @@ function harness(complete: (...args: any[]) => Promise<any> = async () => respon
   const handlers = new Map<string, (...args: any[]) => any>();
   const calls: any[][] = [];
   const reports: string[] = [];
+  // Per publication: failure note set, null cleared, undefined untouched.
+  const failures: Array<string | null | undefined> = [];
   const entries: any[] = [];
   const ctx = {
     model: { provider: "test", id: "selected" },
@@ -56,12 +62,15 @@ function harness(complete: (...args: any[]) => Promise<any> = async () => respon
       assert.equal(command, environment.HERDR_BIN_PATH);
       assert.equal(options.timeout, 2000);
       reports.push(args.at(-1)!);
+      const set = args.find((arg) => arg.startsWith(`${HERDR_SUMMARY_ERROR_TOKEN}=`));
+      failures.push(set ? set.slice(HERDR_SUMMARY_ERROR_TOKEN.length + 1)
+        : args.includes(HERDR_SUMMARY_ERROR_TOKEN) ? null : undefined);
       return { code: 0, stdout: "", stderr: "", killed: false };
     },
   };
   registerHerdrTaskSummary(pi as never, env, options);
   const emit = (name: string, event = {}) => handlers.get(name)?.(event, ctx);
-  return { ctx, calls, reports, entries, handlers, emit,
+  return { ctx, calls, reports, failures, entries, handlers, emit,
     async message(content: unknown) {
       const entry = user(content);
       const before = JSON.stringify(entry);
@@ -228,11 +237,90 @@ test("model output must already be a short safe title; it is never clipped", () 
   assert.equal(validateSummary('"Generate semantic agent titles"'), "Generate semantic agent titles");
   assert.equal(validateSummary("Fix OAuth redirect."), "Fix OAuth redirect");
   assert.equal(validateSummary("Review café navigation"), "Review café navigation");
-  for (const value of ["", "Title", "One two three four five six seven", "x".repeat(73) + " title",
+  // Titles previously rejected for a PR number, a colon or one word too many.
+  for (const value of ["Create worktree for PR #450", "#450 merge conflict fix", "PR 450: missing M2 agents",
+    "Fix missing M2 agents in conflict reports", "One two three four five six seven eight"]) {
+    assert.equal(validateSummary(value), value);
+  }
+  assert.equal(validateSummary("Title: Good name"), "Good name");
+  assert.equal(validateSummary('Sidebar title: "Fix login"'), "Fix login");
+  assert.equal(validateSummary("Fix  login   redirect"), "Fix login redirect");
+  for (const value of ["", "Title", "One two three four five six seven eight nine", "x".repeat(73) + " title",
     "Good title\nExtra explanation", "Good\ttitle", "Bad\u001b[31m title", "Bad\u202e title",
-    "Bad\u2028 title", "# Markdown title", "Title: Good name", "$(touch /tmp/nope)"]) {
+    "Bad\u2028 title", "# Markdown title", "Fix #login handling", "Why are agents missing?",
+    "$(touch /tmp/nope)"]) {
     assert.equal(validateSummary(value), undefined, value);
   }
+});
+
+test("rejections explain which rule the reply broke", () => {
+  for (const [value, problem] of [
+    ["", "empty reply"],
+    ["Title", "only one word"],
+    ["One two three four five six seven eight nine", "9 words (limit 8)"],
+    ["x".repeat(73) + " title", "79 characters (limit 72)"],
+    ["Good title\nExtra explanation", "contains a line break or control character"],
+    ["- Bullet title", 'starts with "-"'],
+    ["Why are agents missing?", 'unsupported character "?"'],
+    ["# Markdown title", '"#" not followed by a number'],
+  ]) {
+    assert.deepEqual(checkSummary(value!), { problem }, value);
+  }
+});
+
+test("failure notes are timestamped, single-line and bounded", () => {
+  const at = new Date(2026, 9, 6, 9, 5);
+  assert.equal(failureNote("model stopped with\n\"error\"", at), '09:05 model stopped with "error"');
+  const long = failureNote("x".repeat(500), at);
+  assert.equal(Array.from(long).length, MAX_FAILURE_LENGTH);
+  assert.match(long, /^09:05 x+\u2026$/);
+});
+
+test("a failed title records why on the pane; the next success clears it", async () => {
+  for (const [reply, reason] of [
+    [async () => response("This explanation has far too many words to be a useful title"),
+      /^\d\d:\d\d rejected "This explanation has far too many words to be a useful title": 12 words \(limit 8\)$/],
+    [async () => { throw Error("Provider unavailable"); }, /^\d\d:\d\d request failed: Provider unavailable$/],
+    [async () => ({ ...response(""), stopReason: "error", errorMessage: "overloaded" }),
+      /^\d\d:\d\d model stopped with "error": overloaded$/],
+    [async () => new Promise(() => {}), /^\d\d:\d\d no reply within 0\.03s$/],
+  ] as const) {
+    let first = true;
+    const h = harness(async () => {
+      if (!first) return response("Repair login redirect");
+      first = false;
+      return reply();
+    }, { debounceMs: 0, timeoutMs: 30, animationMs: 5 });
+    await h.emit("session_start");
+    await h.message("Fix login");
+    await until(() => typeof h.failures.at(-1) === "string");
+    assert.match(h.failures.at(-1)!, reason);
+    assert.equal(h.title(), EMPTY_SESSION_SUMMARY);
+    const frames = h.failures.slice(1, -1);
+    assert.ok(frames.length > 0 && frames.every((failure) => failure === undefined),
+      "animation frames never touch the failure token");
+    await h.message("Fix the login redirect");
+    await until(() => h.title() === "Repair login redirect");
+    assert.equal(h.failures.at(-1), null);
+    await h.emit("session_shutdown");
+  }
+});
+
+test("new and empty sessions clear a stale failure; superseded requests record nothing", async () => {
+  const old = deferred();
+  const h = harness(async (_model, context) => context.messages[0].content.includes("New task")
+    ? response("Repair signup form") : old.promise);
+  await h.emit("session_start");
+  await until(() => h.failures.length === 1);
+  assert.equal(h.failures.at(-1), null);
+  await h.message("Old task login");
+  await until(() => h.calls.length === 1);
+  await h.message("New task signup");
+  await until(() => h.title() === "Repair signup form");
+  old.resolve(response("far far far far far far far far far far too long"));
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.ok(h.failures.every((failure) => typeof failure !== "string"));
+  await h.emit("session_shutdown");
 });
 
 test("semantic title uses the selected authenticated registry, isolated and tool-free", async () => {
@@ -289,6 +377,14 @@ test("metadata reporting is inert outside Herdr and reports or clears exactly on
   ] });
   assert.equal(await reportTaskSummary(undefined, environment, run), true);
   assert.deepEqual(calls[1]?.args.slice(-2), ["--clear-token", HERDR_SUMMARY_TOKEN]);
+  assert.equal(await reportTaskSummary("Fix labels", environment, run, "09:05 empty reply"), true);
+  assert.deepEqual(calls[2]?.args.slice(-4), [
+    "--token", `${HERDR_SUMMARY_ERROR_TOKEN}=09:05 empty reply`, "--token", `${HERDR_SUMMARY_TOKEN}=Fix labels`,
+  ]);
+  assert.equal(await reportTaskSummary("Fix labels", environment, run, null), true);
+  assert.deepEqual(calls[3]?.args.slice(-4), [
+    "--clear-token", HERDR_SUMMARY_ERROR_TOKEN, "--token", `${HERDR_SUMMARY_TOKEN}=Fix labels`,
+  ]);
   assert.equal(await reportTaskSummary("Task", environment, async () => ({ code: 1 })), false);
   assert.equal(await reportTaskSummary("Task", environment, async () => { throw Error("socket unavailable"); }), false);
 });

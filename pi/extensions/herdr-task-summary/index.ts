@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   EMPTY_SESSION_SUMMARY,
+  failureNote,
   generateTaskSummary,
   loadingSummaryFrame,
   recentRequests,
@@ -36,12 +37,14 @@ export function registerHerdrTaskSummary(
     controller = undefined;
   }
 
-  function publish(summary: string, version: number, current = () => started) {
+  // `failure`: a note sets the pane's task_summary_error token, null clears it,
+  // undefined (animation frames) leaves it alone.
+  function publish(summary: string, version: number, current = () => started, failure?: string | null) {
     // Serialize IPC so a slow older publication cannot overtake a newer title.
     reports = reports.then(async () => {
       if (!current() || version !== generation) return;
       await reportTaskSummary(summary, environment,
-        (command, args) => pi.exec(command, args, { timeout: 2000 }));
+        (command, args) => pi.exec(command, args, { timeout: 2000 }), failure);
     });
     return reports;
   }
@@ -80,7 +83,8 @@ export function registerHerdrTaskSummary(
     const cached = cache.get(key);
     if (cached) lastSummary = cached;
     if (cached || !model || !requests.length) {
-      void publish(lastSummary, version);
+      void publish(lastSummary, version, undefined,
+        !cached && requests.length ? failureNote("no model selected") : null);
       return;
     }
     const stopLoading = animate(lastSummary, version);
@@ -92,7 +96,10 @@ export function registerHerdrTaskSummary(
     timer = setTimeout(() => {
       timer = undefined;
       void (async () => {
-        const deadline = setTimeout(() => abort.abort(), timeoutMs);
+        let timedOut = false;
+        let failure: string | undefined;
+        let named = false;
+        const deadline = setTimeout(() => { timedOut = true; abort.abort(); }, timeoutMs);
         deadline.unref?.();
         let onAbort: () => void = () => {};
         const cancelled = new Promise<undefined>((resolve) => {
@@ -102,15 +109,18 @@ export function registerHerdrTaskSummary(
         try {
           // Bound our wait even if a custom provider ignores cancellation.
           const summary = await Promise.race([
-            generateTaskSummary(requests, namingContext, abort.signal), cancelled,
+            generateTaskSummary(requests, namingContext, abort.signal, (reason) => { failure = reason; }),
+            cancelled,
           ]);
           if (!summary || abort.signal.aborted || version !== generation || !started) return;
           lastSummary = summary;
+          named = true;
           cache.set(key, summary);
           if (cache.size > 32) cache.delete(cache.keys().next().value!);
-        } catch {
+        } catch (error) {
           // Auth, provider, timeout and malformed-output failures never affect the agent.
           // Keep the previous semantic title, not a misleading prompt excerpt.
+          failure = `request failed: ${error instanceof Error ? error.message : String(error)}`;
         } finally {
           clearTimeout(deadline);
           abort.signal.removeEventListener("abort", onAbort);
@@ -118,7 +128,12 @@ export function registerHerdrTaskSummary(
           if (controller === abort) controller = undefined;
           // Success settles on the semantic title; every failure restores the
           // last stable title. Neither animation frames nor failures enter cache.
-          if (started && version === generation) void publish(lastSummary, version);
+          // Failures are recorded on the pane so a stuck label can be explained.
+          if (timedOut) failure = `no reply within ${timeoutMs / 1000}s`;
+          if (started && version === generation) {
+            void publish(lastSummary, version, undefined,
+              named ? null : failureNote(failure ?? "no usable title"));
+          }
         }
       })();
     }, debounceMs);

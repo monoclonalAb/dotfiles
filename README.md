@@ -308,7 +308,12 @@ Conversation rows use OMP's terminal title, or for Pi the
 [`herdr-task-summary`](pi/extensions/herdr-task-summary/summary.ts) token: a
 2–6-word title generated in the background by a small, tool-free request to the
 selected model (this uses provider quota). A letter-scramble animation shows while it
-is pending; failures keep the previous title.
+is pending; failures keep the previous title. Titles may include issue numbers
+(`PR #450`) and colons, and up to 8 words are accepted; nothing is clipped. If a
+conversation keeps `New conversation`, its pane's `task_summary_error` token says
+why (rejected reply, provider error or timeout):
+`herdr pane list | jq '.result.panes[] | {pane_id, tokens}'`. The next good title
+clears it.
 
 **Pull requests.** When a linked worktree's branch has a GitHub pull request, the
 [pr-status](herdr/plugins/pr-status/pr_status.py) plugin renames its sidebar row to
