@@ -25,8 +25,8 @@ Use temporary directories outside the repository for generated output.
 | Herdr review popup | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/herdr-review -p 'test_*.py'` | Fake Herdr/tuicr; with tuicr installed, also drives real tuicr in a PTY. No live Herdr or agent input |
 | Terminal Neovim opener | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s lib/terminal-links -p 'test_*.py'` | Hint TOML/argv and headless Neovim; GUI launches mocked |
 | Workspace Context MCP | `node --test lib/workspace-context-mcp/*.test.mjs` | Temporary fixture workspace and a spawned stdio server; never reads the real workspace |
-| Pi extensions (Bun) | `bun test ./pi/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `theme-sync`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `long-context`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links` |
-| Pi extensions (Node native) | `node --test pi/extensions/<name>/*.test.mjs` | Real Pi SDK sessions with isolated HOME and synthetic providers. Applies to `agent-stuff`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route` |
+| Pi extensions (Bun) | `bun test ./pi/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `theme-sync`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `long-context`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links`, `token-speed` |
+| Pi extensions (Node native) | `node --test pi/extensions/<name>/*.test.mjs` | Real Pi SDK sessions with isolated HOME and synthetic providers. Applies to `agent-stuff`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route`, `token-speed` |
 | Pi agent-stuff public API | `node pi/extensions/agent-stuff/typecheck.mjs` | Installed `tsc` and Pi public types |
 | Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `theme-sync` and `quota-footer` (which also covers `compact-ui`) |
 

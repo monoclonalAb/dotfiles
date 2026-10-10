@@ -29,6 +29,10 @@ Display-only extensions (no approval needed, but keep them that way):
   stay in memory and nothing is written to the session. When naming fails, the
   timestamped reason goes to the pane's display-only `task_summary_error` token
   (no files); a successful title or a new empty session clears it.
+- `token-speed/` shows the last reply's output tokens per second in the footer
+  and reports session and per-model averages through `/tps`. It rebuilds only
+  from the usage and monotonic duration Pi already records on assistant messages,
+  so it writes nothing to the session and adds nothing to model context.
 
 Herdr's official `herdr-agent-state.ts` is generated outside this repository by
 `herdr integration install pi` (see the [Herdr setup](../../docs/HERDR.md#install)).
