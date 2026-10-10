@@ -287,6 +287,7 @@ the live keymap. The custom keys:
 | Key | Action |
 | --- | --- |
 | `C-a u` / `C-a Shift-u` | Jump to the next conversation needing attention / back to where the jumps started |
+| `C-a m` | Keep the conversation you are looking at unread until you reply to it; press again to mark it read |
 | `C-a t` | Start a [Pi task](herdr/plugins/task-launcher/README.md) in a new worktree Space |
 | `C-a v` | Review the focused agent's uncommitted changes in tuicr and send the comments back |
 | `C-a ;` / `C-a :` | Toggle Personal/Work / send the current Space to the other environment |
@@ -298,8 +299,10 @@ them Herdr guesses from screen text. After `herdr integration install …`, `/re
 idle sessions. The next-agent plugin keeps a per-pane ledger shown as `◐` working,
 `◆` blocked/needs input, `●` finished but unreviewed and `○` idle/reviewed. Focusing
 a pane (hotkey, click, or pane body) marks it reviewed; split siblings keep their own
-state. The focused conversation counts as reviewed even if it finishes while the
-terminal is in the background (the macOS notification still fires). It also sounds the active-tab OMP prompts Herdr's own toasts skip. Its settings
+state. `C-a m` overrides that for the conversation in front of you: it shows `●` and
+`C-a u` keeps visiting it, however often you come back, until you send it a message
+or press `C-a m` again. Typing without sending does not count. The focused
+conversation counts as reviewed even if it finishes while the terminal is in the background (the macOS notification still fires). It also sounds the active-tab OMP prompts Herdr's own toasts skip. Its settings
 live in `~/.config/herdr/plugins/config/<plugin-id>/config.toml`.
 Conversation rows use OMP's terminal title, or for Pi the
 [`herdr-task-summary`](pi/extensions/herdr-task-summary/summary.ts) token: a

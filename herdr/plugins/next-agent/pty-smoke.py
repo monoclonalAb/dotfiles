@@ -119,6 +119,10 @@ command = "martinro.next-agent.jump"
 key = "prefix+shift+u"
 type = "plugin_action"
 command = "martinro.next-agent.back"
+[[keys.command]]
+key = "prefix+m"
+type = "plugin_action"
+command = "martinro.next-agent.toggle-unread"
 [ui.sidebar.spaces]
 inline_agents = true
 [ui.sidebar.agents]
@@ -241,6 +245,40 @@ enabled = false
                 wait_for(lambda: "○" in screen.line("Away target"), "reviewed glyph not rendered")
                 print(f"PASS: a focused conversation finishing while away is not left for review ({kind})")
                 return
+            if navigation == "keep":
+                def logged(text):
+                    logs = json.loads(cli("plugin", "log", "list", "--plugin", "martinro.next-agent", "--limit", "30"))
+                    return sum(text in (log.get("stdout") or "") for log in logs["result"]["logs"])
+
+                cli("pane", "report-metadata", target, "--source", "fixture-label", "--token", "task_summary=Kept target")
+                cli("pane", "report-agent", target, "--source", "fixture", "--agent", "pi", "--state", "working", "--seq", "1")
+                drain(0.3)
+                cli("pane", "report-agent", target, "--source", "fixture", "--agent", "pi", "--state", "idle", "--seq", "2")
+                wait_for(lambda: token(target, "dot_review"), "completion was not raised")
+                os.write(master, b"\x01u")
+                wait_for(lambda: snapshot()["focused_pane_id"] == target, "jump did not focus the target")
+                wait_for(lambda: token(target, "dot_idle"), "opening the conversation did not mark it read")
+                os.write(master, b"\x01m")
+                wait_for(lambda: token(target, "dot_review") and not token(target, "dot_idle"), "C-a m did not keep it unread")
+                wait_for(lambda: "●" in screen.line("Kept target"), "kept glyph not rendered")
+                focuses = logged(f"focus {target} ")
+                api("pane.focus", {"pane_id": origin})
+                wait_for(lambda: snapshot()["focused_pane_id"] == origin, "return to origin failed")
+                api("pane.focus", {"pane_id": target})
+                wait_for(lambda: logged(f"focus {target} ") > focuses, "refocus hook did not run")
+                assert token(target, "dot_review"), "refocusing marked the kept conversation read"
+                print(f"PASS: C-a m keeps the open conversation unread across focus ({kind})")
+                os.write(master, b"\x01m")
+                wait_for(lambda: token(target, "dot_idle") and not token(target, "dot_review"), "second C-a m did not mark it read")
+                os.write(master, b"\x01m")
+                wait_for(lambda: token(target, "dot_review"), "C-a m did not keep it unread again")
+                cli("pane", "report-agent", target, "--source", "fixture", "--agent", "pi", "--state", "working", "--seq", "3")
+                wait_for(lambda: token(target, "dot_working"), "reply did not start a turn")
+                cli("pane", "report-agent", target, "--source", "fixture", "--agent", "pi", "--state", "idle", "--seq", "4")
+                wait_for(lambda: logged(f"status {target} working->idle"), "completion hook did not run")
+                wait_for(lambda: token(target, "dot_idle"), "replying did not mark it read")
+                print("PASS: C-a m toggles back to read, and replying clears a kept conversation")
+                return
             sibling = None
             if navigation == "click":
                 before_split = {p["pane_id"] for p in snapshot()["panes"]}
@@ -326,6 +364,6 @@ enabled = false
 if __name__ == "__main__":
     if not HERDR:
         raise SystemExit("Herdr must already be installed and on PATH")
-    for navigation in ("hotkey", "click", "away"):
+    for navigation in ("hotkey", "click", "away", "keep"):
         for kind in ("workspace", "tab"):
             smoke(kind, navigation)

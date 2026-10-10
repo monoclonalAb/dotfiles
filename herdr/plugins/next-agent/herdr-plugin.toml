@@ -1,6 +1,6 @@
 id = "martinro.next-agent"
 name = "Next Agent"
-version = "0.6.0-local"
+version = "0.7.0-local"
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 
@@ -15,6 +15,12 @@ id = "back"
 title = "Return to the pane focused before the agent jumps"
 contexts = ["global", "workspace"]
 command = ["python3.14", "next_agent.py", "back"]
+
+[[actions]]
+id = "toggle-unread"
+title = "Keep the focused conversation unread until you reply, or mark it read"
+contexts = ["global", "workspace"]
+command = ["python3.14", "next_agent.py", "toggle-unread"]
 
 [[events]]
 on = "pane.agent_status_changed"

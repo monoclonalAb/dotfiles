@@ -114,6 +114,12 @@ type = "plugin_action"
 command = "martinro.next-agent.back"
 description = "back to the pane before the agent jumps"
 
+[[keys.command]]
+key = "prefix+m"
+type = "plugin_action"
+command = "martinro.next-agent.toggle-unread"
+description = "keep this conversation unread until you reply / mark it read"
+
 # Review the focused agent's changes in tuicr; :wq sends the comments to it.
 [[keys.command]]
 key = "prefix+v"

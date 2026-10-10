@@ -75,6 +75,56 @@ class AttentionLedgerTests(unittest.TestCase):
 
         self.assertEqual("done", entry["raised_as"])
         self.assertEqual("done", next_agent.attention_bucket("idle", entry))
+        self.assertFalse(entry["kept_unread"])
+
+
+class KeptUnreadTests(unittest.TestCase):
+    def observe(self, entry, status, *, focused=False, seq=None):
+        return next_agent.apply_observation(entry, status, focused, seq, "term")
+
+    def keep(self, entry, status="idle", seq=3, keep=True):
+        return next_agent.set_kept_unread(entry, keep, status, seq, "term")
+
+    def read_conversation(self):
+        entry = self.observe(None, "working", seq=1)
+        entry = self.observe(entry, "done", seq=2)
+        return self.observe(entry, "idle", focused=True, seq=3)
+
+    def test_kept_conversation_stays_unread_while_you_come_and_go(self):
+        entry = self.keep(self.read_conversation())
+        self.assertEqual("done", next_agent.attention_bucket("idle", entry))
+
+        entry = self.observe(entry, "idle", focused=True, seq=3)
+        self.assertEqual("done", next_agent.attention_bucket("idle", entry))
+        entry = self.observe(entry, "idle", seq=3)
+        entry = self.observe(entry, "idle", focused=True, seq=3)
+
+        self.assertEqual("done", next_agent.attention_bucket("idle", entry))
+
+    def test_replying_marks_it_read(self):
+        entry = self.keep(self.read_conversation())
+
+        entry = self.observe(entry, "working", focused=True, seq=4)
+        self.assertFalse(entry["kept_unread"])
+        entry = self.observe(entry, "idle", focused=True, seq=5)
+
+        self.assertIsNone(next_agent.attention_bucket("idle", entry))
+
+    def test_pressing_again_marks_it_read(self):
+        entry = self.keep(self.keep(self.read_conversation()), keep=False)
+
+        self.assertFalse(entry["kept_unread"])
+        self.assertIsNone(next_agent.attention_bucket("idle", entry))
+
+    def test_kept_while_working_is_unread_when_it_finishes(self):
+        entry = self.observe(None, "working", focused=True, seq=1)
+        entry = self.keep(entry, "working", seq=1)
+        self.assertEqual("working", next_agent.dot_kind("working", next_agent.attention_bucket("working", entry)))
+
+        entry = self.observe(entry, "working", focused=True, seq=1)  # a repeat, not a new turn
+        entry = self.observe(entry, "idle", focused=True, seq=2)
+
+        self.assertEqual("done", next_agent.attention_bucket("idle", entry))
 
 
 
@@ -153,6 +203,40 @@ class FocusEventTests(unittest.TestCase):
         self.report.assert_called_once_with("w0:p2", "idle", None)
 
 
+class ToggleUnreadTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="next-agent-test-")
+        self.addCleanup(temporary.cleanup)
+        self.enterContext(patch.dict(os.environ, {
+            "HERDR_PLUGIN_STATE_DIR": temporary.name,
+            "HERDR_PANE_ID": "w0:p2",
+        }))
+        self.report = self.enterContext(patch.object(next_agent, "report_dot", return_value="idle"))
+        self.toast = self.enterContext(patch.object(next_agent, "toast"))
+
+    def test_key_keeps_unread_through_focus_then_marks_read(self):
+        with patch.object(next_agent, "probe_agent", return_value=("idle", True, 5, "term")):
+            next_agent.toggle_unread()
+            self.report.assert_called_with("w0:p2", "idle", "done")
+
+            with patch.dict(os.environ, {"HERDR_PLUGIN_EVENT_JSON": '{"data": {"pane_id": "w0:p2"}}'}):
+                next_agent.handle_pane_focused()
+            self.report.assert_called_with("w0:p2", "idle", "done")
+
+            next_agent.toggle_unread()
+            self.report.assert_called_with("w0:p2", "idle", None)
+
+        self.toast.assert_not_called()
+
+    def test_shell_pane_is_left_alone(self):
+        with patch.object(next_agent, "probe_agent", return_value=(None, False, None, None)):
+            next_agent.toggle_unread()
+
+        self.report.assert_not_called()
+        self.toast.assert_called_once_with("Not an agent conversation")
+        self.assertEqual({}, next_agent.load_attention())
+
+
 class JumpTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="next-agent-test-")
@@ -209,6 +293,32 @@ class JumpTests(unittest.TestCase):
         next_agent.main()
 
         self.api.assert_called_once_with("pane.focus", {"pane_id": "w2:p1"})
+
+    def keep_unread(self, pane_id):
+        next_agent.mutate_attention(lambda entries: entries.update({
+            pane_id: next_agent.set_kept_unread(None, True, "idle", 1, f"term-{pane_id}"),
+        }))
+
+    def test_jump_leaves_a_kept_conversation_for_the_next_unread_one(self):
+        self.add_pane("w0:p2", "idle")
+        self.add_pane("w1:p1", "done")
+        self.keep_unread("w0:p2")
+        self.live["focused_pane_id"] = "w0:p2"
+
+        next_agent.main()
+
+        self.api.assert_called_once_with("pane.focus", {"pane_id": "w1:p1"})
+        self.assertEqual("done", next_agent.attention_bucket("idle", next_agent.load_attention()["w0:p2"]))
+
+    def test_only_the_kept_conversation_in_front_of_you_is_not_refocused(self):
+        self.add_pane("w0:p2", "idle")
+        self.keep_unread("w0:p2")
+        self.live["focused_pane_id"] = "w0:p2"
+
+        next_agent.main()
+
+        self.api.assert_not_called()
+        self.toast.assert_called_once_with("No other agent needs attention")
 
     def test_workspace_scope_does_not_jump_outside_the_workspace(self):
         self.add_pane("w0:p2", "done")

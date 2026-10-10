@@ -73,6 +73,7 @@ def blank_entry(terminal_id=None):
         "raised_as": None,
         "worked": False,
         "seen_seq": None,
+        "kept_unread": False,
     }
 
 
@@ -94,6 +95,7 @@ def normalise_entry(entry, terminal_id):
         "raised_as": raised if raised in ATTENTION_BUCKETS else ("done" if unread else None),
         "worked": entry.get("worked") is True or status == "working",
         "seen_seq": seen if isinstance(seen, int) else None,
+        "kept_unread": entry.get("kept_unread") is True,
     }
 
 
@@ -101,9 +103,30 @@ def apply_observation(entry, status, focused, seq, terminal_id):
     """Fold one observation of a pane's agent into its ledger entry and return the entry.
 
     Only the focused pane is ever cleared, so seeing one pane can never clear a sibling; Herdr's
-    own `seen` flag is per tab, which is what this ledger exists to survive.
+    own `seen` flag is per tab, which is what this ledger exists to survive. A conversation you
+    chose to keep unread stays unread through focus until a new turn starts, i.e. you replied.
     """
     entry = normalise_entry(entry, terminal_id)
+    if status == "working" and entry["status"] != "working":
+        entry["kept_unread"] = False
+    observe_status(entry, status, focused, seq)
+    if entry["kept_unread"]:
+        entry.update(unread=True, raised_as=entry["raised_as"] or "done")
+    return entry
+
+
+def set_kept_unread(entry, keep, status, seq, terminal_id):
+    """Keep the conversation in front of you unread until you reply, or mark it read now."""
+    entry = normalise_entry(entry, terminal_id)
+    entry["kept_unread"] = False
+    entry = apply_observation(entry, status, True, seq, terminal_id)
+    if keep:
+        entry.update(kept_unread=True, unread=True, raised_as="done")
+    return entry
+
+
+def observe_status(entry, status, focused, seq):
+    """Update a normalised entry in place from one status observation."""
     if focused:
         entry.update(
             status=status,
@@ -112,17 +135,17 @@ def apply_observation(entry, status, focused, seq, terminal_id):
             worked=status == "working",
             seen_seq=seq if isinstance(seq, int) else entry["seen_seq"],
         )
-        return entry
+        return
     if status == "working":
         entry.update(status=status, unread=False, raised_as=None, worked=True)
-        return entry
+        return
     if status in ("done", "blocked"):
         entry.update(
             status=status,
             unread=True,
             raised_as="blocked" if status == "blocked" else "done",
         )
-        return entry
+        return
     # idle/unknown: Herdr downgrades an unseen completion to `idle` as soon as any pane in the
     # tab is focused, so fall back to work observed since this pane was last focused.
     if not entry["unread"] and entry["worked"]:
@@ -130,7 +153,6 @@ def apply_observation(entry, status, focused, seq, terminal_id):
         if moved:
             entry.update(unread=True, raised_as="done")
     entry["status"] = status
-    return entry
 
 
 def attention_bucket(status, entry):
@@ -423,10 +445,30 @@ def handle_pane_focused():
         return attention_bucket(status, updated)
 
     bucket = mutate_attention(seen)
-    # Focus is the explicit review action, so always restamp: the ledger's previous verdict can
-    # match while the sidebar still shows a stale dot (an older rule or a failed display write).
+    # Focus is the review action (unless kept unread), so always restamp: the ledger's previous
+    # verdict can match while the sidebar still shows a stale dot (an older rule or a failed write).
     kind = report_dot(pane_id, status, bucket)
     print(f"focus {pane_id} status={status} seq={seq} bucket={bucket} dot={kind}")
+
+
+def toggle_unread():
+    """Keep the focused conversation unread until you reply to it; pressed again, mark it read."""
+    pane_id = os.environ.get("HERDR_PANE_ID") or snapshot().get("focused_pane_id")
+    status, _, seq, terminal_id = probe_agent(pane_id) if pane_id else (None, False, None, None)
+    if not isinstance(status, str):
+        toast("Not an agent conversation")
+        return
+
+    def toggle(entries):
+        entry = normalise_entry(entries.get(pane_id), terminal_id)
+        keep = not entry["kept_unread"]
+        entry = set_kept_unread(entry, keep, status, seq, terminal_id)
+        entries[pane_id] = entry
+        return keep, attention_bucket(status, entry)
+
+    keep, bucket = mutate_attention(toggle)
+    kind = report_dot(pane_id, status, bucket)
+    print(f"{'kept unread' if keep else 'marked read'} {pane_id} status={status} dot={kind}")
 
 
 
@@ -493,6 +535,10 @@ def main():
     if not ranked:
         toast("No agent needs attention")
         return
+    if [agent.get("pane_id") for agent, _ in ranked] == [focused]:
+        # Only the conversation in front of you (blocked or kept unread) is waiting.
+        toast("No other agent needs attention")
+        return
 
     target = ranked[0][0]
     for index, (agent, _) in enumerate(ranked):
@@ -556,5 +602,7 @@ if __name__ == "__main__":
             main()
         elif subcommand == "back":
             back()
+        elif subcommand == "toggle-unread":
+            toggle_unread()
         else:
             raise SystemExit(f"unknown subcommand: {subcommand}")
