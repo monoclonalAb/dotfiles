@@ -609,7 +609,7 @@ Pi's built-in MCP support reads two files; there is no MCP package to install:
 
 | File | Owner | Use |
 | --- | --- | --- |
-| [`pi/mcp.json`](pi/mcp.json) → `~/.pi/agent/mcp.json` | This repository | Global servers below; Linear and Notion are listed disabled |
+| [`pi/mcp.json`](pi/mcp.json) → `~/.pi/agent/mcp.json` | This repository | Global servers below |
 | `<repo>/.pi/mcp.json` | Each project, read only once the project is trusted | Per-project enable/disable |
 
 A project entry **replaces** the global entry of the same name, so it must repeat the
@@ -640,6 +640,8 @@ the URL, and Pi does not expand variables in URLs.
   `~/.local/bin/workspace-context-mcp serve`, so `bin/` and `lib/` must be linked;
   `workspace-context-mcp doctor` inspects it without an agent. OMP enables it too.
   It is disabled for this repository in [`.pi/mcp.json`](.pi/mcp.json).
+- **linear** and **notion** are hosted OAuth servers reached over HTTPS; sign in
+  once with `pi mcp login linear` / `pi mcp login notion`.
 
 ## omp agent tooling
 
