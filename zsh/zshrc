@@ -126,6 +126,9 @@ for gcloud_sdk in /opt/homebrew/share/google-cloud-sdk "$HOME/google-cloud-sdk";
 done
 unset gcloud_sdk
 
+# Documentation roots searched by mman.
+export MMANPATH="$HOME/Desktop/projects/personal/mman-pages/pages"
+
 # Load and unload per-directory .envrc files. Keep this last so direnv sees the
 # final PATH and its precmd hook runs after the other prompt hooks.
 if command -v direnv >/dev/null 2>&1; then
