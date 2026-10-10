@@ -563,6 +563,25 @@ Pi writes `/settings`, `/model` and changelog updates through the tracked
 [`settings.json`](pi/settings.json) link, so review and commit them like
 any other change.
 
+### LithosAI models
+
+[`pi/models.json`](pi/models.json) adds DeepSeek V4.1 Flash (Base tier) through
+LithosAI's OpenAI-compatible API without changing the default model. Export
+`LITHOSAI_API_KEY` privately in the environment that starts Pi; never put its
+value in this repository. Then select it with `/model`, or start a new session:
+
+```sh
+pi --provider lithosai --model deepseek-ai/DeepSeek-V4.1-Flash --thinking high
+```
+
+Opening `/model` reloads the model configuration. The entry enables text and
+reasoning at low, high or max effort, with the advertised 1M-token context and a
+conservative 32,768-token output ceiling (not a verified LithosAI maximum).
+Confirm the provider's output limit in its console before raising that ceiling.
+Cost estimates use the published Base-tier rates. See the
+[LithosAI Pi guide](https://docs.lithosai.com/agent-integrations/pi) and
+[pricing](https://www.lithosai.com/pricing) when updating the entry.
+
 ### Extensions and prompts
 
 Global extensions live in [`pi/extensions/`](pi/extensions/);

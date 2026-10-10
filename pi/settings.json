@@ -10,6 +10,7 @@
     "enabled": true
   },
   "enabledModels": [
+    "lithosai/deepseek-ai/DeepSeek-V4.1-Flash",
     "anthropic/claude-opus-5-5",
     "openai-codex/gpt-6-astra",
     "anthropic/claude-fable-5-1",
