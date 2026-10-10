@@ -400,7 +400,7 @@ machine. Fix or delete as you go.
 | `zsh/zshrc` — `prosperity` alias | `/Users/ericzheng/Desktop/prosperity/…` | drop it — absolute path, old project |
 | `zsh/zshrc` — PATH block | `/Library/TeX/texbin`, `/usr/local/share/dotnet` | harmless if absent; they're just PATH entries |
 | `zsh/zshrc` — conda initialisation | conda block at `/opt/anaconda3` | install Anaconda there, or delete the block |
-| `.archive/fish/.config/fish/config.fish` | the same conda block | ditto |
+| `.archive/fish/config.fish` | the same conda block | ditto |
 | `nvim/lua/plugins/obsidian.lua` | Obsidian integration loads only when `~/Documents/obsidian` exists | create your vault there; ordinary Markdown works without one |
 | `pi/mcp.json`, `omp/{mcp,lsp,dap}.json` | absolute `/Users/eric/...` paths (JSON cannot expand `~`) | same username and `~/dotfiles` clone: nothing; otherwise `dotfiles-bootstrap` lists the files to edit |
 
@@ -411,7 +411,7 @@ Not installed by the Brewfile; add them only if you want the feature.
 - **MacTeX + Skim** — `brew install --cask mactex-no-gui` (Skim is already in the Brewfile).
   Needed for `vimtex`; the viewer config is macOS-only.
 - **Anaconda** at `/opt/anaconda3` — for the conda blocks in `.zshrc` and archived
-  `.archive/fish/.config/fish/config.fish`.
+  `.archive/fish/config.fish`.
 - **PMD 7.16.0** — unzip into `~/pmd-bin-7.16.0` for the `pmd` alias.
 - **.NET SDK** — `.zshrc` puts `/usr/local/share/dotnet` on PATH.
 - **Claude Code CLI** — `.zshrc` aliases `claude` with `--dangerously-skip-permissions`.
@@ -429,18 +429,21 @@ This repo actively uses one tiling WM:
 
 ## Archived configurations
 
-The complete `fish`, `neofetch`, `yabai`, `skhd`, `wezterm`, and `yazi` packages
-are kept under `.archive/` in the old GNU Stow layout (`<tool>/.config/<tool>/`); they
-are not active configurations, and `links` never lists hidden folders.
-
-Restore or remove exactly one archived package without moving it (needs
-`brew install stow`; to make it active again, flatten it into a top-level folder and
-add a `links` line instead):
+The complete `fish`, `neofetch`, `yabai`, `skhd`, `wezterm`, and `yazi` configurations
+are kept under `.archive/` in the same flat layout as active tools
+(`.archive/yazi/yazi.toml`); they are not active, and `links` never lists hidden
+folders. Each one belongs in `~/.config/<tool>/`. To restore one, move it back to the
+top level and give it a `links` line, then preview and apply:
 
 ```sh
-stow -d .archive -t "$HOME" <package>
-stow -D -d .archive -t "$HOME" <package>
+git mv .archive/yazi yazi
+printf '%s\n' 'yazi/           ~/.config/yazi/' >> links
+dotfiles-link check && dotfiles-link apply
 ```
+
+To retire an active tool, do the reverse: list and remove its links first (see
+[Common tasks](#common-tasks)), delete its `links` line, then
+`git mv <tool> .archive/<tool>`.
 
 `fish` contains only a conda init block, and fastfetch replaces `neofetch`. The archived
 `yabai` and `skhd` configs are legacy; before restoring `yabai`, its scripting addition

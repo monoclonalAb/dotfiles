@@ -39,7 +39,7 @@ credential-bearing `hosts.yml` is local.
 | Agent harnesses | [`omp/`](../omp/), [`pi/`](../pi/), [`.omp/`](../.omp/) | Global OMP configuration and skills, Pi extensions, and this repository's project-scoped tools |
 | Human operations | [`README.md`](../README.md) | New-machine setup, live operation, common tasks, and troubleshooting |
 | Agent knowledge | [`AGENTS.md`](../AGENTS.md), [`docs/`](./) | Progressive task routing, architecture, principles, quality, and plans |
-| Frozen history | [`.archive/`](../.archive/) | Inactive packages, still in the old GNU Stow layout, retained for explicit restoration only |
+| Frozen history | [`.archive/`](../.archive/) | Inactive tool folders in the same flat layout, each belonging in `~/.config/<tool>/`; retained for explicit restoration only |
 
 Every top-level non-hidden directory except `docs/` is deployed by a `links`
 line. `docs/`, root files and hidden folders are never linked, and
