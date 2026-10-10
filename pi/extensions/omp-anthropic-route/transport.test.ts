@@ -276,6 +276,35 @@ test("native per-message effort retains its required betas without forwarding un
   assert.deepEqual(body.output_config, { effort: "high" });
 });
 
+test("Pi 1.0 inline tool additions keep their beta and OMP tool names", async () => {
+  const result = await inspectOmpRoutedRequest("https://api.anthropic.com/v1/messages", {
+    headers: {
+      authorization: "Bearer sk-ant-oat-test",
+      "anthropic-beta": "fine-grained-tool-streaming-2025-05-14,inline-tools-2026-09-15",
+    },
+    body: JSON.stringify({ model: "claude-opus-5-5", messages: [
+      { role: "user", content: "first" },
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Read", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] },
+      { role: "system", content: [
+        { type: "text", text: "Tools changed" },
+        { type: "tool_removal", tool: { type: "tool_reference", name: "Read" } },
+        { type: "tool_addition", tool: { type: "tool_definition", definition: { name: "mcp_search", input_schema: { type: "object" } } },
+          cache_control: { type: "ephemeral" } },
+      ] },
+    ], tools: [{ name: "Read" }, { name: "__pi_deferred_placeholder__", defer_loading: true }] }),
+  }, { installId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", modelId: "claude-opus-5-5", messages: [],
+    tools: [{ name: "read" }, { name: "mcp_search" }], identityResolver: new AnthropicIdentityResolver() });
+  assert.ok(result.headers!.get("anthropic-beta")!.split(",").includes("inline-tools-2026-09-15"));
+  const body = JSON.parse(result.body!);
+  const [, removal, addition] = body.messages[3].content;
+  assert.deepEqual(removal.tool, { type: "tool_reference", name: "_read" });
+  assert.deepEqual(addition.tool, { type: "tool_definition", definition: { name: "_mcp_search", input_schema: { type: "object" } } });
+  assert.equal(addition.cache_control, undefined);
+  assert.equal(body.messages[1].content[0].name, "_read");
+  assert.deepEqual(body.tools.map((tool: any) => tool.name), ["_read", "___pi_deferred_placeholder__"]);
+});
+
 test("reviewed long-cache beta and tool head anchor stay within four breakpoints", async () => {
   const result = await inspectOmpRoutedRequest("https://api.anthropic.com/v1/messages", {
     headers: { authorization: "Bearer sk-ant-oat-test" },

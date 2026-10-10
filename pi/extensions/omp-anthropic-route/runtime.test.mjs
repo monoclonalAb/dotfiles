@@ -104,19 +104,22 @@ const fs = require('node:fs');
   const betas = (request.headers['anthropic-beta'] ?? '').split(',');
   const blocks = body.messages.flatMap(m => Array.isArray(m.content) ? m.content : []);
   const changes = blocks.filter(b => b.type === 'tool_addition' || b.type === 'tool_removal');
-  const names = new Set((body.tools ?? []).map(t => t.name));
+  const declared = [...(body.tools ?? []), ...changes.filter(b => b.type === 'tool_addition').map(b => b.tool?.definition).filter(Boolean)];
+  const names = new Set(declared.map(t => t.name));
   let error;
   if (body.messages.some(m => m.output_config)) error = 'output_config.effort requires a model that supports per-turn effort; this model does not';
   if (body.thinking?.block_binding && !betas.includes('thinking-binding-controls-2026-08-01')) error = 'thinking.block_binding: missing beta';
-  if (changes.length && !betas.includes('mid-conversation-tool-changes-2026-07-01')) error = 'tool changes: missing beta';
-  if (changes.some(b => !names.has(b.tool?.name))) error = 'tool changes: undeclared tool reference';
+  if (changes.some(b => b.type === 'tool_addition') && !betas.includes('inline-tools-2026-09-15')) error = 'tool_addition blocks require anthropic-beta: inline-tools-2026-09-15';
+  if (changes.some(b => b.type === 'tool_addition' && b.tool?.type !== 'tool_definition')) error = 'tool changes: expected inline tool_definition';
+  if (changes.some(b => b.type === 'tool_removal' && !names.has(b.tool?.name))) error = 'tool changes: undeclared tool reference';
+  if (blocks.some(b => b.type === 'tool_use' && !names.has(b.name))) error = 'tool_use: undeclared tool';
   if (probe && probeMode === 'reject') error = 'synthetic probe rejection';
   if (error) {
     console.log(JSON.stringify({ status: 400, statusText: 'Bad Request', headers: [['content-type', 'application/json']] }));
     process.stdout.write(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: error } })); return;
   }
   const mode = fs.readFileSync(${JSON.stringify(modeFile)}, 'utf8');
-  const tool = (body.tools ?? []).find(t => t.name.toLowerCase() === '_' + mode.toLowerCase());
+  const tool = declared.find(t => t.name.toLowerCase() === '_' + mode.toLowerCase());
   if (tool) fs.writeFileSync(${JSON.stringify(modeFile)}, 'text');
   const events = [
     { type: 'message_start', message: { id: 'msg_fixture', type: 'message', role: 'assistant', model: probe && probeMode === 'wrong-model' ? 'claude-wrong-model' : body.model, content: [], usage: { input_tokens: 1, output_tokens: 0 } } },
@@ -201,7 +204,8 @@ test("native Pi loads the linked route, executes tools, changes tools/thinking, 
     assert.deepEqual(f.executed, ["read", "mcp_search"]);
     const body = lines(requestLog).at(-1).body;
     const changes = body.messages.flatMap(m => Array.isArray(m.content) ? m.content : []).filter(b => b.type === "tool_addition" || b.type === "tool_removal");
-    assert.ok(changes.some(b => b.type === "tool_addition" && b.tool.name === "_mcp_search"));
+    assert.ok(changes.some(b => b.type === "tool_addition" && b.tool.definition.name === "_mcp_search"));
+    assert.ok(lines(requestLog).at(-1).headers["anthropic-beta"].split(",").includes("inline-tools-2026-09-15"));
     assert.ok(changes.some(b => b.type === "tool_removal" && b.tool.name === "_read"));
     assert.equal(body.output_config.effort, "low");
     assert.ok(!body.messages.some(message => message.output_config));

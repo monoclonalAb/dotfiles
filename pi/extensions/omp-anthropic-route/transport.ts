@@ -52,14 +52,17 @@ const OAUTH_AGENT_BETAS = [
   "mid-conversation-system-2026-04-07",
 ] as const;
 
-// Pi 0.87's native serializer emits per-message effort, thinking binding controls
+// Pi's native serializer emits per-message effort, thinking binding controls
 // and tool transitions. Keep their opt-ins alongside OMP's base betas; retaining
 // the fields while dropping these headers causes 400s. Do not forward arbitrary
-// upstream betas (notably the removed server fallback).
+// upstream betas (notably the removed server fallback). Pi 0.87 referenced
+// pre-declared tools (mid-conversation-tool-changes); Pi 1.0 sends inline
+// tool_definition additions (inline-tools).
 const NATIVE_PROTOCOL_BETAS = new Set([
   "mid-conversation-output-config-2026-07-01",
   "thinking-binding-controls-2026-08-01",
   "mid-conversation-tool-changes-2026-07-01",
+  "inline-tools-2026-09-15",
 ]);
 
 const ENFORCED_HEADERS = new Set(
@@ -596,6 +599,19 @@ function rewritePayloadToolNames(payload: JsonRecord, tools: readonly { name: st
           return {
             ...block,
             tool: { ...block.tool, name: rewriteToolName(block.tool.name, names) },
+          };
+        }
+        if (
+          block.type === "tool_addition" && isRecord(block.tool) &&
+          block.tool.type === "tool_definition" && isRecord(block.tool.definition)
+        ) {
+          const definition = block.tool.definition;
+          return {
+            ...block,
+            tool: {
+              ...block.tool,
+              definition: { ...definition, name: rewriteToolName(definition.name, names) },
+            },
           };
         }
         if (block.type === "tool_reference") {
