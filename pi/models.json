@@ -10,8 +10,19 @@
           "name": "DeepSeek V4.1 Flash",
           "reasoning": true,
           "input": [
-            "text"
+            "text",
+            "image"
           ],
+          "inputLimits": {
+            "images": {
+              "resize": {
+                "maxWidth": 1568,
+                "maxHeight": 1568,
+                "maxBytes": 1048576,
+                "jpegQuality": 80
+              }
+            }
+          },
           "contextWindow": 1000000,
           "maxTokens": 32768,
           "cost": {
