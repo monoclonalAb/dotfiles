@@ -1,4 +1,5 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { THEME_APPLIED_EVENT } from "../theme-sync/events.ts";
 
 /** One finished assistant reply and the timing Pi recorded for it. */
 export interface TimedResponse {
@@ -58,9 +59,49 @@ export function tokensPerSecond(response: Pick<TimedResponse, "output" | "durati
   return response.output / (response.durationMs / 1000);
 }
 
-export function formatTps(tps: number): string {
+/** The theme helpers a status string needs; keeps test doubles minimal. */
+type StatusTheme = Pick<Theme, "bold" | "fg">;
+
+/**
+ * Bold number in the theme's code colour (teal in Catppuccin), so it does not
+ * read as part of quota-footer's mauve percentages, then a dim unit. A live
+ * estimate gets a dim "~" in front.
+ */
+export function formatTps(tps: number, theme?: StatusTheme, estimate = false): string {
   const value = tps >= 10 ? Math.round(tps) : Math.round(tps * 10) / 10;
-  return `${value} tok/s`;
+  const rate = String(value);
+  const prefix = estimate ? "~" : "";
+  return theme
+    ? `${prefix && theme.fg("dim", prefix)}${theme.fg("mdCode", theme.bold(rate))}${theme.fg("dim", " tok/s")}`
+    : `${prefix}${rate} tok/s`;
+}
+
+/** Pi's own rough token estimate (see its compaction code): four characters per token. */
+const CHARS_PER_TOKEN = 4;
+/** Live footer updates at most this often, so the number stays readable. */
+export const LIVE_INTERVAL_MS = 500;
+const STREAMED_TYPES = new Set(["text_delta", "thinking_delta", "toolcall_delta"]);
+
+/** A reply that is still streaming. */
+export interface LiveReply {
+  /** Request start (Unix ms): the same starting point as Pi's final `durationMs`. */
+  startedAt: number;
+  /** Characters of text, thinking and tool-call arguments streamed so far. */
+  chars: number;
+  /** When the footer last showed this reply; unset before the first token. */
+  shownAt?: number;
+}
+
+/** Estimated output tokens per second so far; undefined before the first token. */
+export function liveTokensPerSecond(live: LiveReply, now: number): number | undefined {
+  const elapsedMs = now - live.startedAt;
+  if (live.chars <= 0 || elapsedMs <= 0) return undefined;
+  return live.chars / CHARS_PER_TOKEN / (elapsedMs / 1000);
+}
+
+/** Characters a streaming update added; zero for start/end markers. */
+export function streamedChars(update: { type: string; delta?: unknown }): number {
+  return STREAMED_TYPES.has(update.type) && typeof update.delta === "string" ? update.delta.length : 0;
 }
 
 function formatDuration(durationMs: number): string {
@@ -134,34 +175,90 @@ function sessionResponses(ctx: ExtensionContext): TimedResponse[] {
   return responses;
 }
 
-export function registerTokenSpeed(pi: ExtensionAPI): void {
+export interface TokenSpeedOptions {
+  /** Clock for live estimates, in Unix milliseconds. */
+  now?: () => number;
+}
+
+export function registerTokenSpeed(pi: ExtensionAPI, options: TokenSpeedOptions = {}): void {
+  const now = options.now ?? Date.now;
   let responses: TimedResponse[] = [];
+  let current: ExtensionContext | undefined;
+  let live: LiveReply | undefined;
 
   const publish = (ctx: ExtensionContext, text: string | undefined) => {
     if (ctx.mode === "tui") ctx.ui.setStatus(STATUS_KEY, text);
   };
 
-  // Pi stores usage and a monotonic duration on every finished assistant
-  // message, so rebuild from the branch instead of tracking stream deltas.
-  // Resumed sessions and /reload then report the same numbers, and nothing is
-  // written to the session or sent to the model.
-  const refresh = (ctx: ExtensionContext) => {
-    responses = sessionResponses(ctx);
+  // The streaming estimate while a reply is in flight and has produced
+  // tokens; otherwise the last finished reply's exact rate.
+  const render = (ctx: ExtensionContext, at = now()) => {
+    const theme = ctx.ui.theme;
+    // Pi sorts footer statuses by key, so this one follows the quota
+    // percentages; a dim bar like quota-footer's own keeps them apart.
+    const footer = (text: string) => `${theme.fg("dim", "| ")}${text}`;
+    const rate = live && liveTokensPerSecond(live, at);
+    if (rate !== undefined) return publish(ctx, footer(formatTps(rate, theme, true)));
     const last = responses[responses.length - 1];
-    publish(ctx, last ? formatTps(tokensPerSecond(last)) : undefined);
+    publish(ctx, last ? footer(formatTps(tokensPerSecond(last), theme)) : undefined);
   };
 
-  pi.on("session_start", (_event, ctx) => refresh(ctx));
-  pi.on("agent_end", (_event, ctx) => refresh(ctx));
+  // Pi stores usage and a monotonic duration on every finished assistant
+  // message, so exact rates are rebuilt from the branch. Resumed sessions and
+  // /reload then report the same numbers, and nothing is written to the
+  // session or sent to the model.
+  const finish = (ctx: ExtensionContext) => {
+    current = ctx;
+    live = undefined;
+    responses = sessionResponses(ctx);
+    render(ctx);
+  };
+
+  pi.on("session_start", (_event, ctx) => finish(ctx));
+  pi.on("agent_end", (_event, ctx) => finish(ctx));
+  // Pi saves a reply before running its tools, so swap the estimate for the
+  // exact rate while tools run between replies.
+  pi.on("tool_execution_start", (_event, ctx) => {
+    if (live) finish(ctx);
+  });
   pi.on("session_shutdown", (_event, ctx) => {
+    current = undefined;
+    live = undefined;
     responses = [];
     publish(ctx, undefined);
+  });
+
+  // Streaming notifications are read-only; they cannot change the message.
+  // Until the first token the footer keeps the previous reply's rate.
+  pi.on("message_start", (event, ctx) => {
+    if (event.message.role !== "assistant") return;
+    current = ctx;
+    const at = now();
+    const started = event.message.timestamp;
+    live = { startedAt: Number.isFinite(started) && started <= at ? started : at, chars: 0 };
+  });
+  pi.on("message_update", (event, ctx) => {
+    if (!live) return;
+    live.chars += streamedChars(event.assistantMessageEvent);
+    const at = now();
+    if (live.shownAt !== undefined && at - live.shownAt < LIVE_INTERVAL_MS) return;
+    if (liveTokensPerSecond(live, at) === undefined) return;
+    live.shownAt = at;
+    render(ctx, at);
+  });
+
+  // Status text stores the palette's ANSI codes, so a flavour change has to
+  // rebuild it; theme-sync announces each successful apply on the event bus.
+  pi.events?.on(THEME_APPLIED_EVENT, () => {
+    if (current) render(current);
   });
 
   pi.registerCommand("tps", {
     description: "Show output tokens per second for this session",
     handler: async (_argument, ctx) => {
-      refresh(ctx);
+      // Finished replies only; a reply still streaming keeps its live estimate.
+      responses = sessionResponses(ctx);
+      render(ctx);
       ctx.ui.notify(summaryText(responses), "info");
     },
   });

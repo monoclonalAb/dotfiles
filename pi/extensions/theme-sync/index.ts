@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Theme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { THEME_APPLIED_EVENT } from "./events.ts";
 
 // Catppuccin palette values, matching bin/theme. Only that script
 // owns the selected flavour; these are Pi's semantic colour mappings.
@@ -141,6 +142,7 @@ export function registerThemeSync(
       try {
         const result = ctx.ui.setTheme(catppuccinTheme(next, ctx.ui.theme.getColorMode()));
         if (!result.success) throw new Error(result.error ?? "Theme rejected");
+        pi.events?.emit(THEME_APPLIED_EVENT, undefined);
       } catch {
         if (!warned) {
           ctx.ui.notify("Could not sync Pi's Catppuccin theme; try /reload.", "warning");

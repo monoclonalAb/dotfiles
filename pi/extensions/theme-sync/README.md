@@ -16,6 +16,9 @@ memory and applies it with `ctx.ui.setTheme()` when it changes. Nothing is writt
 - The shared flavour wins over Pi's saved theme, `/settings` and `--use-theme`. To
   use Pi's own themes, disable `theme-sync` with `pi config` and reload.
 - Missing or invalid state keeps the current theme until a valid `theme set`.
+- After each successful apply it emits `theme-sync:applied` on Pi's extension
+  event bus, so display-only extensions can repaint stored theme-coloured text;
+  `token-speed` uses it for its footer status.
 - Opacity stays with the terminal; tool panels are opaque, muted surfaces.
 - Print, JSON and RPC modes do nothing.
 

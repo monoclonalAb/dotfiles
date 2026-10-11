@@ -10,6 +10,7 @@ const root = join(execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim
 const nativeTheme = await import(pathToFileURL(join(root, "dist/modes/interactive/theme/theme.js")).href);
 mock.module("@earendil-works/pi-coding-agent", () => ({ Theme: nativeTheme.Theme }));
 const { catppuccinTheme, parseFlavour, registerThemeSync } = await import("./index.ts");
+const { THEME_APPLIED_EVENT } = await import("./events.ts");
 const { ToolExecutionComponent } = await import(pathToFileURL(join(root,
   "dist/modes/interactive/components/tool-execution.js")).href);
 const { colors } = JSON.parse(readFileSync(join(root, "dist/modes/interactive/theme/light.json"), "utf8"));
@@ -38,20 +39,24 @@ function fixture() {
   const handlers = new Map<string, Function>();
   const applied: any[] = [];
   const warnings: string[] = [];
+  const emitted: string[] = [];
   let theme = catppuccinTheme("latte", "truecolor");
   const ctx = { mode: "tui", ui: {
     get theme() { return theme; },
     setTheme(next: any) { applied.push(next); theme = next; return { success: true }; },
     notify(message: string) { warnings.push(message); },
   } };
-  // No other API is exposed: registering tools or context hooks fails the test.
-  registerThemeSync({ on: (name: string, handler: Function) => handlers.set(name, handler) } as never, path, 30);
+  // Only lifecycle and the event bus are exposed: registering tools or context hooks fails the test.
+  registerThemeSync({
+    on: (name: string, handler: Function) => handlers.set(name, handler),
+    events: { emit: (channel: string) => emitted.push(channel), on: () => () => {} },
+  } as never, path, 30);
   const write = (value: string, atomic = false) => {
     mkdirSync(join(dir, "state"), { recursive: true });
     writeFileSync(atomic ? path + ".tmp" : path, value);
     if (atomic) renameSync(path + ".tmp", path);
   };
-  return { dir, path, handlers, applied, warnings, ctx, write,
+  return { dir, path, handlers, applied, warnings, emitted, ctx, write,
     start: () => handlers.get("session_start")!({}, ctx),
     stop: () => handlers.get("session_shutdown")!({}, ctx),
     dispose() { handlers.get("session_shutdown")!({}, ctx); rmSync(dir, { recursive: true, force: true }); },
@@ -141,6 +146,22 @@ test("absent state is read-only and first creation works; shared choice repairs 
     await until(() => f.ctx.ui.theme.name === "catppuccin-mocha");
     f.write("frappe");
     await until(() => f.ctx.ui.theme.name === "catppuccin-frappe");
+  } finally { f.dispose(); }
+});
+
+test("emits one event per applied flavour and stays silent on unchanged state", async () => {
+  const f = fixture();
+  try {
+    f.start();
+    expect(f.emitted).toEqual([]);
+    f.write("mocha");
+    await until(() => f.applied.length === 1);
+    expect(f.emitted).toEqual([THEME_APPLIED_EVENT]);
+    await Bun.sleep(100); // Repeated polls of the same flavour emit nothing more.
+    expect(f.emitted).toEqual([THEME_APPLIED_EVENT]);
+    f.write("frappe");
+    await until(() => f.applied.length === 2);
+    expect(f.emitted).toEqual([THEME_APPLIED_EVENT, THEME_APPLIED_EVENT]);
   } finally { f.dispose(); }
 });
 
