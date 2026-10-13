@@ -11,7 +11,7 @@ import { findPi, loadPiModules } from "./pi-runtime.mjs";
 import { createTaskForm } from "./ui.mjs";
 import { prepareCheckout, runRequest, runTask, spawnPi } from "./runner.mjs";
 import { TaskLaunch, appendHistory, atomicJson, branchName, carryChanges, discoverRepo, initialSelection, loadPromptTemplates,
-  namingMaterial, piArgs, piEnvironment, readDraft, readHistory, readLauncherConfig, readPreferences, readRequest, requestPath,
+  namingMaterial, piArgs, piEnvironment, readDraft, readHistory, readLauncherConfig, readPalette, readPreferences, readRequest, requestPath,
   requireOutside, resumeArgs, runnerPath, sourceContext, sweepRequests, validateImages, writeDraftSync } from "./task.mjs";
 
 const exec = promisify(execFile);
@@ -595,7 +595,7 @@ test("Start from latest fetches origin's default branch and pins its commit", as
   assert.deepEqual(repo.upstream, { remote: "origin", branch: "main", ref: "refs/remotes/origin/main" });
   assert.equal(repo.branch, "main");
   assert.notEqual(repo.head, latest);
-  await assert.rejects(new TaskLaunch({ ...f, repo }).start({ ...form, startFrom: "latest", carry: true }), /needs Start from: current/);
+  await assert.rejects(new TaskLaunch({ ...f, repo }).start({ ...form, startFrom: "latest", carry: true }), /needs the current commit as the start point/);
   assert.equal(f.calls.length, 0);
   await new TaskLaunch({ ...f, repo, id }).start({ ...form, startFrom: "latest" });
   assert.equal(f.calls[0].params.base, latest);
@@ -687,4 +687,16 @@ test("prompt templates load names, descriptions and hints for completion", async
     { name: "ship", description: "Commit and push", argumentHint: "[notes]" },
     { name: "review", description: "Review the diff" },
   ]);
+});
+
+test("the palette comes only from [theme.custom] in Herdr's generated config", async (t) => {
+  const f = await fixture(t);
+  const path = join(f.dir, "config.toml");
+  assert.equal(await readPalette(path), undefined);
+  await writeFile(path, [
+    '[theme]', 'name = "catppuccin-latte"', 'accent = "#000000"', '',
+    '[theme.custom]', 'accent = "#8839ef"', 'panel_bg = "reset"', '# comment = "#ffffff"', 'text = "#4c4f69"', '',
+    '[ui.sidebar.agents]', 'mauve = "#123456"',
+  ].join("\n"));
+  assert.deepEqual(await readPalette(path), { accent: "#8839ef", text: "#4c4f69" });
 });

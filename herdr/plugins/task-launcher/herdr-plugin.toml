@@ -16,7 +16,7 @@ id = "launcher"
 title = "Pi Tasks"
 placement = "popup"
 width = "80%"
-height = 28
+height = 16
 command = ["/bin/sh", "launch.sh", "form"]
 
 [[panes]]

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { findPi, loadPiModules } from "./pi-runtime.mjs";
-import { createTaskForm } from "./ui.mjs";
+import { createTaskForm, prettyKey, themeStyles } from "./ui.mjs";
 
 // Exercise installed Pi editor/key parsing without creating a model runtime,
 // loading global extensions, touching credentials, or starting a terminal.
@@ -11,6 +11,7 @@ const models = [
   { key: "test/simple", provider: "test", id: "simple", name: "Simple", levels: ["off"] },
 ];
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+const plain = (lines) => tui.stripTerminalSequences(lines.join("\n"));
 const upstream = { remote: "origin", branch: "main", ref: "refs/remotes/origin/main" };
 function fixture(options = {}) {
   const calls = [];
@@ -25,7 +26,7 @@ function fixture(options = {}) {
     cycleModels: options.cycleModels, defaults: options.defaults, now: options.now,
     readClipboard: options.readClipboard, copyText: async (text) => { copied.push(text); },
     draft: options.draft, saveDraft: (draft) => { saved.push(draft); }, history: options.history,
-    autocomplete: options.autocomplete, namer: options.namer,
+    autocomplete: options.autocomplete, namer: options.namer, palette: options.palette,
     selection: { model: models[0], thinking: "high", notice: "", ...options.selection }, launch, onClose: () => { closed++; },
   });
   form.focused = true;
@@ -34,7 +35,8 @@ function fixture(options = {}) {
 
 test("opens directly with focused task input; Escape has no task effects", () => {
   const f = fixture();
-  assert.match(f.form.render(76).join("\n"), /NEW TASK/);
+  assert.match(plain(f.form.render(76)), /Pi task · website/);
+  assert.match(plain(f.form.render(76)), /Describe the task/); // Placeholder, not a label.
   assert.doesNotMatch(f.form.render(76).join("\n"), /PI TASKS|t \/ Enter open/);
   assert.equal(f.form.phase, "form");
   assert.equal(f.form.editor.focused, true);
@@ -104,7 +106,7 @@ test("all form states stay within viewport, including Unicode and advanced/error
     f.form.editor.setText("日本語 toolbar 🔧 ".repeat(80));
     f.form.message = "A long error with a checkout path ".repeat(20);
     f.form.advanced = true;
-    for (const field of ["prompt", "model", "branch", "base", "path", "start"]) {
+    for (const field of ["prompt", "model", "startFrom", "advanced", "branch", "base", "path"]) {
       f.form.field = field;
       f.form.syncFocus();
       for (const rows of [1, 10, 12, 18, 22]) {
@@ -135,7 +137,7 @@ test("Ctrl+J and Shift+Enter insert newlines before any submit handling", () => 
 test("Ctrl+J on a non-prompt field cannot accidentally start a task", () => {
   const f = fixture();
   f.form.editor.setText("Do not start this");
-  f.form.field = "start";
+  f.form.field = "advanced";
   f.form.handleInput("\n");
   assert.equal(f.calls.length, 0);
 });
@@ -273,14 +275,14 @@ test("configured Pi bindings replace defaults and drive editor, app actions and 
   assert.equal(f.form.phase, "select");
   f.form.handleInput("\x1bq");
   assert.equal(f.form.phase, "form");
-  assert.match(f.form.render(76).join("\n"), /alt\+n/);
+  assert.match(plain(f.form.render(76)), /\^S start .*⌥m model .*⌥e effort/);
   assert.equal(f.form.editor.getExpandedText(), "one\ntwo");
   f.form.handleInput("\x13");
   await flush();
   assert.equal(f.calls[0].prompt, "one\ntwo");
 });
 
-test("Advanced is reachable via its row without stealing Ctrl+G", () => {
+test("branch, base and path open from the more option without stealing Ctrl+G", () => {
   const f = fixture();
   f.form.handleInput("\x07");
   assert.equal(f.form.advanced, false);
@@ -294,11 +296,11 @@ test("Advanced is reachable via its row without stealing Ctrl+G", () => {
 test("form discloses automatic naming request; an explicit branch bypasses it", () => {
   const f = fixture({ namer: (model) => model === models[0] ? models[1] : undefined });
   f.form.field = "start";
-  assert.match(f.form.render(76).join("\n"), /Auto-name: one short request to test\/simple/);
+  assert.match(f.form.render(76).join("\n"), /named by simple/);
   f.form.model = models[1];
-  assert.match(f.form.render(76).join("\n"), /no usable naming model; a placeholder name/);
+  assert.match(f.form.render(76).join("\n"), /placeholder name/);
   f.form.inputs.branch.setValue("fix/keyboard");
-  assert.doesNotMatch(f.form.render(76).join("\n"), /Auto-name/);
+  assert.doesNotMatch(f.form.render(76).join("\n"), /named by|placeholder name/);
 });
 
 test("tiny viewport cannot submit invisible controls, but Escape still cancels", () => {
@@ -448,14 +450,16 @@ test("pasting an image does not reinterpret existing literal marker-shaped text"
   assert.deepEqual(f.form.draft(), { prompt: "Explain [img #1]: ", images: [imageContent] });
 });
 
-test("failed paste also suppresses queued Space activation of the Start row", async () => {
+test("failed paste also suppresses a queued Enter in another field", async () => {
   const f = fixture({ readClipboard: async () => undefined });
   f.form.handleInput("Task");
   f.form.handleInput("\x16");
-  for (let i = 0; i < 6; i++) f.form.handleInput("\t");
-  f.form.handleInput(" ");
+  for (let i = 0; i < 5; i++) f.form.handleInput("\t");
+  f.form.handleInput("\r"); // Expand branch/base/path.
+  f.form.handleInput("\x1b[B");
+  f.form.handleInput("\r");
   await flush();
-  assert.equal(f.form.field, "start");
+  assert.equal(f.form.field, "branch");
   assert.equal(f.calls.length, 0);
   assert.match(f.form.message, /Clipboard paste failed/);
 });
@@ -495,21 +499,22 @@ test("Ctrl+C copies the cleared draft to the clipboard", async () => {
   assert.deepEqual(f.saved, [undefined]);
 });
 
-test("Start from and Changes rows toggle, stay consistent, and reach the launch", async () => {
+test("start point and changes options toggle, stay consistent, and reach the launch", async () => {
   const f = fixture();
-  const render = () => f.form.render(76).join("\n");
-  assert.match(render(), /Start from\s+\[ current: main @ 0123456 ⇄ \]/);
-  assert.match(render(), /Changes\s+\[ leave uncommitted changes in website ⇄ \]/);
+  const render = () => plain(f.form.render(76));
+  assert.match(render(), /reasoner · high · from main · leave changes · more/);
   f.form.field = "startFrom";
+  assert.match(render(), /⏎ use latest origin\/main \(fetched\)/);
   f.form.handleInput("\r");
-  assert.match(render(), /latest origin\/main \(fetched on start\)/);
+  assert.match(render(), /from origin\/main/);
+  assert.match(render(), /⏎ use current commit 0123456/);
   f.form.field = "changes";
   f.form.handleInput(" ");
   assert.equal(f.form.carry, true);
   assert.equal(f.form.startFrom, "current");
-  assert.match(f.form.message, /Start from is now current/);
+  assert.match(f.form.message, /starts from it again/);
   f.form.editor.setText("Ship it");
-  f.form.field = "start";
+  f.form.field = "prompt";
   f.form.handleInput("\r");
   await flush();
   assert.equal(f.calls[0].startFrom, "current");
@@ -539,4 +544,64 @@ test("Up recalls previous tasks; Tab accepts a completion instead of leaving the
   assert.match(f.form.editor.getExpandedText(), /^\/ship/);
   f.form.handleInput("\t");
   assert.equal(f.form.field, "model");
+});
+
+test("options are one row of chips: arrows move, Enter acts, Up returns to the task", () => {
+  const f = fixture();
+  f.form.handleInput("\t");
+  assert.equal(f.form.field, "model");
+  f.form.handleInput("\x1b[C");
+  f.form.handleInput("\x1b[C");
+  assert.equal(f.form.field, "startFrom");
+  f.form.handleInput("\x1b[D");
+  assert.equal(f.form.field, "thinking");
+  f.form.handleInput("\x1b[A");
+  assert.equal(f.form.field, "prompt");
+  assert.equal(f.form.editor.focused, true);
+  assert.equal(f.calls.length, 0);
+});
+
+test("colours follow the shared palette, and the editor border shows the thinking level", () => {
+  const palette = { accent: "#8839ef", mauve: "#8839ef", peach: "#fe640b", subtext0: "#6c6f85", overlay1: "#8c8fa1", surface0: "#ccd0da", red: "#d20f39" };
+  const f = fixture({ palette });
+  const styles = themeStyles(palette);
+  assert.equal(styles.accent("x"), "\x1b[38;2;136;57;239mx\x1b[39m");
+  assert.equal(styles.selected("x"), "\x1b[48;2;204;208;218mx\x1b[49m");
+  f.form.thinking = "high";
+  const border = () => f.form.render(76).find((line) => line.includes("────"));
+  assert.ok(border().startsWith("\x1b[38;2;136;57;239m"), JSON.stringify(border()));
+  f.form.thinking = "xhigh";
+  assert.ok(border().startsWith("\x1b[38;2;254;100;11m"));
+  f.form.field = "model";
+  assert.ok(f.form.render(76).some((line) => line.includes("\x1b[48;2;204;208;218m")), "focused chip is highlighted");
+  f.form.say("Broken", "error");
+  assert.ok(f.form.render(76).some((line) => line.includes("\x1b[38;2;210;15;57m") && line.includes("Broken")));
+  assert.equal(themeStyles().accent("x"), "\x1b[35mx\x1b[39m"); // No palette: terminal ANSI colours.
+  assert.equal(themeStyles({ accent: "reset" }).accent("x"), "\x1b[35mx\x1b[39m");
+});
+
+test("key hints use compact glyphs and drop, never cut, what does not fit", () => {
+  assert.deepEqual(["enter", "shift+tab", "ctrl+l", "alt+n", "escape", "ctrl+shift+p", "tab"].map(prettyKey),
+    ["⏎", "⇧⇥", "^L", "⌥n", "esc", "^⇧p", "⇥"]);
+  const f = fixture();
+  assert.match(plain([f.form.render(120).at(-1)]), /esc close/);
+  for (const width of [28, 40, 60]) {
+    const line = f.form.render(width).at(-1);
+    assert.ok(tui.visibleWidth(line) <= width);
+    assert.doesNotMatch(line, /…|\.\.\./);
+  }
+});
+
+test("a busy start shows one spinner status line instead of key hints", async () => {
+  let finish;
+  const f = fixture({ launch: { start: () => new Promise((resolve) => { finish = resolve; }) } });
+  f.form.editor.setText("Keep going");
+  f.form.handleInput("\r");
+  await flush();
+  const footer = plain([f.form.render(76).at(-1)]);
+  assert.match(footer, /^ [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Naming the task, then starting Pi…/);
+  assert.doesNotMatch(footer, /options/);
+  finish({});
+  await flush();
+  assert.equal(f.closed(), 1);
 });

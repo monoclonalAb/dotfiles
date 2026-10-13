@@ -8,13 +8,14 @@ import { createNamer, findExecutable, findPi, loadCatalog, loadPiModules, loadPi
 import { rpc } from "./rpc.mjs";
 import { runTask } from "./runner.mjs";
 import { PLUGIN_ID, TaskLaunch, discoverRepo, initialSelection, loadPromptTemplates, readDraft, readHistory,
-  readLauncherConfig, readPreferences, sourceContext, sweepRequests, writeDraftSync } from "./task.mjs";
+  readLauncherConfig, readPalette, readPreferences, sourceContext, sweepRequests, writeDraftSync } from "./task.mjs";
 import { createTaskForm } from "./ui.mjs";
 
 const stateDir = () => process.env.HERDR_PLUGIN_STATE_DIR
   || join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "herdr", "plugins", PLUGIN_ID);
 const configDir = () => process.env.HERDR_PLUGIN_CONFIG_DIR
   || join(homedir(), ".config", "herdr", "plugins", "config", PLUGIN_ID);
+const herdrConfig = () => process.env.HERDR_CONFIG_PATH || join(homedir(), ".config", "herdr", "config.toml");
 
 // The retry prompt in a Pi tab whose Pi exited with an error. A Herdr hangup
 // aborts it; the runner then cleans up without writing to the closed terminal.
@@ -97,12 +98,13 @@ export async function main(args) {
   let trust = null;
   try { trust = projectTrust(modules.sdk, agentDir, [repo.source, repo.root]); }
   catch (error) { notices.push(`Pi trust decision unreadable (${error.message}); Pi will ask.`); }
-  const [{ models, cycleModels, runtime }, remembered, draft, history, templates, fd] = await Promise.all([
+  const [{ models, cycleModels, runtime }, remembered, draft, history, templates, fd, palette] = await Promise.all([
     loadCatalog(modules, {}, defaults.enabledModels), readPreferences(stateDir(), repo.key),
     readDraft(stateDir(), repo.key), readHistory(stateDir(), repo.key),
     // Project templates load only where Pi itself would load them (trusted).
     loadPromptTemplates([join(agentDir, "prompts"), ...(trust === true ? [join(repo.source, ".pi", "prompts")] : [])]),
     findExecutable("fd", process.env.PATH, [join(agentDir, "bin")]),
+    readPalette(herdrConfig()).catch(() => undefined),
   ]);
   const keybindings = modules.bindings.KeybindingsManager.create(agentDir);
   if (models.length === 0) throw new Error("No available Pi models. Configure a provider with /login in Pi, then reopen Pi Tasks.");
@@ -125,7 +127,7 @@ export async function main(args) {
       readClipboard: modules.readClipboard, copyText: modules.sdk.copyToClipboard,
       draft, saveDraft: (value) => writeDraftSync(stateDir(), repo.key, value), history,
       autocomplete: new modules.tui.CombinedAutocompleteProvider(templates, repo.source, fd ?? null),
-      namer: (model) => namer.pick(model), selection, launch, onClose: close,
+      namer: (model) => namer.pick(model), palette, selection, launch, onClose: close,
     });
     // Herdr closing the popup: keep the draft, skip terminal teardown, exit.
     for (const signal of ["SIGHUP", "SIGTERM"]) {

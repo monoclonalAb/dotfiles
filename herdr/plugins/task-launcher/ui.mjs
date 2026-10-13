@@ -3,6 +3,50 @@ import { chooseThinking, validateImages } from "./task.mjs";
 const PASTE_START = "\x1b[200~";
 const EMPTY_PASTE = `${PASTE_START}\x1b[201~`;
 const IMAGE_MARKER = /\[img #(\d+)\]/g;
+const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+
+// Colours from the shared Catppuccin palette (Herdr's generated [theme.custom]),
+// mapped the way the theme-sync Pi extension maps them: mauve accent, subtext
+// for secondary text, overlay for chrome, and Pi's thinking-level colours for
+// the editor border. Without a palette, fall back to the terminal's ANSI colours.
+export function themeStyles(palette = {}) {
+  const rgb = (value) => /^#[0-9a-f]{6}$/i.test(value ?? "")
+    ? [1, 3, 5].map((index) => Number.parseInt(value.slice(index, index + 2), 16)).join(";") : undefined;
+  const fg = (value, fallback) => {
+    const color = rgb(value);
+    return color ? (text) => `\x1b[38;2;${color}m${text}\x1b[39m` : fallback;
+  };
+  const ansi = (open, close) => (text) => `\x1b[${open}m${text}\x1b[${close}m`;
+  const faded = ansi(2, 22);
+  const highlight = rgb(palette.active_row_bg ?? palette.surface0);
+  return {
+    accent: fg(palette.accent ?? palette.mauve, ansi(35, 39)),
+    text: fg(palette.text, (text) => text),
+    muted: fg(palette.subtext0, faded),
+    dim: fg(palette.overlay1, faded),
+    error: fg(palette.red, ansi(31, 39)),
+    warning: fg(palette.yellow, ansi(33, 39)),
+    success: fg(palette.green, ansi(32, 39)),
+    bold: ansi(1, 22),
+    selected: highlight ? (text) => `\x1b[48;2;${highlight}m${text}\x1b[49m` : ansi(7, 27),
+    thinking: {
+      off: fg(palette.surface1, faded), minimal: fg(palette.overlay1, faded), low: fg(palette.blue, ansi(34, 39)),
+      medium: fg(palette.teal, ansi(36, 39)), high: fg(palette.mauve, ansi(35, 39)),
+      xhigh: fg(palette.peach, ansi(33, 39)), max: fg(palette.red, ansi(31, 39)),
+    },
+  };
+}
+
+// Pi binding names as compact glyphs: shift+tab → ⇧⇥, ctrl+l → ^L, enter → ⏎.
+const GLYPHS = { enter: "⏎", return: "⏎", escape: "esc", tab: "⇥", up: "↑", down: "↓", left: "←", right: "→", backspace: "⌫" };
+export function prettyKey(key) {
+  const parts = key.split("+");
+  const last = parts.pop();
+  const glyph = GLYPHS[last] ?? last;
+  if (parts.length === 1 && parts[0] === "ctrl" && last.length === 1) return `^${last.toUpperCase()}`;
+  const modifiers = { shift: "⇧", alt: "⌥", option: "⌥", ctrl: "^", super: "⌘", cmd: "⌘", meta: "⌘" };
+  return parts.map((part) => modifiers[part] ?? `${part}+`).join("") + glyph;
+}
 
 // Built from Pi's existing Editor/Input/SelectList, but not an agent session.
 // Dependency injection lets the same form run against installed TUI APIs in tests.
@@ -10,17 +54,21 @@ export function createTaskForm(lib, {
   renderer, repo, models, selection, launch, onClose, keybindings, CustomEditor,
   cycleModels = models.map((model) => ({ model })), defaults = {}, now = Date.now,
   readClipboard = async () => undefined, copyText = async () => {},
-  draft, saveDraft = () => {}, history = [], autocomplete, namer = () => undefined,
+  draft, saveDraft = () => {}, history = [], autocomplete, namer = () => undefined, palette,
 }) {
-  const { Input, SelectList, matchesKey, truncateToWidth, wrapTextWithAnsi } = lib;
+  const { Input, SelectList, matchesKey, truncateToWidth, wrapTextWithAnsi, visibleWidth } = lib;
   // Editor, Input and SelectList consult this same manager internally. Loading
   // Pi's table and user overrides here prevents two competing shortcut systems.
   lib.setKeybindings(keybindings);
-  const keyHint = (action) => keybindings.getKeys(action).join("/") || "unbound";
-  const accent = (s) => `\x1b[36m${s}\x1b[39m`;
-  const dim = (s) => `\x1b[2m${s}\x1b[22m`;
-  const listTheme = { selectedPrefix: accent, selectedText: accent, description: dim, scrollInfo: dim, noMatch: dim };
+  const keyHint = (action) => prettyKey(keybindings.getKeys(action)[0] ?? "unbound");
+  const style = themeStyles(palette);
+  const listTheme = { selectedPrefix: style.accent, selectedText: style.accent, description: style.dim, scrollInfo: style.dim, noMatch: style.dim };
   const safe = (value) => String(value).replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+  // Model IDs without their organisation prefix, unless that would be ambiguous.
+  const shortModel = (model) => {
+    const tail = model.id.split("/").at(-1);
+    return models.some((other) => other !== model && other.id.split("/").at(-1) === tail) ? `${model.provider}/${tail}` : tail;
+  };
 
   return new class TaskForm {
     constructor() {
@@ -32,6 +80,8 @@ export function createTaskForm(lib, {
       this.startFrom = selection.startFrom === "latest" && repo.upstream ? "latest" : "current";
       this.carry = false;
       this.message = selection.notice;
+      if (selection.notice) this.tone = "warning";
+      this.frame = 0;
       this.busy = false;
       this.closed = false;
       this.clipboardPending = false;
@@ -43,9 +93,9 @@ export function createTaskForm(lib, {
       this._focused = false;
       // Bound prompt height to leave room for model/thinking/actions in a popup.
       this.editor = new CustomEditor({
-        terminal: { get rows() { return Math.min(renderer.terminal.rows, 16); } },
+        terminal: { get rows() { return Math.ceil(Math.max(0, renderer.terminal.rows - 8) / 0.3); } },
         requestRender: () => renderer.requestRender(),
-      }, { borderColor: accent, selectList: listTheme }, keybindings, { paddingX: 1 });
+      }, { borderColor: (text) => this.thinkingStyle(text), selectList: listTheme }, keybindings, { paddingX: 1 });
       // @ completes files in the source checkout; / completes Pi prompt templates.
       if (autocomplete) this.editor.setAutocompleteProvider(autocomplete);
       for (const entry of history) this.editor.addToHistory(entry);
@@ -67,10 +117,16 @@ export function createTaskForm(lib, {
         this.editor.setText(text);
         void this.submit();
       };
-      this.inputs = { branch: new Input(), base: new Input(), path: new Input() };
-      this.search = new Input();
+      this.inputs = { branch: new Input({ prompt: "" }), base: new Input({ prompt: "" }), path: new Input({ prompt: "" }) };
+      this.search = new Input({ prompt: style.accent("› ") });
       if (draft?.text) this.restoreDraft(draft);
     }
+
+    get message() { return this._message; }
+    set message(text) { this._message = text; this.tone = "info"; }
+    say(text, tone) { this.message = text; this.tone = tone; }
+    // Like Pi, the editor border shows the thinking level.
+    thinkingStyle(text) { return (style.thinking[this.thinking] ?? style.dim)(text); }
 
     get focused() { return this._focused; }
     set focused(value) { this._focused = value; this.syncFocus(); }
@@ -82,10 +138,8 @@ export function createTaskForm(lib, {
       this.search.focused = this._focused && this.phase === "select";
     }
     invalidate() { this.editor.invalidate(); for (const input of Object.values(this.inputs)) input.invalidate(); }
-    fields() {
-      return ["prompt", "model", "thinking", "startFrom", ...(repo.dirty ? ["changes"] : []), "advanced",
-        ...(this.advanced ? ["branch", "base", "path"] : []), "start"];
-    }
+    chips() { return ["model", "thinking", "startFrom", ...(repo.dirty ? ["changes"] : []), "advanced"]; }
+    fields() { return ["prompt", ...this.chips(), ...(this.advanced ? ["branch", "base", "path"] : [])]; }
     changeField(direction) {
       const fields = this.fields();
       this.field = fields[(fields.indexOf(this.field) + direction + fields.length) % fields.length];
@@ -163,14 +217,14 @@ export function createTaskForm(lib, {
         }
       } catch (error) {
         failed = true;
-        if (!this.closed) this.message = `Clipboard paste failed: ${error.message}`;
+        if (!this.closed) this.say(`Clipboard paste failed: ${error.message}`, "error");
       } finally {
         clearTimeout(timer);
         this.clipboardPending = false;
         if (!this.closed) {
           renderer.requestRender();
-          // A failed paste must not turn an impatient Enter (or Space on the
-          // Start row) into a task that silently omits its image. Keep typing.
+          // A failed paste must not turn an impatient, already-queued Enter
+          // into a task that silently omits its image. Keep typing.
           this.suppressSubmit = failed;
           try {
             for (const data of this.queuedInput.splice(0)) this.handleInput(data);
@@ -210,7 +264,7 @@ export function createTaskForm(lib, {
       // Like the Pi editor here: a cleared draft goes to the clipboard first.
       void Promise.resolve().then(() => copyText(text)).then(
         () => { if (!this.closed && this.lastClearAt === time) this.message = `Draft cleared and copied to the clipboard. ${again}`; },
-        (error) => { if (!this.closed) this.message = `Draft cleared; clipboard copy failed: ${error.message}`; },
+        (error) => { if (!this.closed) this.say(`Draft cleared; clipboard copy failed: ${error.message}`, "warning"); },
       ).finally(() => { if (!this.closed) renderer.requestRender(); });
     }
 
@@ -238,8 +292,8 @@ export function createTaskForm(lib, {
     }
 
     toggleStartFrom() {
-      if (launch.spec) { this.message = "Git details are locked for this attempt."; return; }
-      if (!repo.upstream) { this.message = "No origin default branch to start from; this repository starts from the current commit."; return; }
+      if (launch.spec) { this.say("Git details are locked for this attempt.", "warning"); return; }
+      if (!repo.upstream) { this.say("No origin default branch to start from; this repository starts from the current commit.", "warning"); return; }
       this.startFrom = this.startFrom === "latest" ? "current" : "latest";
       if (this.startFrom === "latest" && this.carry) {
         this.carry = false;
@@ -250,13 +304,13 @@ export function createTaskForm(lib, {
     toggleCarry() {
       if (launch.carried) { this.message = "Your changes are already in the task checkout."; return; }
       if (!this.carry && launch.spec && launch.spec.base !== repo.head) {
-        this.message = "Changes can only be copied onto the current commit; this attempt is locked to another base.";
+        this.say("Changes can only be copied onto the current commit; this attempt is locked to another base.", "warning");
         return;
       }
       this.carry = !this.carry;
       if (this.carry && this.startFrom === "latest") {
         this.startFrom = "current";
-        this.message = "Copying changes needs the current commit, so Start from is now current.";
+        this.message = "Bringing changes needs the current commit, so the task starts from it again.";
       } else this.message = "";
     }
 
@@ -312,6 +366,8 @@ export function createTaskForm(lib, {
       ];
       this.message = steps.length ? `${steps.join(", ").replace(/^./, (c) => c.toUpperCase())}, then starting Pi…` : "Starting Pi…";
       this.syncFocus();
+      const spinner = setInterval(() => { this.frame++; renderer.requestRender(); }, 80);
+      spinner.unref?.();
       renderer.requestRender();
       try {
         const { prompt, images } = this.draft();
@@ -321,12 +377,12 @@ export function createTaskForm(lib, {
         });
         if (result.warning) {
           this.phase = "done";
-          this.message = result.warning;
+          this.say(result.warning, "warning");
         } else this.close();
       } catch (error) {
-        this.field = "start"; // Keep failure/recovery text in view on short popups.
-        this.message = [error.message, launch.recoveryMessage()].filter(Boolean).join(" ");
+        this.say([error.message, launch.recoveryMessage()].filter(Boolean).join(" "), "error");
       } finally {
+        clearInterval(spinner);
         this.busy = false;
         this.syncFocus();
         renderer.requestRender();
@@ -377,82 +433,139 @@ export function createTaskForm(lib, {
         else if (this.field === "changes") this.toggleCarry();
         else if (this.field === "advanced") this.advanced = !this.advanced;
         else void this.submit();
-      } else if (this.inputs[this.field] && !launch.spec) this.inputs[this.field].handleInput(data);
-      else if (is("tui.select.up")) this.changeField(-1);
+      } else if (is("tui.select.up")) this.changeField(this.inputs[this.field] ? -1 : -this.fields().indexOf(this.field));
       else if (is("tui.select.down")) this.changeField(1);
+      else if (this.inputs[this.field]) { if (!launch.spec) this.inputs[this.field].handleInput(data); }
+      else if (matchesKey(data, "left") || matchesKey(data, "right")) {
+        const chips = this.chips();
+        const index = chips.indexOf(this.field) + (matchesKey(data, "left") ? -1 : 1);
+        if (index >= 0 && index < chips.length) this.field = chips[index];
+      }
       this.syncFocus();
       renderer.requestRender();
     }
 
+    // Body (header, editor, options) scrolls; the status line and key hints stay
+    // pinned to the bottom of the popup.
     render(width) {
       this.width = width;
-      const lines = this.renderContent(width);
-      const height = Math.max(1, renderer.terminal.rows);
-      if (lines.length <= height) return lines;
-      if (height < 3) return lines.slice(0, height);
-      const body = lines.slice(1);
-      const focused = body.findIndex((line) => line.includes(lib.CURSOR_MARKER) || line.includes("› "));
-      const available = height - 2;
-      const offset = Math.max(0, Math.min(body.length - available, focused - Math.floor(available / 2)));
-      return [lines[0], ...body.slice(offset, offset + available),
-        truncateToWidth(dim(`${offset ? "↑ " : ""}${offset + available < body.length ? "↓ " : ""}More fields · ${keyHint("tui.input.tab")} to navigate`), Math.max(1, width))];
+      const rows = Math.max(1, renderer.terminal.rows);
+      const fit = (line) => truncateToWidth(line, Math.max(1, width));
+      if (width < 28 || rows < 12) {
+        return [fit("Pi Tasks — enlarge this popup"), fit(style.dim(`${keyHint("app.interrupt")} cancels; your draft is kept.`))].slice(0, rows);
+      }
+      const { body, focus } = this.body(width);
+      const bottom = this.bottom(width).map(fit);
+      const space = rows - bottom.length;
+      if (body.length <= space) return [...body.map(fit), ...Array(space - body.length).fill(""), ...bottom];
+      // Keep the header; centre the focused line in what remains, with a marker line.
+      const available = space - 2;
+      const rest = body.slice(1);
+      const offset = Math.max(0, Math.min(rest.length - available, focus - 1 - Math.floor(available / 2)));
+      const more = `${offset ? "↑ " : ""}${offset + available < rest.length ? "↓ " : ""}more`;
+      return [fit(body[0]), ...rest.slice(offset, offset + available).map(fit), fit(style.dim(more)), ...bottom];
     }
 
-    renderContent(width) {
-      const fit = (line) => truncateToWidth(line, Math.max(1, width));
-      const title = (name) => accent(name) + dim(`    ${safe(repo.name)}`);
-      if (width < 28 || renderer.terminal.rows < 12) {
-        return [fit("Pi Tasks — enlarge this popup"), fit(`${keyHint("app.interrupt")} cancels; your draft is kept.`)];
-      }
+    header(width, right = "") {
+      const left = ` ${style.accent("Pi task")}${style.dim(` · ${safe(repo.name)}`)}`;
+      const gap = width - visibleWidth(left) - visibleWidth(right) - 1;
+      return gap >= 2 ? left + " ".repeat(gap) + right : left;
+    }
+
+    body(width) {
       if (this.phase === "select") {
-        return [fit(title(this.selectorKind === "model" ? "MODEL" : "THINKING")), "",
-          ...this.search.render(width).map(fit), "", ...this.list.render(width).map(fit), "",
-          fit(dim(`Type to filter · ${keyHint("tui.select.confirm")} select · ${keyHint("tui.select.cancel")} back`))];
+        const kind = this.selectorKind === "model" ? "model" : "effort";
+        return { focus: 2, body: [this.header(width, style.dim(`choose ${kind}`)), "",
+          ` ${this.search.render(width - 2)[0] ?? ""}`, "", ...this.list.render(width - 1).map((line) => ` ${line}`)] };
       }
       if (this.phase === "done") {
-        return [fit(title("TASK OPENED")), "", ...wrapTextWithAnsi(safe(this.message), width).map(fit), "", fit(`${keyHint("tui.input.submit")} / ${keyHint("app.interrupt")} close`)];
+        const notes = wrapTextWithAnsi(safe(this.message ?? ""), Math.max(1, width - 3)).map((line) => `   ${style.warning(line)}`);
+        return { focus: 2, body: [this.header(width), "", ` ${style.success("✓")} ${style.text("Pi is open")}`, ...notes] };
       }
-      const row = (field, label, value) => (this.field === field ? accent("› ") : "  ") + label.padEnd(10) + "  " + value;
-      const upstream = repo.upstream ? `${repo.upstream.remote}/${repo.upstream.branch}` : "";
-      const startValue = this.startFrom === "latest"
-        ? `[ latest ${safe(upstream)} (fetched on start) ⇄ ]`
-        : `[ current: ${safe(repo.branch ?? "detached")} @ ${repo.head.slice(0, 7)}${upstream ? " ⇄" : ""} ]`;
-      const lines = [fit(title("NEW TASK")), "", fit("What do you want to do?"),
-        ...this.editor.render(width).map(fit), "",
-        fit(row("model", "Model", `[ ${safe(this.model?.key ?? "Choose model")} ▾ ]`)),
-        fit(row("thinking", "Thinking", `[ ${safe(this.thinking ?? "off")} ▾ ]`)),
-        fit(row("startFrom", "Start from", launch.spec ? `${startValue} ${dim("locked")}` : startValue))];
-      if (repo.dirty) {
-        lines.push(fit(row("changes", "Changes", this.carry || launch.carried
-          ? "[ copy uncommitted changes into the task ⇄ ]" : `[ leave uncommitted changes in ${safe(repo.name)} ⇄ ]`)));
+      const naming = !launch.spec && !this.inputs.branch.getValue().trim() ? namer(this.model) : undefined;
+      const right = launch.spec || this.inputs.branch.getValue().trim() ? ""
+        : naming ? style.dim(`named by ${safe(shortModel(naming))}`) : style.warning("placeholder name");
+      const editor = this.editor.render(width);
+      if (!this.editor.getText() && editor.length >= 3) {
+        // Placeholder instead of a label, drawn where the cursor sits.
+        const hint = "Describe the task";
+        const cursor = this.editor.focused ? `${lib.CURSOR_MARKER}${lib.renderFakeCursor(hint[0])}` : style.dim(hint[0]);
+        editor[1] = ` ${cursor}${style.dim(hint.slice(1))}`;
       }
-      lines.push(fit(row("advanced", "Advanced", this.advanced ? "▾" : "▸")));
+      const lines = [this.header(width, right), "", ...editor, this.chipLine()];
+      let focus = this.field === "prompt" ? 2 + Math.max(0, editor.findIndex((line) => line.includes(lib.CURSOR_MARKER))) : lines.length - 1;
       if (this.advanced) {
-        for (const [field, label, empty] of [["branch", "Branch", "Automatic task name"], ["base", "Base", "Use Start from"],
-          ["path", "Path", "Herdr worktree directory"]]) {
-          const fixed = launch.spec?.[field];
-          const value = fixed ?? this.inputs[field].getValue();
-          if (this.field === field && !launch.spec) {
-            lines.push(fit(row(field, label, "")), ...this.inputs[field].render(width).map(fit));
-          } else {
-            lines.push(fit(row(field, label, safe(value || empty))));
-          }
+        for (const [field, label, empty] of [["branch", "branch", "auto"], ["base", "base", "start point"], ["path", "path", "Herdr default"]]) {
+          const value = launch.spec?.[field] ?? this.inputs[field].getValue();
+          const name = this.field === field ? style.accent(label.padEnd(6)) : style.dim(label.padEnd(6));
+          const shown = this.field === field && !launch.spec ? this.inputs[field].render(Math.max(1, width - 12))[0]
+            : value ? style.muted(safe(value)) : style.dim(empty);
+          if (this.field === field) focus = lines.length;
+          lines.push(`   ${name}  ${shown}`);
         }
       }
-      lines.push("", fit(row("start", this.busy ? "Starting…" : launch.created ? "[ Retry Pi startup ]" : "[ Start task ]", "")));
-      if (!launch.spec && !this.inputs.branch.getValue().trim()) {
-        const naming = namer(this.model);
-        lines.push(fit(dim(naming ? `Auto-name: one short request to ${safe(naming.key)}` : "Auto-name: no usable naming model; a placeholder name is used")));
+      return { body: lines, focus };
+    }
+
+    chipLine() {
+      const from = this.startFrom === "latest" ? `from ${safe(repo.upstream.remote)}/${safe(repo.upstream.branch)}`
+        : `from ${safe(repo.branch ?? repo.head.slice(0, 7))}`;
+      const labels = {
+        model: this.model ? safe(shortModel(this.model)) : "choose model",
+        thinking: this.thinking ?? "off",
+        startFrom: from,
+        changes: this.carry || launch.carried ? "bring changes" : "leave changes",
+        advanced: this.advanced ? "less" : "more",
+      };
+      const chips = this.chips().map((field) => {
+        const label = ` ${labels[field]} `;
+        if (this.field === field) return style.selected(field === "thinking" ? this.thinkingStyle(label) : style.accent(label));
+        if (field === "model" && !this.model) return style.warning(label);
+        return field === "thinking" ? this.thinkingStyle(label) : style.muted(label);
+      });
+      return chips.join(style.dim("·"));
+    }
+
+    // What Enter (and other keys) do right now, then any status message.
+    hints() {
+      const action = launch.created ? "retry" : "start";
+      const chip = {
+        model: [["⏎", "choose model"]], thinking: [["⏎", "choose effort"], [keyHint("app.thinking.cycle"), "cycle"]],
+        startFrom: !repo.upstream ? [["", "no origin default branch"]] : launch.spec ? [["", "locked for this attempt"]]
+          : this.startFrom === "latest" ? [["⏎", `use current commit ${repo.head.slice(0, 7)}`]]
+          : [["⏎", `use latest ${safe(repo.upstream.remote)}/${safe(repo.upstream.branch)} (fetched)`]],
+        changes: this.carry ? [["⏎", `leave uncommitted changes in ${safe(repo.name)}`]] : [["⏎", "bring uncommitted changes into the task"]],
+        advanced: [["⏎", this.advanced ? "hide branch, base and path" : "branch, base and path"]],
+      }[this.field];
+      if (chip) return [...chip, ["←→", "move"], ["↑", "back"], [keyHint("app.interrupt"), "close"]];
+      if (this.inputs[this.field]) return [[keyHint("tui.input.submit"), action], ["↑↓", "fields"], [keyHint("app.interrupt"), "close"]];
+      return [[keyHint("tui.input.submit"), action], [keyHint("tui.input.tab"), "options"], [keyHint("app.model.select"), "model"],
+        [keyHint("app.thinking.cycle"), "effort"], [keyHint("app.interrupt"), "close"], ["@", "files"], ["/", "prompts"],
+        [keyHint("app.clipboard.pasteImage"), "image"]];
+    }
+
+    bottom(width) {
+      const tones = { info: style.muted, warning: style.warning, error: style.error };
+      const message = this.message
+        ? wrapTextWithAnsi(safe(this.message), Math.max(1, width - 2)).slice(0, 3).map((line) => ` ${(tones[this.tone] ?? style.muted)(line)}`) : [];
+      if (this.busy) return [` ${style.accent(SPINNER[this.frame % SPINNER.length])} ${style.muted(safe(this.message))}`];
+      if (this.phase === "select") {
+        return [this.keys(width, [["", "type to filter"], [keyHint("tui.select.confirm"), "choose"], [keyHint("tui.select.cancel"), "back"]])];
       }
-      if (this.busy) lines.push(fit(dim("Please wait; checkout creation cannot be cancelled safely.")));
-      else lines.push(
-        fit(dim(`${keyHint("tui.input.newLine")} newline · ${keyHint("app.clipboard.pasteImage")}/Cmd+V image · ${keyHint("app.thinking.cycle")} effort`)),
-        fit(dim(`@ file · / prompt template · ↑ previous task · ${keyHint("app.model.select")} model`)),
-        fit(dim(`${keyHint("tui.input.tab")} fields · ${keyHint("tui.input.submit")} start · ${keyHint("app.interrupt")} close (draft kept)`)),
-      );
-      if (launch.spec) lines.push(fit(dim(`Git details locked for this attempt. ${keyHint("app.interrupt")}/reopen to change them.`)));
-      if (this.message) lines.push(...wrapTextWithAnsi(safe(this.message), width).slice(0, 5).map(fit));
-      return lines;
+      if (this.phase === "done") return [this.keys(width, [[keyHint("tui.input.submit"), "close"]])];
+      return [...message, this.keys(width, this.hints())];
+    }
+
+    // As many hints as fit, in priority order, never a cut-off one.
+    keys(width, pairs) {
+      let line = "";
+      for (const [key, label] of pairs) {
+        const item = `${key ? `${style.text(key)} ` : ""}${style.dim(label)}`;
+        const next = line ? `${line}  ${item}` : ` ${item}`;
+        if (visibleWidth(next) > width) break;
+        line = next;
+      }
+      return line;
     }
   }();
 }

@@ -33,7 +33,8 @@ default, and Alacritty logs a harmless missing-import error to
    latte at 0.6.
 2. Alacritty picks it up through `live_config_reload`.
 3. Herdr gets a regenerated `~/.config/herdr/config.toml` with the flavour's
-   colours, then a config reload.
+   colours, then a config reload. The [Pi Tasks](../herdr/plugins/task-launcher/README.md)
+   popup (`C-a t`) reads the same colours each time it opens.
 4. tmux runs `source-file`.
 5. Every running Neovim updates over RPC, with a `FocusGained` fallback. Below
    1.0 opacity Neovim turns on `transparent_background`.

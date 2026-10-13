@@ -200,7 +200,8 @@ def run_smoke():
                             output.extend(os.read(master, 65536))
 
                 try:
-                    wait_for(b"NEW TASK")
+                    wait_for(b"Pi task")
+                    wait_for(b"options")  # Key hints for the focused task editor.
                     assert b"PI TASKS" not in output, "Unexpected intermediate menu"
                     draft = b"Add keyboard navigation; $(false)\nKeep the second line"
                     if not submit:
@@ -218,10 +219,10 @@ def run_smoke():
                     wait_for(b"Thinking: off", start)
                     start = len(output)
                     os.write(master, b"\x0c")
-                    wait_for(b"MODEL", start)
+                    wait_for(b"choose model", start)
                     start = len(output)
                     os.write(master, b"\x1b")
-                    wait_for(b"NEW TASK", start)
+                    wait_for(b"options", start)
                     os.write(master, b"\r" if submit else b"\x1b")
                     deadline = time.monotonic() + 20
                     while child.poll() is None:

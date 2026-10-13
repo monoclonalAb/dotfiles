@@ -94,7 +94,7 @@ export function sourceContext(raw) {
 
 const optional = (promise) => promise.then((value) => value.trim(), () => "");
 
-// origin's default branch, for "Start from: latest". Read-only; nothing is fetched here.
+// origin's default branch, for starting from the latest upstream. Read-only; nothing is fetched here.
 async function defaultUpstream(root) {
   if (!(await optional(git(root, "remote"))).split("\n").includes("origin")) return undefined;
   let ref = await optional(git(root, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"));
@@ -132,7 +132,7 @@ export async function fetchUpstream(repo) {
   try {
     await gitProcess(repo.root, ["fetch", "--quiet", "--no-tags", remote, `+refs/heads/${branch}:${ref}`], { timeout: 60_000 });
   } catch (error) {
-    throw new Error(`Could not fetch ${remote}/${branch} (${error.message}). Retry, or choose Start from: current.`);
+    throw new Error(`Could not fetch ${remote}/${branch} (${error.message}). Retry, or start from the current commit.`);
   }
 }
 
@@ -338,6 +338,27 @@ export async function readLauncherConfig(directory) {
   return config;
 }
 
+// The shared Catppuccin palette, as `theme` writes it into Herdr's generated
+// config ([theme.custom]). Reading the generated file keeps `theme` the only
+// owner of colour values; a missing or older file just means default colours.
+export async function readPalette(path) {
+  let text;
+  try { text = await readFile(path, "utf8"); }
+  catch (error) {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  }
+  const palette = {};
+  let inside = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.startsWith("[")) inside = line === "[theme.custom]";
+    const match = inside && /^([a-z0-9_]+)\s*=\s*"(#[0-9a-fA-F]{6})"/.exec(line);
+    if (match) palette[match[1]] = match[2];
+  }
+  return Object.keys(palette).length ? palette : undefined;
+}
+
 // Pi prompt templates for /name completion: global first, then trusted project.
 export async function loadPromptTemplates(directories) {
   const templates = new Map();
@@ -526,8 +547,8 @@ export class TaskLaunch {
         }
         const custom = form.base?.trim();
         const latest = !custom && form.startFrom === "latest";
-        if (latest && !this.repo.upstream) throw new Error("This repository has no origin default branch; choose Start from: current.");
-        if (form.carry && (latest || custom)) throw new Error("Copying uncommitted changes needs Start from: current, without a custom base.");
+        if (latest && !this.repo.upstream) throw new Error("This repository has no origin default branch; start from the current commit.");
+        if (form.carry && (latest || custom)) throw new Error("Bringing uncommitted changes needs the current commit as the start point, without a custom base.");
         if (latest) await this.fetch(this.repo);
         // Pin a commit now: later source edits and HEAD changes are not followed.
         const baseRef = custom || (latest ? this.repo.upstream.ref : this.repo.head);
@@ -562,7 +583,7 @@ export class TaskLaunch {
         if (this.spec.base !== this.repo.head) throw new Error("Uncommitted changes can only be copied onto the current commit.");
         try { await this.carry(this.repo.source, this.spec.base, cwd); }
         catch (error) {
-          throw new Error(`Checkout created, but your uncommitted changes could not be copied: ${error.message}. Retry, or set Changes to leave.`);
+          throw new Error(`Checkout created, but your uncommitted changes could not be copied: ${error.message}. Retry, or switch to leave changes.`);
         }
         this.carried = true;
       }

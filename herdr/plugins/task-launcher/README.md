@@ -7,40 +7,59 @@ Pi. It is a local Herdr plugin, not a Herdr patch or a Pi extension.
 
 ## Using the form
 
+```text
+ Pi task · beacon                                  named by DeepSeek-V4.1-Flash
+ ──────────────────────────────────────────────────────────────────────────────
+ Describe the task
+ ──────────────────────────────────────────────────────────────────────────────
+ claude-opus-5-5 · xhigh · from main · leave changes · more
+
+ ⏎ start  ⇥ options  ^L model  ⇧⇥ effort  esc close  @ files  / prompts
+```
+
 The task input is Pi's own editor with your `~/.pi/agent/keybindings.json`
-overrides, so normal Pi editing keys work. Form-specific keys:
+overrides, so normal Pi editing keys work. As in Pi, its border takes the thinking
+level's colour. Under it is one row of options. The bottom line shows what the keys
+do for whatever is focused, and any status or error.
 
 | Key | Action |
 | --- | --- |
-| `Enter` | Start the task (or activate the selected row) |
+| `Enter` | Start the task. On an option: choose or switch it |
+| `Tab` | Move to the options, then through them and back to the task |
+| `←` / `→`, `↑` | Move between options; back to the task |
 | `Ctrl+J` / `Shift+Enter` | Newline |
 | `@` / `/` | Complete a file in this checkout / a Pi prompt template (`Tab` accepts) |
-| `↑` | Recall a previous task for this repository |
+| `↑` (in the task) | Recall a previous task for this repository |
 | `Shift+Tab` | Cycle thinking effort |
 | `Ctrl+L` | Model picker |
 | `Ctrl+P` / `Shift+Ctrl+P` | Cycle models (Pi's `enabledModels`, else all available) |
 | `Ctrl+V` / Alacritty `Cmd+V` | Paste a clipboard image as `[img #N]` (text paste still works) |
 | `Ctrl+C` | Clear the draft (it is copied to the clipboard first); twice within 500 ms closes |
-| `Tab` / `Esc` | Next field / back or close |
+| `Esc` | Close (or leave a picker) |
+
+**Colours** follow the shared Catppuccin flavour (see [Theme](../../../docs/THEME.md)).
+The popup reads the colours that `theme` writes into Herdr's generated config each
+time it opens. Without them it uses the terminal's own colours.
 
 **Drafts are kept.** Closing the popup any way other than starting the task (Esc,
 Ctrl+D, or Herdr closing it) saves the draft, images included, for that repository.
 The next `C-a t` there restores it. Starting the task clears it.
 
-**Rows below the editor:**
+**Options, left to right:**
 
-- **Model / Thinking.** The model defaults to the last one used for this repository
+- **Model / effort.** The model defaults to the last one used for this repository
   (shared across its worktrees), else Pi's startup default. An unavailable model
   must be re-chosen; it never silently switches provider.
-- **Start from.** `current` is the source checkout's committed `HEAD` when the form
-  opened. `latest origin/main` (or whatever `origin/HEAD` names) fetches that branch
-  when you press Start and begins there. The choice is remembered per repository.
-  The fetch updates only the `origin/<branch>` tracking ref.
-- **Changes** (only when the source has uncommitted work). `leave` keeps them in the
-  source, as before. `copy` brings tracked edits, staged files and untracked files
-  into the new checkout. Your source checkout is only read. Copying needs Start from:
-  `current`.
-- **Advanced.** Branch (skips naming), a custom base (overrides Start from) and an
+- **from main.** By default the task starts from the source checkout's committed
+  `HEAD` when the form opened. Switching to `from origin/main` (or whatever
+  `origin/HEAD` names) fetches that branch when you press Enter and starts there.
+  The choice is remembered per repository. The fetch updates only the
+  `origin/<branch>` tracking ref.
+- **leave / bring changes** (only when the source has uncommitted work). `leave`
+  keeps them in the source. `bring` copies tracked edits, staged files and untracked
+  files into the new checkout. Your source checkout is only read. Bringing changes
+  needs `from main` (the current commit).
+- **more.** Branch (skips naming), a custom base (overrides the start point) and an
   absolute checkout path outside the source.
 
 Images: PNG, JPEG, GIF or WebP, up to 8 images / 20 MiB per popup. Delete the
@@ -53,8 +72,8 @@ for the result, because Git operations already issued cannot be cancelled.
 ## Naming
 
 Start makes one short, tool-free request that turns the task into a 2–6 word name
-such as `task/fix-login-spinner`, plus the Space and Pi session name. The form shows
-which model will do it:
+such as `task/fix-login-spinner`, plus the Space and Pi session name. The top right
+of the form shows which model will do it:
 
 1. `naming_model` from `~/.config/herdr/plugins/config/martinro.task-launcher/config.toml`,
    for example `naming_model = "lithosai/deepseek-ai/DeepSeek-V4.1-Flash"`.
@@ -65,8 +84,8 @@ Models that must go through the `omp-anthropic-route` Pi extension (direct Anthr
 with a Claude subscription login) are skipped. This launcher loads no Pi
 extensions, so it never sends that traffic. A `/template` task is named after the
 template's description. If naming fails or takes over 15 s, the task still starts
-as `task/untitled-task-<id>` and the popup says why. Set a branch under Advanced
-to skip naming.
+as `task/untitled-task-<id>` and the popup says why. Set a branch under **more** to
+skip naming.
 
 ## Pi in the task tab
 
@@ -110,7 +129,7 @@ Edits to the linked plugin files apply the next time the popup opens.
 State lives in `~/.local/state/herdr/plugins/martinro.task-launcher/`. Everything
 is private (mode 600):
 
-- `preferences/<repo-hash>.json`: last model, thinking level and Start from.
+- `preferences/<repo-hash>.json`: last model, thinking level and start point.
 - `drafts/<repo-hash>.json`: the unsent draft, with its images.
 - `history/<repo-hash>.json`: the last 20 started tasks, for `↑`.
 - `requests/<task-id>.json`: the handoff from the popup to the Pi tab (task text,
