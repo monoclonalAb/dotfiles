@@ -175,10 +175,13 @@ export function createNamer(runtime, models, preferred = []) {
 
 // A separate, tool-free naming request, only after explicit task submission.
 // ModelRuntime owns provider auth; no agent/session/project resources are loaded.
+// No reasoning option: the request asks for no thinking where the model can turn
+// it off, else the provider default. Even the lowest explicit level breaks naming:
+// DeepSeek V4.1 Flash at "low" answered the task instead of naming it and hit
+// the token cap, while the same request without reasoning named it in ~1 s.
 export async function generateTaskTitle(runtime, { prompt, model }, { signal = AbortSignal.timeout(15_000) } = {}) {
   const selected = runtime.getModel(model.provider, model.id);
   if (!selected) throw new Error(`naming model ${model.provider}/${model.id} is unavailable`);
-  const effort = model.levels[0];
   const response = await runtime.completeSimple(selected, {
     systemPrompt: "Name the coding task described by the user. Summarize the intended change, not the wording of their request. "
       + "Return only a concise, entirely lowercase English title of 2–6 words, at most 48 characters, starting with an action verb. "
@@ -187,8 +190,7 @@ export async function generateTaskTitle(runtime, { prompt, model }, { signal = A
       + "Example: 'When I sign in the page keeps spinning forever; can you look into why?' -> 'fix sign in hang'.",
     messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
     tools: [],
-  }, { signal, maxTokens: 2048, ...(effort === "off" ? {} : { reasoning: effort }),
-    transport: "sse", cacheRetention: "none" });
+  }, { signal, maxTokens: 2048, transport: "sse", cacheRetention: "none" });
   if (response.stopReason !== "stop") {
     throw new Error(`${model.provider}/${model.id} naming failed or timed out`);
   }

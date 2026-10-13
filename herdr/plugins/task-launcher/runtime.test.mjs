@@ -92,7 +92,8 @@ test("naming uses the exact selected model in a bounded tool-free request", asyn
       assert.equal(context.messages.length, 1);
       assert.equal(context.messages[0].content, prompt);
       assert.match(context.systemPrompt, /Summarize the intended change/);
-      assert.equal(options.reasoning, "low");
+      // A reasoning model must not get even its lowest level: thinking derails naming.
+      assert.equal("reasoning" in options, false);
       assert.ok(options.signal instanceof AbortSignal);
       assert.equal(options.maxTokens, 2048);
       assert.equal(options.cacheRetention, "none");

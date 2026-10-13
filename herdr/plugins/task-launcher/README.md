@@ -72,8 +72,10 @@ for the result, because Git operations already issued cannot be cancelled.
 ## Naming
 
 Start makes one short, tool-free request that turns the task into a 2–6 word name
-such as `task/fix-login-spinner`, plus the Space and Pi session name. The top right
-of the form shows which model will do it:
+such as `task/fix-login-spinner`, plus the Space and Pi session name. It asks for no
+thinking: with thinking on, even at its lowest level, a reasoning model can answer
+the task instead of naming it. A model that cannot turn thinking off uses its
+provider's default. The top right of the form shows which model will do it:
 
 1. `naming_model` from `~/.config/herdr/plugins/config/martinro.task-launcher/config.toml`,
    for example `naming_model = "lithosai/deepseek-ai/DeepSeek-V4.1-Flash"`.
