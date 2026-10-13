@@ -151,9 +151,10 @@ There are six distinct owners:
   the name and state icon. Its lookup cache is runtime state under
   `~/.local/state/herdr/plugins/martinro.pr-status/`.
 - [`herdr/plugins/task-launcher/`](../herdr/plugins/task-launcher/README.md)
-  owns the Pi Tasks popup: it names the task with the selected model, creates a
-  worktree Space through Herdr, and starts Pi as that Space's only tab. Preferences
-  and prompt handoffs live under `~/.local/state/herdr/plugins/martinro.task-launcher/`.
+  owns the Pi Tasks popup: it names the task with a quick naming model, creates a
+  worktree Space through Herdr, and starts Pi as that Space's only tab with the
+  source checkout's saved Pi trust decision. Preferences, drafts, history and prompt
+  handoffs live under `~/.local/state/herdr/plugins/martinro.task-launcher/`.
 
 The installed binary, generated Herdr config, plugin runtime ledger, and server
 process are deployment/runtime outputs and do not belong in Git.

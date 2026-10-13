@@ -1,7 +1,7 @@
 import { access, readFile, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import { findPackageJSON } from "node:module";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const PACKAGE = "@earendil-works/pi-coding-agent";
@@ -35,29 +35,79 @@ export async function findPi(path = process.env.PATH ?? "") {
   throw new Error("Pi Tasks requires the installed npm Pi package on PATH (no other agent is used).");
 }
 
-export async function loadPiModules(installation) {
-  const load = async (name) => {
-    const packagePath = findPackageJSON(name, pathToFileURL(installation.packagePath));
-    const metadata = JSON.parse(await readFile(packagePath, "utf8"));
-    const entry = metadata.exports?.["."]?.import ?? metadata.main;
-    if (typeof entry !== "string") throw new Error(`${name} has no supported JavaScript entrypoint.`);
-    return import(pathToFileURL(join(dirname(packagePath), entry)).href);
-  };
-  // Pi exports the manager's type, but its runtime factory lives in this
-  // installed module. Keep this version-sensitive boundary checked in --check.
-  const [sdk, ai, tui, bindings, clipboardImage, clipboardText] = await Promise.all([
-    load(PACKAGE), load("@earendil-works/pi-ai"), load("@earendil-works/pi-tui"),
-    import(pathToFileURL(join(dirname(installation.packagePath), "dist/core/keybindings.js")).href),
-    import(pathToFileURL(join(dirname(installation.packagePath), "dist/utils/clipboard-image.js")).href),
-    import(pathToFileURL(join(dirname(installation.packagePath), "dist/utils/clipboard.js")).href),
-  ]);
-  if (!sdk.ModelRuntime?.create || !sdk.ModelRuntime.prototype.completeSimple
-      || !sdk.ModelRuntime.prototype.getModel || !sdk.CustomEditor || !sdk.resolveModelScopeWithDiagnostics
-      || !ai.getSupportedThinkingLevels || !tui.TuiMainScreen || !tui.setKeybindings || !bindings.KeybindingsManager?.create
-      || !clipboardImage.readClipboardImage || !clipboardText.readClipboardText) {
-    throw new Error("Installed Pi lacks the task launcher's ModelRuntime/editor/keybinding APIs.");
+async function loadPackage(installation, name) {
+  const packagePath = findPackageJSON(name, pathToFileURL(installation.packagePath));
+  const metadata = JSON.parse(await readFile(packagePath, "utf8"));
+  const entry = metadata.exports?.["."]?.import ?? metadata.main;
+  if (typeof entry !== "string") throw new Error(`${name} has no supported JavaScript entrypoint.`);
+  return import(pathToFileURL(join(dirname(packagePath), entry)).href);
+}
+
+// The only files Pi does not export publicly: the keybinding manager's runtime
+// factory and the clipboard readers. They exist only in the npm package, which
+// is why Pi Tasks needs npm Pi rather than Pi's managed installer.
+export const PRIVATE_MODULES = Object.freeze({
+  keybindings: "dist/core/keybindings.js",
+  clipboardImage: "dist/utils/clipboard-image.js",
+  clipboardText: "dist/utils/clipboard.js",
+});
+
+async function loadPrivate(installation, name) {
+  try { return await import(pathToFileURL(join(dirname(installation.packagePath), PRIVATE_MODULES[name])).href); }
+  catch (error) {
+    if (error.code !== "ERR_MODULE_NOT_FOUND") throw error;
+    throw new Error(`npm Pi ${installation.version} has no ${PRIVATE_MODULES[name]}; update Pi Tasks for this Pi release.`);
   }
+}
+
+// Public SDK only: enough for the runner's session lookup.
+export const loadPiSdk = (installation) => loadPackage(installation, PACKAGE);
+
+export async function loadPiModules(installation) {
+  const [sdk, ai, tui, bindings, clipboardImage, clipboardText] = await Promise.all([
+    loadPiSdk(installation), loadPackage(installation, "@earendil-works/pi-ai"), loadPackage(installation, "@earendil-works/pi-tui"),
+    loadPrivate(installation, "keybindings"), loadPrivate(installation, "clipboardImage"), loadPrivate(installation, "clipboardText"),
+  ]);
+  const missing = Object.entries({
+    "ModelRuntime": sdk.ModelRuntime?.create && sdk.ModelRuntime.prototype.completeSimple && sdk.ModelRuntime.prototype.getModel,
+    "CustomEditor": sdk.CustomEditor, "resolveModelScopeWithDiagnostics": sdk.resolveModelScopeWithDiagnostics,
+    "ProjectTrustStore": sdk.ProjectTrustStore?.prototype.get, "SessionManager.findById": sdk.SessionManager?.findById,
+    "copyToClipboard": sdk.copyToClipboard, "getSupportedThinkingLevels": ai.getSupportedThinkingLevels,
+    "TuiMainScreen": tui.TuiMainScreen, "setKeybindings": tui.setKeybindings,
+    "CombinedAutocompleteProvider": tui.CombinedAutocompleteProvider, "KeybindingsManager": bindings.KeybindingsManager?.create,
+    "readClipboardImage": clipboardImage.readClipboardImage, "readClipboardText": clipboardText.readClipboardText,
+  }).filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length) throw new Error(`npm Pi ${installation.version} lacks APIs Pi Tasks uses: ${missing.join(", ")}.`);
   return { sdk, ai, tui, bindings, readClipboard: () => readClipboardContent(clipboardImage, clipboardText) };
+}
+
+// Closest saved Pi trust decision for the source checkout, else the main one.
+export function projectTrust(sdk, agentDir, paths) {
+  const store = new sdk.ProjectTrustStore(agentDir);
+  for (const path of paths) {
+    const decision = store.get(path);
+    if (decision === true || decision === false) return decision;
+  }
+  return null;
+}
+
+// Same lookup Pi's CLI makes for --session-id, honouring its session-dir settings.
+export function sessionLookup(sdk, sessionDir) {
+  return (request, id) => {
+    const directory = process.env.PI_CODING_AGENT_SESSION_DIR || (sessionDir ? resolve(request.cwd, sessionDir) : undefined);
+    return Boolean(sdk.SessionManager.findById(request.cwd, request.sessionId ?? id, directory));
+  };
+}
+
+export async function findExecutable(name, path = process.env.PATH ?? "", extra = []) {
+  for (const directory of [...path.split(":"), ...extra]) {
+    if (!isAbsolute(directory)) continue;
+    try {
+      await access(join(directory, name), constants.X_OK);
+      return join(directory, name);
+    } catch { /* keep looking */ }
+  }
+  return undefined;
 }
 
 // Importing/checking APIs never reads the clipboard. Only an explicit paste
@@ -93,15 +143,41 @@ export async function loadCatalog({ sdk, ai }, options = {}, enabledModels = [])
     model: models.find((model) => model.provider === entry.model.provider && model.id === entry.model.id),
     thinkingLevel: entry.thinkingLevel,
   })).filter((entry) => entry.model);
-  return { models: models.sort((a, b) => a.key.localeCompare(b.key)), cycleModels,
-    summarize: (form) => generateTaskTitle(runtime, form) };
+  return { models: models.sort((a, b) => a.key.localeCompare(b.key)), cycleModels, runtime };
+}
+
+// Requests that must go through the omp-anthropic-route Pi extension (direct
+// Anthropic with a Claude subscription login). This runtime loads no
+// extensions, so it must not send them. Mirrors the extension's own test.
+export function needsExtensionRoute(runtime, model) {
+  if (model.provider !== "anthropic") return false;
+  const full = runtime.getModel?.(model.provider, model.id);
+  try { if (full && new URL(full.baseUrl).origin !== "https://api.anthropic.com") return false; }
+  catch { return false; }
+  return Boolean(runtime.isUsingOAuth?.("anthropic"));
+}
+
+// Names come from a quick model chosen once (plugin config naming_model, else
+// Pi's default model), and only fall back to the task's own model.
+export function createNamer(runtime, models, preferred = []) {
+  const byKey = new Map(models.map((model) => [model.key, model]));
+  const usable = (model) => model && !needsExtensionRoute(runtime, model);
+  const pick = (selected) => [...preferred.map((key) => byKey.get(key)), selected].find(usable);
+  return {
+    pick,
+    summarize: async ({ prompt, model }) => {
+      const namer = pick(model);
+      if (!namer) throw new Error("no naming model outside the Claude subscription route; set naming_model");
+      return generateTaskTitle(runtime, { prompt, model: namer });
+    },
+  };
 }
 
 // A separate, tool-free naming request, only after explicit task submission.
 // ModelRuntime owns provider auth; no agent/session/project resources are loaded.
-export async function generateTaskTitle(runtime, { prompt, model }, { signal = AbortSignal.timeout(30_000) } = {}) {
+export async function generateTaskTitle(runtime, { prompt, model }, { signal = AbortSignal.timeout(15_000) } = {}) {
   const selected = runtime.getModel(model.provider, model.id);
-  if (!selected) throw new Error("Selected naming model is unavailable. Choose a model or enter an Advanced branch.");
+  if (!selected) throw new Error(`naming model ${model.provider}/${model.id} is unavailable`);
   const effort = model.levels[0];
   const response = await runtime.completeSimple(selected, {
     systemPrompt: "Name the coding task described by the user. Summarize the intended change, not the wording of their request. "
@@ -114,13 +190,13 @@ export async function generateTaskTitle(runtime, { prompt, model }, { signal = A
   }, { signal, maxTokens: 2048, ...(effort === "off" ? {} : { reasoning: effort }),
     transport: "sse", cacheRetention: "none" });
   if (response.stopReason !== "stop") {
-    throw new Error("Task naming failed or timed out. Retry, choose another model, or enter an Advanced branch.");
+    throw new Error(`${model.provider}/${model.id} naming failed or timed out`);
   }
   const title = response.content.filter((block) => block.type === "text").map((block) => block.text).join(" ")
     .trim().replace(/^[\"'`]+|[\"'`.]+$/g, "").replace(/\s+/g, " ").toLowerCase();
   if (!/^[a-z0-9][a-z0-9 -]*[a-z0-9]$/i.test(title) || title.length > 48
       || title.split(/[ -]+/).length < 2 || title.split(/[ -]+/).length > 6) {
-    throw new Error("Model returned an invalid task title. Retry or enter an Advanced branch; no checkout was created.");
+    throw new Error(`${model.provider}/${model.id} returned an invalid task title`);
   }
   return title;
 }
@@ -135,6 +211,7 @@ export async function readStartupDefaults(agentDir) {
       thinking: settings.defaultThinkingLevel,
       modelThinkingLevels: settings.modelThinkingLevels ?? {},
       enabledModels: settings.enabledModels ?? [],
+      ...(typeof settings.sessionDir === "string" ? { sessionDir: settings.sessionDir } : {}),
     };
   } catch (error) {
     if (error.code === "ENOENT") return { modelThinkingLevels: {}, enabledModels: [] };

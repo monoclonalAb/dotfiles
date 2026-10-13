@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,9 +9,10 @@ import test from "node:test";
 import { RpcError } from "./rpc.mjs";
 import { findPi, loadPiModules } from "./pi-runtime.mjs";
 import { createTaskForm } from "./ui.mjs";
-import { spawnPi, runRequest } from "./runner.mjs";
-import { TaskLaunch, atomicJson, branchName, discoverRepo, initialSelection, piArgs, piEnvironment,
-  readPreferences, readRequest, requestPath, requireOutside, sourceContext, validateImages } from "./task.mjs";
+import { prepareCheckout, runRequest, runTask, spawnPi } from "./runner.mjs";
+import { TaskLaunch, appendHistory, atomicJson, branchName, carryChanges, discoverRepo, initialSelection, loadPromptTemplates,
+  namingMaterial, piArgs, piEnvironment, readDraft, readHistory, readLauncherConfig, readPreferences, readRequest, requestPath,
+  requireOutside, resumeArgs, runnerPath, sourceContext, sweepRequests, validateImages, writeDraftSync } from "./task.mjs";
 
 const exec = promisify(execFile);
 const model = { key: "test/reasoner", provider: "test", id: "reasoner", levels: ["off", "high", "max"] };
@@ -113,9 +114,13 @@ test("submit uses summarized names and leaves exactly one focused Pi tab without
     plugin_id: "martinro.task-launcher", entrypoint: "pi", placement: "tab", workspace_id: "workspace-task",
     cwd: f.checkout, focus: true, env: { HERDR_TASK_ID: id },
   } });
-  assert.deepEqual(await readPreferences(f.stateDir, f.repo.key), { model: model.key, thinking: "high" });
+  assert.deepEqual(await readPreferences(f.stateDir, f.repo.key), { model: model.key, thinking: "high", startFrom: "current" });
+  assert.deepEqual(await readHistory(f.stateDir, f.repo.key), [form.prompt]);
   assert.equal((await stat(requestPath(f.stateDir, id))).mode & 0o777, 0o600);
   assert.equal((await readRequest(f.stateDir, id)).prompt, form.prompt);
+  assert.equal(request.sessionId, id);
+  assert.equal(request.root, f.repo.root);
+  assert.equal(request.approve, undefined); // No saved trust decision: Pi asks as usual.
   await assert.rejects(launch.start(form), /already/);
   assert.equal(f.calls.length, 5);
   assert.deepEqual(f.calls[3], { method: "tab.close", params: { tab_id: "tab-shell" } });
@@ -210,17 +215,24 @@ test("concurrent Enter cannot create two worktrees", async (t) => {
   assert.equal(f.calls.length, 5);
 });
 
-test("naming failure retains an unallocated editable task; retry uses current prompt", async (t) => {
+test("naming failure starts with an honest placeholder name and says so", async (t) => {
   const f = await fixture(t);
-  const launch = new TaskLaunch({ ...f, summarize: async () => { throw new Error("naming unavailable"); } });
-  await assert.rejects(launch.start(form), /naming unavailable/);
-  assert.equal(launch.spec, undefined);
-  assert.equal(launch.busy, false);
-  assert.equal(f.calls.length, 0);
-  await assert.rejects(stat(f.stateDir), { code: "ENOENT" });
-  launch.summarize = f.summarize;
-  await launch.start({ ...form, prompt: "Please fix keyboard focus when switching forms" });
-  assert.equal(f.summaries[0].prompt, "Please fix keyboard focus when switching forms");
+  const launch = new TaskLaunch({ ...f, id, summarize: async () => { throw new Error("namer timed out"); } });
+  const result = await launch.start(form);
+  assert.equal(launch.launched, true);
+  assert.equal(f.calls[0].params.branch, "task/untitled-task-1234");
+  assert.equal(f.calls[0].params.label, "untitled task 1234");
+  assert.match(result.warning, /Automatic naming failed \(namer timed out\), so the branch is task\/untitled-task-1234/);
+  assert.equal((await readRequest(f.stateDir, id)).prompt, form.prompt); // The task text itself is untouched.
+});
+
+test("prompt templates are named after their purpose, not the literal command", async (t) => {
+  const f = await fixture(t);
+  const templates = [{ name: "ship", description: "Commit and push directly" }];
+  await new TaskLaunch({ ...f, templates }).start({ ...form, prompt: "/ship keyboard fix" });
+  assert.equal(f.summaries[0].prompt, "Commit and push directly\nkeyboard fix");
+  assert.equal(namingMaterial("/unknown thing", templates), "/unknown thing");
+  assert.equal(namingMaterial("Plain task", templates), "Plain task");
 });
 
 test("shell cleanup failures are warnings, never a retry that resends the prompt", async (t) => {
@@ -305,17 +317,19 @@ test("runner exercises real child argv/cwd with a fake Pi, never a shell command
   await runRequest({ stateDir: f.stateDir, id, executable,
     env: { PATH: process.env.PATH, CAPTURE: capture, HERDR_PANE_ID: "new-pane", PI_SESSION_FILE: "old" } });
   const output = JSON.parse(await readFile(capture, "utf8"));
-  assert.deepEqual(output.args, piArgs(request));
+  assert.deepEqual(output.args, piArgs(request, [], id));
+  assert.deepEqual(output.args.slice(output.args.indexOf("--session-id"), output.args.indexOf("--session-id") + 2), ["--session-id", id]);
   assert.equal(output.cwd, f.repo.source);
   assert.equal(output.pane, "new-pane");
   assert.equal(output.session, undefined);
   await assert.rejects(stat(join(f.dir, "must-not-exist")), { code: "ENOENT" });
-  await assert.rejects(stat(requestPath(f.stateDir, id)), { code: "ENOENT" });
-  await atomicJson(requestPath(f.stateDir, id), request);
   const failed = await runRequest({ stateDir: f.stateDir, id, executable, run: async () => ({ code: 1 }) });
   assert.equal(failed.code, 1);
   assert.equal((await readRequest(f.stateDir, id)).prompt, request.prompt);
-  await assert.rejects(spawnPi(join(f.dir, "missing-pi"), request), { code: "ENOENT" });
+  let resumed;
+  await runRequest({ stateDir: f.stateDir, id, executable, resume: true, run: async (_exe, args) => { resumed = args; return { code: 0 }; } });
+  assert.deepEqual(resumed, ["--session-id", id]);
+  await assert.rejects(spawnPi(join(f.dir, "missing-pi"), [], { cwd: f.source }), { code: "ENOENT" });
   assert.throws(() => requestPath(f.stateDir, "../../bad"), /Invalid/);
 });
 
@@ -349,16 +363,17 @@ test("image form → private handoff → runner → installed Pi CLI yields actu
   assert.equal((await stat(requestPath(f.stateDir, id))).mode & 0o777, 0o600);
   assert.throws(() => piArgs(request), /materialized/);
   let imagePaths;
-  await runRequest({ stateDir: f.stateDir, id, executable: "unused", run: async (_exe, received, _env, paths) => {
-    imagePaths = paths;
-    assert.equal((await stat(dirname(paths[0]))).mode & 0o777, 0o700);
-    for (const path of paths) {
+  await runRequest({ stateDir: f.stateDir, id, executable: "unused", run: async (_exe, args) => {
+    const parsed = parseArgs(args);
+    imagePaths = parsed.fileArgs;
+    assert.equal(imagePaths.length, 2);
+    assert.equal((await stat(dirname(imagePaths[0]))).mode & 0o777, 0o700);
+    for (const path of imagePaths) {
       assert.equal((await stat(path)).mode & 0o777, 0o600);
       assert.equal((await readFile(path)).toString("base64"), png.data);
     }
-    const parsed = parseArgs(piArgs(received, paths));
-    assert.deepEqual(parsed.fileArgs, paths);
     assert.deepEqual(parsed.messages, ["Compare: "]);
+    assert.equal(parsed.sessionId, id);
     assert.deepEqual(parsed.diagnostics, []);
     const processed = await processFileArguments(parsed.fileArgs);
     assert.equal(processed.images.length, 2);
@@ -366,7 +381,6 @@ test("image form → private handoff → runner → installed Pi CLI yields actu
     return { code: 0 };
   } });
   await assert.rejects(stat(dirname(imagePaths[0])), { code: "ENOENT" });
-  await assert.rejects(stat(requestPath(f.stateDir, id)), { code: "ENOENT" });
 });
 
 test("image runner retains retry bytes after failure and removes materialized files even on spawn error", async (t) => {
@@ -375,10 +389,10 @@ test("image runner retains retry bytes after failure and removes materialized fi
   await atomicJson(requestPath(f.stateDir, id), request);
   for (const throwing of [false, true]) {
     let directory;
-    const pending = runRequest({ stateDir: f.stateDir, id, executable: "unused", run: async (_exe, received, _env, paths) => {
-      assert.deepEqual(received.images, [png]);
-      assert.equal((await readFile(paths[0])).toString("base64"), png.data);
-      directory = dirname(paths[0]);
+    const pending = runRequest({ stateDir: f.stateDir, id, executable: "unused", run: async (_exe, args) => {
+      const path = args.find((arg) => arg.startsWith("@")).slice(1);
+      assert.equal((await readFile(path)).toString("base64"), png.data);
+      directory = dirname(path);
       if (throwing) throw new Error("spawn failed");
       return { code: 1 };
     } });
@@ -414,4 +428,263 @@ test("private image requests over the old text limit load; malformed stored atta
   assert.deepEqual((await readRequest(f.stateDir, id)).images, [image]);
   await atomicJson(requestPath(f.stateDir, id), { ...request, images: [{ path: "/private/not-an-attachment.png" }] });
   await assert.rejects(readRequest(f.stateDir, id), /Clipboard images/);
+});
+
+const commit = (cwd, message) => git(cwd, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", message);
+
+// A fake signal source and Pi child for runTask: no real processes or terminals.
+function fakeRunner(t, f, outcomes, { sessions = new Set() } = {}) {
+  const listeners = new Map();
+  const signals = { on: (name, fn) => listeners.set(name, fn), off: (name) => listeners.delete(name) };
+  const runs = [];
+  const asked = [];
+  const run = async (_exe, args, { onSpawn }) => {
+    runs.push(args);
+    const next = outcomes.shift();
+    const child = { killed: [], kill(signal) { this.killed.push(signal); } };
+    onSpawn(child);
+    if (typeof next === "function") return next({ child, hangup: (signal) => listeners.get(signal)?.(signal) });
+    return next;
+  };
+  const options = { stateDir: f.stateDir, id, executable: "unused", run, signals, pid: 4242,
+    sessionExists: async (request) => sessions.has(request.sessionId ?? id),
+    ask: async (prompt) => { asked.push(prompt); return outcomes.shift(); } };
+  return { options, runs, asked, listeners, sessions };
+}
+
+test("runner: a normal exit removes the request and its runner file", async (t) => {
+  const f = await fixture(t);
+  await atomicJson(requestPath(f.stateDir, id), { ...form, cwd: f.source, sessionId: id });
+  const r = fakeRunner(t, f, [{ code: 0 }]);
+  assert.equal(await runTask(r.options), 0);
+  assert.equal(r.runs.length, 1);
+  assert.equal(r.runs[0].at(-1), form.prompt);
+  assert.equal(r.listeners.size, 0);
+  await assert.rejects(stat(requestPath(f.stateDir, id)), { code: "ENOENT" });
+  await assert.rejects(stat(runnerPath(f.stateDir, id)), { code: "ENOENT" });
+});
+
+test("runner: closing the tab while Pi runs forwards the hangup and removes the request", async (t) => {
+  const f = await fixture(t);
+  await atomicJson(requestPath(f.stateDir, id), { ...form, cwd: f.source, sessionId: id });
+  let child;
+  const r = fakeRunner(t, f, [async ({ child: spawned, hangup }) => {
+    child = spawned;
+    assert.equal(await readFile(runnerPath(f.stateDir, id), "utf8"), "4242\n");
+    hangup("SIGHUP");
+    return { code: null, signal: "SIGHUP" };
+  }]);
+  assert.equal(await runTask(r.options), 129);
+  assert.deepEqual(child.killed, ["SIGHUP"]);
+  assert.equal(r.asked.length, 0); // Nobody is left to answer a prompt.
+  await assert.rejects(stat(requestPath(f.stateDir, id)), { code: "ENOENT" });
+  await assert.rejects(stat(runnerPath(f.stateDir, id)), { code: "ENOENT" });
+});
+
+test("runner: after a crash Enter resumes the same conversation; 'new' starts over with the task", async (t) => {
+  const f = await fixture(t);
+  await atomicJson(requestPath(f.stateDir, id), { ...form, cwd: f.source, sessionId: id, approve: true });
+  const r = fakeRunner(t, f, [{ code: 1 }, "resume", { code: 1 }, "new", { code: 0 }], { sessions: new Set([id]) });
+  assert.equal(await runTask(r.options), 0);
+  assert.deepEqual(r.runs[1], ["--session-id", id, "--approve"]); // No resend into the old conversation.
+  assert.equal(r.asked[0].resumable, true);
+  const fresh = r.runs[2];
+  const session = fresh[fresh.indexOf("--session-id") + 1];
+  assert.notEqual(session, id);
+  assert.equal(fresh.at(-1), form.prompt);
+});
+
+test("runner: a rerun of a started task resumes instead of resending; q keeps the request", async (t) => {
+  const f = await fixture(t);
+  await atomicJson(requestPath(f.stateDir, id), { ...form, cwd: f.source, sessionId: id, started: true, prepared: true });
+  const r = fakeRunner(t, f, [{ code: 2 }, "close"], { sessions: new Set([id]) });
+  assert.equal(await runTask(r.options), 1);
+  assert.deepEqual(r.runs, [["--session-id", id]]);
+  assert.equal((await readRequest(f.stateDir, id)).prompt, form.prompt);
+  await assert.rejects(stat(runnerPath(f.stateDir, id)), { code: "ENOENT" });
+  // No conversation was ever saved: the next run sends the task again.
+  const again = fakeRunner(t, f, [{ code: 0 }]);
+  await runTask(again.options);
+  assert.equal(again.runs[0].at(-1), form.prompt);
+});
+
+test(".worktreeinclude clones only listed, ignored paths and never overwrites", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.source, ".gitignore"), ".env\nnode_modules/\nbuild/\n");
+  await writeFile(join(f.source, ".worktreeinclude"), ".env\nnode_modules/\nnotes.txt\n");
+  await git(f.source, "add", ".gitignore", ".worktreeinclude");
+  await commit(f.source, "ignore rules");
+  await writeFile(join(f.source, ".env"), "TOKEN=local\n");
+  await mkdir(join(f.source, "node_modules", "pkg"), { recursive: true });
+  await writeFile(join(f.source, "node_modules", "pkg", "index.js"), "module.exports = 1;\n");
+  await symlink("pkg", join(f.source, "node_modules", "alias"));
+  await mkdir(join(f.source, "build"));
+  await writeFile(join(f.source, "build", "out.js"), "not listed\n");
+  await writeFile(join(f.source, "notes.txt"), "listed but not ignored\n");
+  await git(f.source, "worktree", "add", "-q", "-b", "task", f.checkout);
+  await writeFile(join(f.checkout, ".env"), "TOKEN=task\n");
+  const logged = [];
+  const failures = await prepareCheckout({ root: f.source, cwd: f.checkout }, { log: (line) => logged.push(line) });
+  assert.deepEqual(failures, []);
+  assert.equal(await readFile(join(f.checkout, ".env"), "utf8"), "TOKEN=task\n");
+  assert.equal(await readFile(join(f.checkout, "node_modules", "pkg", "index.js"), "utf8"), "module.exports = 1;\n");
+  assert.equal((await lstat(join(f.checkout, "node_modules", "alias"))).isSymbolicLink(), true);
+  await assert.rejects(stat(join(f.checkout, "build")), { code: "ENOENT" });
+  await assert.rejects(stat(join(f.checkout, "notes.txt")), { code: "ENOENT" });
+  assert.ok(logged.some((line) => line.includes("node_modules")));
+  assert.deepEqual(await prepareCheckout({ cwd: f.checkout }), []); // Old requests have no source root.
+});
+
+test("copying uncommitted changes reproduces the source working tree without touching it", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.source, "gone.txt"), "delete me\n");
+  await writeFile(join(f.source, "binary.bin"), Buffer.from([0, 1, 2, 3]));
+  await git(f.source, "add", "gone.txt", "binary.bin");
+  await commit(f.source, "more files");
+  const repo = await discoverRepo(f.source);
+  await writeFile(join(f.source, "README.md"), "edited\n");
+  await writeFile(join(f.source, "staged.txt"), "staged\n");
+  await git(f.source, "add", "staged.txt");
+  await rm(join(f.source, "gone.txt"));
+  await writeFile(join(f.source, "binary.bin"), Buffer.from([9, 8, 7, 0]));
+  await mkdir(join(f.source, "new dir"));
+  await writeFile(join(f.source, "new dir", "untracked.txt"), "untracked\n");
+  const before = await git(f.source, "status", "--porcelain");
+  const launch = new TaskLaunch({ ...f, repo: await discoverRepo(f.source), id });
+  await launch.start({ ...form, carry: true });
+  assert.equal(launch.carried, true);
+  assert.equal(await readFile(join(f.checkout, "README.md"), "utf8"), "edited\n");
+  assert.equal(await readFile(join(f.checkout, "staged.txt"), "utf8"), "staged\n");
+  await assert.rejects(stat(join(f.checkout, "gone.txt")), { code: "ENOENT" });
+  assert.deepEqual([...await readFile(join(f.checkout, "binary.bin"))], [9, 8, 7, 0]);
+  assert.equal(await readFile(join(f.checkout, "new dir", "untracked.txt"), "utf8"), "untracked\n");
+  assert.equal(await git(f.source, "status", "--porcelain"), before);
+  assert.equal(f.calls[0].params.base, repo.head);
+  await assert.rejects(carryChanges(f.source, repo.head, f.checkout, { maxFiles: 0 }), /more than 0/);
+});
+
+test("a failed copy keeps the checkout and retries only the copy, then Pi", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.source, "README.md"), "edited\n");
+  let attempts = 0;
+  const launch = new TaskLaunch({ ...f, repo: await discoverRepo(f.source), id,
+    carry: async (...args) => { if (++attempts === 1) throw new Error("patch does not apply"); return carryChanges(...args); } });
+  await assert.rejects(launch.start({ ...form, carry: true }), /Checkout created, but your uncommitted changes could not be copied: patch does not apply/);
+  assert.equal(f.calls.filter((call) => call.method === "plugin.pane.open").length, 0);
+  await launch.start({ ...form, carry: true });
+  assert.equal(attempts, 2);
+  assert.equal(f.calls.filter((call) => call.method === "worktree.create").length, 1);
+  assert.equal(await readFile(join(f.checkout, "README.md"), "utf8"), "edited\n");
+});
+
+test("Start from latest fetches origin's default branch and pins its commit", async (t) => {
+  const f = await fixture(t);
+  const origin = join(f.dir, "origin.git");
+  await git(f.dir, "clone", "-q", "--bare", f.source, origin);
+  await git(f.source, "remote", "add", "origin", origin);
+  await git(f.source, "fetch", "-q", "origin");
+  await git(f.source, "remote", "set-head", "origin", "main");
+  const upstreamWork = join(f.dir, "upstream work");
+  await git(f.dir, "clone", "-q", origin, upstreamWork);
+  await writeFile(join(upstreamWork, "README.md"), "merged upstream\n");
+  await git(upstreamWork, "add", "README.md");
+  await commit(upstreamWork, "upstream change");
+  await git(upstreamWork, "push", "-q", "origin", "main");
+  const latest = (await git(upstreamWork, "rev-parse", "HEAD")).trim();
+  const repo = await discoverRepo(f.source);
+  assert.deepEqual(repo.upstream, { remote: "origin", branch: "main", ref: "refs/remotes/origin/main" });
+  assert.equal(repo.branch, "main");
+  assert.notEqual(repo.head, latest);
+  await assert.rejects(new TaskLaunch({ ...f, repo }).start({ ...form, startFrom: "latest", carry: true }), /needs Start from: current/);
+  assert.equal(f.calls.length, 0);
+  await new TaskLaunch({ ...f, repo, id }).start({ ...form, startFrom: "latest" });
+  assert.equal(f.calls[0].params.base, latest);
+  assert.equal(await readFile(join(f.checkout, "README.md"), "utf8"), "merged upstream\n");
+  assert.equal((await readPreferences(f.stateDir, repo.key)).startFrom, "latest");
+  assert.equal(f.repo.upstream, undefined);
+  await assert.rejects(new TaskLaunch(f).start({ ...form, startFrom: "latest" }), /no origin default branch/);
+});
+
+test("the source checkout's saved trust decision becomes --approve or --no-approve", async (t) => {
+  const f = await fixture(t);
+  for (const [trust, flag] of [[true, "--approve"], [false, "--no-approve"]]) {
+    const launch = new TaskLaunch({ ...f, id, trust });
+    await launch.start(form);
+    const request = await readRequest(f.stateDir, id);
+    assert.equal(request.approve, trust);
+    assert.ok(piArgs(request, [], id).includes(flag));
+    assert.ok(piArgs(request, [], id).indexOf(flag) < piArgs(request, [], id).indexOf("--"));
+    assert.deepEqual(resumeArgs(request, id), ["--session-id", id, flag]);
+    await git(f.source, "worktree", "remove", f.checkout);
+    await git(f.source, "branch", "-D", "task/implement-keyboard-controls");
+  }
+});
+
+test("request sweep removes only requests nobody can use, never a live runner's", async (t) => {
+  const f = await fixture(t);
+  const ids = Array.from({ length: 6 }, (_, index) => `00000000-0000-4000-8000-00000000000${index}`);
+  const gone = join(f.dir, "deleted checkout");
+  const write = (taskId, cwd) => atomicJson(requestPath(f.stateDir, taskId), { ...form, cwd });
+  await write(ids[0], gone);                       // checkout deleted
+  await mkdir(`${requestPath(f.stateDir, ids[0])}.images-abc`);
+  await write(ids[1], f.source);                   // fresh, no runner yet
+  await write(ids[2], f.source);                   // runner died
+  await writeFile(runnerPath(f.stateDir, ids[2]), "999999\n");
+  await write(ids[3], gone);                       // live runner, even with a deleted checkout
+  await writeFile(runnerPath(f.stateDir, ids[3]), `${process.pid}\n`);
+  await write(ids[4], f.source);                   // older than 30 days
+  await mkdir(`${requestPath(f.stateDir, ids[5])}.images-orphan`, { recursive: true }); // orphan images
+  const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+  const { utimes } = await import("node:fs/promises");
+  await utimes(requestPath(f.stateDir, ids[4]), old, old);
+  const removed = await sweepRequests(f.stateDir, { alive: (pid) => pid === process.pid });
+  assert.deepEqual(removed.sort(), [ids[0], ids[2], ids[4], ids[5]].sort());
+  assert.deepEqual((await readdir(join(f.stateDir, "requests"))).sort(),
+    [`${ids[1]}.json`, `${ids[3]}.json`, `${ids[3]}.runner`].sort());
+  assert.deepEqual(await sweepRequests(join(f.dir, "no state")), []);
+});
+
+test("drafts, history and config are private, bounded and validated", async (t) => {
+  const f = await fixture(t);
+  const draft = { text: "Fix it [img #2]", images: [{ marker: "[img #2]", ...png }] };
+  writeDraftSync(f.stateDir, f.repo.key, draft);
+  const path = join(f.stateDir, "drafts", `${f.repo.key}.json`);
+  assert.equal((await stat(path)).mode & 0o777, 0o600);
+  assert.deepEqual(await readDraft(f.stateDir, f.repo.key), draft);
+  await writeFile(path, JSON.stringify({ text: "x", images: [{ marker: "../bad", ...png }] }), { mode: 0o600 });
+  assert.equal(await readDraft(f.stateDir, f.repo.key), undefined);
+  writeDraftSync(f.stateDir, f.repo.key, undefined);
+  await assert.rejects(stat(path), { code: "ENOENT" });
+  assert.throws(() => writeDraftSync(f.stateDir, "../escape", draft), /Invalid repository key/);
+  for (let index = 0; index < 25; index++) await appendHistory(f.stateDir, f.repo.key, `task ${index}`);
+  await appendHistory(f.stateDir, f.repo.key, "task 10");
+  const history = await readHistory(f.stateDir, f.repo.key);
+  assert.equal(history.length, 20);
+  assert.equal(history.at(-1), "task 10");
+  assert.equal(history.filter((entry) => entry === "task 10").length, 1);
+  const config = join(f.dir, "config");
+  assert.deepEqual(await readLauncherConfig(config), {});
+  await mkdir(config);
+  await writeFile(join(config, "config.toml"), '# Pi Tasks\nnaming_model = "lithosai/deepseek-ai/DeepSeek-V4.1-Flash" # fast\n');
+  assert.deepEqual(await readLauncherConfig(config), { naming_model: "lithosai/deepseek-ai/DeepSeek-V4.1-Flash" });
+  await writeFile(join(config, "config.toml"), "naming_model = unquoted\n");
+  await assert.rejects(readLauncherConfig(config), /line 1/);
+});
+
+test("prompt templates load names, descriptions and hints for completion", async (t) => {
+  const f = await fixture(t);
+  const global = join(f.dir, "prompts");
+  const project = join(f.dir, "project prompts");
+  await mkdir(global);
+  await mkdir(project);
+  await writeFile(join(global, "ship.md"), '---\ndescription: Commit and push\nargument-hint: "[notes]"\n---\n# Ship\nBody\n');
+  await writeFile(join(global, "eli5.md"), "# Explain simply\n\nBody\n");
+  await writeFile(join(global, "notes.txt"), "not a template\n");
+  await writeFile(join(project, "ship.md"), "---\ndescription: Project ship\n---\n");
+  await writeFile(join(project, "review.md"), "Review the diff\n");
+  assert.deepEqual(await loadPromptTemplates([global, project, join(f.dir, "missing")]), [
+    { name: "eli5", description: "Explain simply" },
+    { name: "ship", description: "Commit and push", argumentHint: "[notes]" },
+    { name: "review", description: "Review the diff" },
+  ]);
 });

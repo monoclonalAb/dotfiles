@@ -6,8 +6,9 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
-import { findPi, generateTaskTitle, loadCatalog, loadPiModules, readClipboardContent, readStartupDefaults } from "./pi-runtime.mjs";
-import { chooseThinking, piArgs } from "./task.mjs";
+import { createNamer, findExecutable, findPi, generateTaskTitle, loadCatalog, loadPiModules, needsExtensionRoute, projectTrust,
+  readClipboardContent, readStartupDefaults, sessionLookup } from "./pi-runtime.mjs";
+import { chooseThinking, piArgs, resumeArgs } from "./task.mjs";
 
 const exec = promisify(execFile);
 const root = dirname(fileURLToPath(import.meta.url));
@@ -167,8 +168,11 @@ test("installed Pi CLI parser treats task text as message, not flags or @files",
   const { ai } = await loadPiModules(installation);
   const levels = ai.getSupportedThinkingLevels({ reasoning: true, thinkingLevelMap: { xhigh: null, max: "max" } });
   const model = { provider: "test", id: "model", levels };
+  const id = "12345678-1234-4123-8123-123456789abc";
   for (const prompt of ["--skill bad", "@file.txt", "A 'quoted' task; $(false)\nSecond line"]) {
-    const parsed = parseArgs(piArgs({ prompt, model, thinking: "high" }));
+    const parsed = parseArgs(piArgs({ prompt, model, thinking: "high", approve: true }, [], id));
+    assert.equal(parsed.sessionId, id);
+    assert.equal(parsed.projectTrustOverride, true);
     assert.deepEqual(parsed.fileArgs, []);
     assert.equal(parsed.messages.length, 1);
     assert.equal(parsed.messages[0].trim(), prompt.trim());
@@ -177,6 +181,11 @@ test("installed Pi CLI parser treats task text as message, not flags or @files",
     assert.equal(parsed.continue, undefined);
     assert.deepEqual(parsed.diagnostics, []);
   }
+  const resumed = parseArgs(resumeArgs({ approve: false }, id));
+  assert.equal(resumed.sessionId, id);
+  assert.equal(resumed.projectTrustOverride, false);
+  assert.deepEqual(resumed.messages, []);
+  assert.deepEqual(resumed.diagnostics, []);
 });
 
 test("Pi pane manifest resolves its entrypoint from plugin root, not checkout cwd", async (t) => {
@@ -217,4 +226,61 @@ test("clipboard adapter reads image first, falls back to text, and preserves rea
   assert.deepEqual(await readClipboardContent(emptyImage, text), { type: "text", text: await text.readClipboardText() });
   assert.equal(await readClipboardContent(emptyImage, { readClipboardText: async () => null }), undefined);
   await assert.rejects(readClipboardContent({ readClipboardImage: async () => { throw new Error("denied"); } }, text), /denied/);
+});
+
+test("naming prefers the configured, then default, model and never sends Claude subscription traffic", async () => {
+  const model = (provider, id) => ({ key: `${provider}/${id}`, provider, id, levels: ["off"] });
+  const fast = model("lithosai", "flash");
+  const claude = model("anthropic", "claude-opus-5-5");
+  const codex = model("openai-codex", "gpt-6-astra");
+  const named = [];
+  const runtime = (oauth) => ({
+    isUsingOAuth: (provider) => provider === "anthropic" && oauth,
+    getModel: (provider, id) => ({ provider, id, baseUrl: provider === "anthropic" ? "https://api.anthropic.com" : "https://example.invalid" }),
+    completeSimple: async (selected) => { named.push(`${selected.provider}/${selected.id}`); return { stopReason: "stop", content: [{ type: "text", text: "fix login hang" }] }; },
+  });
+  const models = [fast, claude, codex];
+  assert.equal(needsExtensionRoute(runtime(true), claude), true);
+  assert.equal(needsExtensionRoute(runtime(false), claude), false);
+  assert.equal(needsExtensionRoute(runtime(true), codex), false);
+  assert.equal(createNamer(runtime(true), models, ["missing/model", fast.key]).pick(codex), fast);
+  assert.equal(createNamer(runtime(true), models, [claude.key]).pick(codex), codex); // Route-only config is skipped.
+  assert.equal(createNamer(runtime(true), models, []).pick(claude), undefined);
+  assert.equal(createNamer(runtime(false), models, []).pick(claude), claude); // API keys need no route.
+  assert.equal(await createNamer(runtime(true), models, [fast.key]).summarize({ prompt: "Login hangs", model: claude }), "fix login hang");
+  assert.deepEqual(named, ["lithosai/flash"]);
+  await assert.rejects(createNamer(runtime(true), models, []).summarize({ prompt: "x", model: claude }), /set naming_model/);
+});
+
+test("trust and session lookups use Pi's own stores without writing them", async (t) => {
+  const dir = await temporary(t);
+  const { sdk } = await loadPiModules(await findPi());
+  const agent = join(dir, "agent");
+  const source = join(dir, "projects", "website");
+  const checkout = join(dir, "worktrees", "website", "task-a");
+  await mkdir(agent);
+  await mkdir(source, { recursive: true });
+  await mkdir(checkout, { recursive: true });
+  assert.equal(projectTrust(sdk, agent, [source]), null);
+  const trust = JSON.stringify({ [join(dir, "projects")]: true, [checkout]: false });
+  await writeFile(join(agent, "trust.json"), trust);
+  assert.equal(projectTrust(sdk, agent, [source]), true); // A trusted parent folder counts.
+  assert.equal(projectTrust(sdk, agent, [checkout, source]), false);
+  assert.equal(await readFile(join(agent, "trust.json"), "utf8"), trust);
+  const sessions = join(dir, "sessions");
+  const id = "12345678-1234-4123-8123-123456789abc";
+  const lookup = sessionLookup(sdk, sessions);
+  assert.equal(lookup({ cwd: checkout }, id), false);
+  await mkdir(sessions);
+  await writeFile(join(sessions, `2026-10-13T00-00-00-000Z_${id}.jsonl`),
+    JSON.stringify({ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd: checkout }) + "\n");
+  assert.equal(lookup({ cwd: checkout }, id), true);
+  assert.equal(lookup({ cwd: checkout, sessionId: "another-session" }, id), false);
+});
+
+test("fd is found on PATH or in Pi's tool directory", async (t) => {
+  const dir = await temporary(t);
+  await writeFile(join(dir, "fd"), "#!/bin/sh\n", { mode: 0o700 });
+  assert.equal(await findExecutable("fd", "/nonexistent:relative", [dir]), join(dir, "fd"));
+  assert.equal(await findExecutable("fd", "", []), undefined);
 });

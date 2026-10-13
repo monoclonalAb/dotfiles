@@ -1,6 +1,6 @@
 id = "martinro.task-launcher"
 name = "Pi Tasks"
-version = "0.1.0-local"
+version = "0.2.0-local"
 min_herdr_version = "0.8.2"
 description = "Start a Pi task; create its worktree underneath."
 platforms = ["macos"]
@@ -16,7 +16,7 @@ id = "launcher"
 title = "Pi Tasks"
 placement = "popup"
 width = "80%"
-height = 24
+height = 28
 command = ["/bin/sh", "launch.sh", "form"]
 
 [[panes]]

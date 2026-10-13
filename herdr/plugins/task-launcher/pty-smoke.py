@@ -26,6 +26,49 @@ NODE = shutil.which("node")
 assert NODE, "Node must already be installed"
 
 
+def popup_task_id(requests):
+    return next(r["params"]["env"]["HERDR_TASK_ID"] for r in requests if r["params"].get("entrypoint") == "pi")
+
+
+def hangup_check(env, pi_command, state, checkout, source, fake_pi):
+    """Closing a Pi tab's terminal (as Herdr does) must remove its task files."""
+    task_id = "0f0f0f0f-0000-4000-8000-000000000001"
+    requests = state / "requests"
+    requests.mkdir(mode=0o700, exist_ok=True)
+    request = requests / f"{task_id}.json"
+    request.write_text(json.dumps({"cwd": str(checkout), "root": str(source), "prompt": "long task", "thinking": "off",
+                                   "sessionId": task_id, "model": {"provider": "task-test", "id": "reasoner", "levels": ["off"]}}))
+    request.chmod(0o600)
+    pi_pid = state / "fake-pi.pid"
+    fake_pi.write_text(f"#!{NODE}\nrequire('node:fs').writeFileSync({json.dumps(str(pi_pid))}, String(process.pid));\nsetTimeout(() => {{}}, 60000);\n")
+    master, slave = pty.openpty()
+    child = subprocess.Popen(pi_command, cwd=checkout, env={**env, "HERDR_TASK_ID": task_id}, stdin=slave, stdout=slave,
+                             stderr=slave, start_new_session=True)
+    os.close(slave)
+    try:
+        deadline = time.monotonic() + 20
+        while not (pi_pid.exists() and (requests / f"{task_id}.runner").exists()):
+            assert time.monotonic() < deadline, "Fake Pi did not start"
+            if select.select([master], [], [], 0.1)[0]:
+                os.read(master, 65536)
+        os.close(master)  # The tab closes: the kernel hangs up its processes.
+        master = None
+        child.wait(timeout=20)
+        assert not request.exists(), "Closed tab left its task request"
+        assert not (requests / f"{task_id}.runner").exists(), "Closed tab left its runner file"
+        try:
+            os.kill(int(pi_pid.read_text()), 0)
+            raise AssertionError("Pi kept running after its tab closed")
+        except ProcessLookupError:
+            pass
+    finally:
+        if master is not None:
+            os.close(master)
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+
 def run_smoke():
     with tempfile.TemporaryDirectory(prefix="pi-task-pty-", dir="/tmp") as temporary:
         base = Path(temporary).resolve()
@@ -160,7 +203,15 @@ def run_smoke():
                     wait_for(b"NEW TASK")
                     assert b"PI TASKS" not in output, "Unexpected intermediate menu"
                     draft = b"Add keyboard navigation; $(false)\nKeep the second line"
-                    os.write(master, draft)  # LF is Ctrl+J, not submit.
+                    if not submit:
+                        # Ctrl+C on an empty draft: nothing reaches the real clipboard.
+                        start = len(output)
+                        os.write(master, b"\x03")
+                        wait_for(b"Draft cleared", start)
+                        assert child.poll() is None, "First Ctrl+C closed the popup"
+                        os.write(master, draft)  # LF is Ctrl+J, not submit.
+                    else:
+                        wait_for(b"Restored your unsent draft")  # Saved by the Esc run below.
                     wait_for(b"second line")
                     start = len(output)
                     os.write(master, b"\x1b[Z")
@@ -171,11 +222,6 @@ def run_smoke():
                     start = len(output)
                     os.write(master, b"\x1b")
                     wait_for(b"NEW TASK", start)
-                    start = len(output)
-                    os.write(master, b"\x03")
-                    wait_for(b"Draft cleared", start)
-                    assert child.poll() is None, "First Ctrl+C closed the popup"
-                    os.write(master, draft)
                     os.write(master, b"\r" if submit else b"\x1b")
                     deadline = time.monotonic() + 20
                     while child.poll() is None:
@@ -193,7 +239,10 @@ def run_smoke():
                     os.close(master)
                 if not submit:
                     assert len(requests) == 1, "Cancellation sent a mutation"
-                    assert not state.exists() and not checkout.exists()
+                    assert sorted(path.name for path in state.iterdir()) == ["drafts"] and not checkout.exists()
+                    saved = json.loads(next((state / "drafts").glob("*.json")).read_text())
+                    assert saved["text"] == draft.decode(), saved
+                    assert (next((state / "drafts").glob("*.json")).stat().st_mode & 0o777) == 0o600
                     assert not naming_calls, "Cancellation sent a naming request"
             assert runner_done.wait(20), "Pi runner did not complete"
             assert not errors, errors
@@ -203,6 +252,8 @@ def run_smoke():
             assert result["args"][result["args"].index("--model") + 1] == "reasoner"
             assert result["args"][result["args"].index("--thinking") + 1] == "off"
             assert result["args"][result["args"].index("--name") + 1] == "implement keyboard controls"
+            assert result["args"][result["args"].index("--session-id") + 1] == popup_task_id(requests)
+            assert "--approve" not in result["args"] and "--tui-mode" not in result["args"]
             assert len(naming_calls) == 1
             assert naming_calls[0]["model"] == "reasoner"
             assert not naming_calls[0].get("tools")
@@ -216,7 +267,11 @@ def run_smoke():
             assert (source / "README.md").read_text() == "uncommitted user's work\n"
             assert (checkout / "README.md").read_text() == "base\n"
             assert len(list((state / "preferences").glob("*.json"))) == 1
-            print("Passed: direct form → loopback task summary → named worktree → exactly one focused fake Pi tab; literal prompt, shortcuts and cancellation verified.")
+            assert not list((state / "drafts").glob("*.json")), "A started task left its draft behind"
+            assert len(list((state / "history").glob("*.json"))) == 1
+            assert not list((state / "requests").iterdir()), "Normal Pi exit left task files behind"
+            hangup_check(env, pi_command, state, checkout, source, fake_pi)
+            print("Passed: direct form → Esc keeps draft → reopen restores it → loopback task summary → named worktree → exactly one focused fake Pi tab with its session ID; literal prompt, shortcuts, cleanup and closed-tab hangup verified.")
         finally:
             stopping.set()
             thread.join(timeout=25)

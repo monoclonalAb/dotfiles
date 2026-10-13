@@ -11,20 +11,25 @@ const models = [
   { key: "test/simple", provider: "test", id: "simple", name: "Simple", levels: ["off"] },
 ];
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+const upstream = { remote: "origin", branch: "main", ref: "refs/remotes/origin/main" };
 function fixture(options = {}) {
   const calls = [];
+  const saved = [];
+  const copied = [];
   const renderer = { terminal: { rows: 22, columns: 76 }, requestRender() {} };
   let closed = 0;
   const launch = { start: async (form) => { calls.push(form); return {}; }, recoveryMessage: () => "", ...options.launch };
   const form = createTaskForm(tui, {
-    renderer, models, repo: { name: "website", head: "0123456789abcdef", dirty: true },
+    renderer, models, repo: { name: "website", head: "0123456789abcdef", branch: "main", dirty: true, upstream, ...options.repo },
     keybindings: new bindings.KeybindingsManager(options.userBindings), CustomEditor: sdk.CustomEditor,
     cycleModels: options.cycleModels, defaults: options.defaults, now: options.now,
-    readClipboard: options.readClipboard,
-    selection: { model: models[0], thinking: "high", notice: "" }, launch, onClose: () => { closed++; },
+    readClipboard: options.readClipboard, copyText: async (text) => { copied.push(text); },
+    draft: options.draft, saveDraft: (draft) => { saved.push(draft); }, history: options.history,
+    autocomplete: options.autocomplete, namer: options.namer,
+    selection: { model: models[0], thinking: "high", notice: "", ...options.selection }, launch, onClose: () => { closed++; },
   });
   form.focused = true;
-  return { form, renderer, calls, launch, closed: () => closed };
+  return { form, renderer, calls, launch, saved, copied, closed: () => closed };
 }
 
 test("opens directly with focused task input; Escape has no task effects", () => {
@@ -279,7 +284,7 @@ test("Advanced is reachable via its row without stealing Ctrl+G", () => {
   const f = fixture();
   f.form.handleInput("\x07");
   assert.equal(f.form.advanced, false);
-  for (let i = 0; i < 3; i++) f.form.handleInput("\t");
+  for (let i = 0; i < 5; i++) f.form.handleInput("\t");
   assert.equal(f.form.field, "advanced");
   f.form.handleInput("\r");
   assert.equal(f.form.advanced, true);
@@ -287,9 +292,11 @@ test("Advanced is reachable via its row without stealing Ctrl+G", () => {
 });
 
 test("form discloses automatic naming request; an explicit branch bypasses it", () => {
-  const f = fixture();
+  const f = fixture({ namer: (model) => model === models[0] ? models[1] : undefined });
   f.form.field = "start";
-  assert.match(f.form.render(76).join("\n"), /Auto-name: one brief request to the selected model/);
+  assert.match(f.form.render(76).join("\n"), /Auto-name: one short request to test\/simple/);
+  f.form.model = models[1];
+  assert.match(f.form.render(76).join("\n"), /no usable naming model; a placeholder name/);
   f.form.inputs.branch.setValue("fix/keyboard");
   assert.doesNotMatch(f.form.render(76).join("\n"), /Auto-name/);
 });
@@ -445,10 +452,91 @@ test("failed paste also suppresses queued Space activation of the Start row", as
   const f = fixture({ readClipboard: async () => undefined });
   f.form.handleInput("Task");
   f.form.handleInput("\x16");
-  for (let i = 0; i < 4; i++) f.form.handleInput("\t");
+  for (let i = 0; i < 6; i++) f.form.handleInput("\t");
   f.form.handleInput(" ");
   await flush();
   assert.equal(f.form.field, "start");
   assert.equal(f.calls.length, 0);
   assert.match(f.form.message, /Clipboard paste failed/);
+});
+
+test("Escape keeps the draft with its images; reopening restores it; a started task clears it", async () => {
+  const f = fixture({ readClipboard: async () => image });
+  f.form.handleInput("Fix the chart ");
+  f.form.handleInput("\x16");
+  await flush();
+  f.form.handleInput("\x1b");
+  assert.equal(f.closed(), 1);
+  assert.deepEqual(f.saved, [{ text: "Fix the chart [img #1]", images: [{ marker: "[img #1]", ...imageContent }] }]);
+  f.form.persistDraft(); // A later hangup cannot overwrite it without its images.
+  assert.equal(f.saved.length, 1);
+  const reopened = fixture({ draft: f.saved[0], readClipboard: async () => image });
+  assert.equal(reopened.form.editor.getExpandedText(), "Fix the chart [img #1]");
+  assert.match(reopened.form.message, /Restored your unsent draft/);
+  await reopened.form.pasteClipboard();
+  assert.equal(reopened.form.editor.getExpandedText(), "Fix the chart [img #1][img #2]");
+  reopened.launch.launched = true;
+  reopened.form.close();
+  assert.deepEqual(reopened.saved, []);
+  const empty = fixture();
+  empty.form.handleInput("\x1b");
+  assert.deepEqual(empty.saved, [undefined]); // Nothing to keep: any old draft is removed.
+});
+
+test("Ctrl+C copies the cleared draft to the clipboard", async () => {
+  const f = fixture();
+  f.form.handleInput("Keep a copy of this");
+  f.form.handleInput("\x03");
+  await flush();
+  assert.deepEqual(f.copied, ["Keep a copy of this"]);
+  assert.match(f.form.message, /copied to the clipboard/);
+  f.form.handleInput("\x03");
+  assert.equal(f.closed(), 1);
+  assert.deepEqual(f.saved, [undefined]);
+});
+
+test("Start from and Changes rows toggle, stay consistent, and reach the launch", async () => {
+  const f = fixture();
+  const render = () => f.form.render(76).join("\n");
+  assert.match(render(), /Start from\s+\[ current: main @ 0123456 ⇄ \]/);
+  assert.match(render(), /Changes\s+\[ leave uncommitted changes in website ⇄ \]/);
+  f.form.field = "startFrom";
+  f.form.handleInput("\r");
+  assert.match(render(), /latest origin\/main \(fetched on start\)/);
+  f.form.field = "changes";
+  f.form.handleInput(" ");
+  assert.equal(f.form.carry, true);
+  assert.equal(f.form.startFrom, "current");
+  assert.match(f.form.message, /Start from is now current/);
+  f.form.editor.setText("Ship it");
+  f.form.field = "start";
+  f.form.handleInput("\r");
+  await flush();
+  assert.equal(f.calls[0].startFrom, "current");
+  assert.equal(f.calls[0].carry, true);
+  const remembered = fixture({ selection: { startFrom: "latest" } });
+  assert.equal(remembered.form.startFrom, "latest");
+  const local = fixture({ repo: { upstream: undefined, dirty: false }, selection: { startFrom: "latest" } });
+  assert.equal(local.form.startFrom, "current");
+  assert.equal(local.form.fields().includes("changes"), false);
+  local.form.field = "startFrom";
+  local.form.handleInput("\r");
+  assert.equal(local.form.startFrom, "current");
+  assert.match(local.form.message, /No origin default branch/);
+});
+
+test("Up recalls previous tasks; Tab accepts a completion instead of leaving the prompt", async () => {
+  const f = fixture({ history: ["Older task", "Previous task"],
+    autocomplete: new tui.CombinedAutocompleteProvider([{ name: "ship", description: "Commit and push" }], "/nonexistent", null) });
+  f.form.handleInput("\x1b[A");
+  assert.equal(f.form.editor.getExpandedText(), "Previous task");
+  f.form.editor.setText("");
+  f.form.handleInput("/sh");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(f.form.editor.isShowingAutocomplete(), true);
+  f.form.handleInput("\t");
+  assert.equal(f.form.field, "prompt");
+  assert.match(f.form.editor.getExpandedText(), /^\/ship/);
+  f.form.handleInput("\t");
+  assert.equal(f.form.field, "model");
 });
