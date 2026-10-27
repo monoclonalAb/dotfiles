@@ -39,6 +39,14 @@
     "notion": {
       "url": "https://mcp.notion.com/mcp"
     },
+    "exa": {
+      "url": "https://mcp.exa.ai/mcp?login",
+      "description": "Exa web search (web_search_exa), page reading as markdown (web_fetch_exa) and multi-step research (agent_run, metered). Signed in to the owner's Exa account."
+    },
+    "firecrawl": {
+      "url": "https://mcp.firecrawl.dev/v2/mcp-oauth",
+      "description": "Firecrawl web scraping and crawling: read one page, search, or crawl and map a whole site. Signed in to the owner's Firecrawl account."
+    },
     "beacon": {
       "url": "http://127.0.0.1:47321/mcp",
       "headers": {

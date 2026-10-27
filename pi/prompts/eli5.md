@@ -6,7 +6,7 @@ argument-hint: "<topic>"
 
 Explain this topic to someone with no background knowledge:
 
-Topic: ${ARGUMENTS:-the topic I provide next}
+Topic (if blank: the topic I provide next): $ARGUMENTS
 
 Create a self-contained HTML explainer with big, clear visuals and very few
 words. Prefer simple diagrams, labels, arrows, and one idea per visual. Keep

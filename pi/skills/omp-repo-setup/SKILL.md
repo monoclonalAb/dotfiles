@@ -15,7 +15,7 @@ Check: `justfile`; `package.json` scripts and dependencies (`hono`, `@everyday-a
 
 ## 2. Link scoped skills
 
-Sources live in `~/.omp/agent/scoped-skills/` (not auto-discovered). Link each skill whose signal holds; skip links that already exist; never copy skill content into the repository.
+Sources live in `~/.pi/agent/scoped-skills/` (not auto-discovered). Link each skill whose signal holds; skip links that already exist; never copy skill content into the repository.
 
 | Observed signal | Link |
 |---|---|
@@ -28,7 +28,7 @@ Sources live in `~/.omp/agent/scoped-skills/` (not auto-discovered). Link each s
 
 ```sh
 mkdir -p .omp/skills
-ln -s ~/.omp/agent/scoped-skills/<name> .omp/skills/<name>
+ln -s ~/.pi/agent/scoped-skills/<name> .omp/skills/<name>
 ```
 
 For the established-DE row, require evidence rather than inferring it from `.everyday.json`: for example, deployed-environment configuration plus a maintained workflow with a recent successful run. If that classification is genuinely ambiguous (bare scaffold versus established DE), ask the user once; do not guess.

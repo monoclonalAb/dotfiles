@@ -36,7 +36,7 @@ credential-bearing `hosts.yml` is local.
 | Terminal workspaces | [`herdr/`](../herdr/), [`tmux/`](../tmux/) | Primary and fallback multiplexing, navigation, persistence, and attention state |
 | User commands and automation | [`bin/`](../bin/), [`lib/`](../lib/) (helpers and tests, linked to `~/.local/lib/`) | Cross-application orchestration and audited builds. Machine-local scheduled jobs (LaunchAgents and their scripts) stay in `$HOME`, outside this repository: the repo carries portable per-tool configuration for a new Mac, not single-machine workflows |
 | Git clients | [`git/`](../git/), [`gh/`](../gh/), [`tuicr/`](../tuicr/), [`worktrunk/`](../worktrunk/) | Global identity and ignore behaviour, non-secret GitHub CLI preferences, tuicr review-view defaults, and Worktrunk's worktree layout and `.worktreeinclude` copy |
-| Agent harnesses | [`omp/`](../omp/), [`pi/`](../pi/), [`.omp/`](../.omp/) | Global OMP configuration and skills, Pi extensions, and this repository's project-scoped tools |
+| Agent harnesses | [`pi/`](../pi/), [`omp/`](../omp/), [`.omp/`](../.omp/) | Pi configuration, extensions and the skills both harnesses share; OMP-only configuration; this repository's project-scoped tools |
 | Human operations | [`README.md`](../README.md), [`SETUP.md`](SETUP.md), [`HERDR.md`](HERDR.md), [`THEME.md`](THEME.md), [`AGENT-TOOLS.md`](AGENT-TOOLS.md) | Short entry point, then new-machine setup, live operation, and troubleshooting per topic |
 | Agent knowledge | [`AGENTS.md`](../AGENTS.md), [`docs/`](./) | Progressive task routing, architecture, principles, quality, and plans |
 | Frozen history | [`.archive/`](../.archive/) | Inactive tool folders in the same flat layout, each belonging in `~/.config/<tool>/`; retained for explicit restoration only |
@@ -63,10 +63,11 @@ consumer; do not fix generated output or add a second writer.
 | Review an agent's changes | `bin/herdr-review` | `prefix+v` / `prefix+V` (`--branch`) popups → tuicr in the agent's cwd → `herdr agent prompt`; unittest suite, then `--check` |
 | Open a worktree as a Tern session | `tw` in `zsh/zshrc`, `worktrunk/config.toml` | `wt switch --create` → pre-start `.worktreeinclude` copy → `tern new session` → `omp` typed into its shell; isolated-daemon smoke in `docs/VERIFICATION.md` |
 | Pi extension command, UI, or display metadata | `pi/extensions/README.md`, then owning extension | `bin/pi` and installed Pi API → focused suite → safe fresh-session check |
-| Pi prompt template | `pi/prompts/*.md` | Global prompt discovery → explicit `/name` invocation |
+| Pi/OMP prompt template | `pi/prompts/*.md` (also linked to `~/.omp/agent/prompts/`) | Global prompt discovery in both harnesses → explicit `/name` invocation; only `$ARGUMENTS`/`$@`/`$N` placeholders |
 | Click Pi file links into Neovim | `pi/extensions/local-file-links/README.md` | File URLs → Alacritty hint → `bin/terminal-open` → Neovim |
-| Add an MCP server | `pi/mcp.json`, optionally `omp/mcp.json` | Pi's built-in MCP support; `pi mcp list` connects it, then `/reload` and `/mcp` |
-| OMP defaults, tools, skills | `omp/` | Global deployment versus project `.omp/`; consuming task and installed harness, not the model name |
+| Add an MCP server | `pi/mcp.json`, and `omp/mcp.json` to keep OMP in step | Pi's built-in MCP support; `pi mcp list` connects it, then `/reload` and `/mcp`; OMP `/mcp reload` and `/mcp reauth <name>` |
+| Global or scoped skills | `pi/skills/`, `pi/scoped-skills/` | `/skill` in Pi; OMP via `skills.customDirectories` in `omp/config.yml`; scoped skills only where a project links them |
+| OMP defaults, tools | `omp/` | Global deployment versus project `.omp/`; consuming task and installed harness, not the model name |
 | Workspace repository index for agents | `lib/workspace-context-mcp/README.md` | Launcher → stdio MCP; Node suite, then `workspace-context-mcp doctor` |
 | Shell or editor startup | `zsh/zshenv`, `zsh/zshrc`, `nvim/init.lua` | Startup sources → command/plugin consumer; distinguish syntax from startup side effects |
 
@@ -166,9 +167,11 @@ process are deployment/runtime outputs and do not belong in Git.
 agent capabilities for Pi first, then optionally mirror them to OMP. Pi's managed
 MCP registrations are in [`pi/mcp.json`](../pi/mcp.json), read
 by Pi's built-in MCP support; a trusted project's `.pi/mcp.json` replaces entries
-of the same name. [`omp/`](../omp/) contains
-cross-repository OMP defaults, tooling catalogues, agents, and global or scoped
-skills. Scoped skills are inert until a project links them.
+of the same name. [`pi/skills/`](../pi/skills/) and
+[`pi/scoped-skills/`](../pi/scoped-skills/) hold the skills both harnesses
+use; OMP reads the global ones through `skills.customDirectories`. Scoped skills
+are inert until a project links them. [`omp/`](../omp/) contains only
+OMP-specific defaults, tooling catalogues and agents.
 [`pi/extensions/`](../pi/extensions/) contains globally
 discovered Pi extensions and the policy for any hook that can alter model-visible
 context. [`pi/prompts/`](../pi/prompts/) holds prompt templates
@@ -226,8 +229,9 @@ not valid for this boundary.
 - New mutable state: an application-owned directory or `~/.local/state/<tool>`.
 - New cross-application command: `bin/`, with minimal-`PATH` handling
   if reachable outside a shell.
-- New global OMP capability: `omp/`; keep repository-specific skills
-  scoped and explicitly linked.
+- New skill: `pi/skills/` only if useful in any repository; otherwise
+  `pi/scoped-skills/`, explicitly linked per repository.
+- New OMP-only capability: `omp/`.
 - New Pi extension: `pi/extensions/`, after applying that directory's
   context-neutrality policy.
 - New repository-wide decision or long-running migration: this knowledge base

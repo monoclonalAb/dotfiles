@@ -1,0 +1,28 @@
+# Ported from pi/models.json. The key is read from the macOS keychain item
+# `lithosai` when a request needs it.
+providers:
+  lithosai:
+    baseUrl: https://api.lithosai.cloud/v1
+    api: openai-completions
+    apiKey: "!security find-generic-password -ws 'lithosai'"
+    models:
+      - id: deepseek-ai/DeepSeek-V4.1-Flash
+        name: DeepSeek V4.1 Flash
+        reasoning: true
+        input: [text, image]
+        contextWindow: 1000000
+        maxTokens: 32768
+        cost:
+          input: 0.15
+          output: 0.6
+          cacheRead: 0.003
+          cacheWrite: 0
+        # Pi's thinkingLevelMap: only low, high and max reach the API.
+        thinking:
+          mode: effort
+          efforts: [low, high, max]
+        compat:
+          supportsReasoningEffort: true
+          maxTokensField: max_tokens
+          # Pi sends images to this endpoint; OMP's DeepSeek class rule would strip them.
+          stripImageInput: false

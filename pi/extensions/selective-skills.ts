@@ -6,6 +6,7 @@ import {
   getAgentDir,
   getSettingsListTheme,
   loadSkills,
+  SettingsManager,
   type ExtensionAPI,
   type ExtensionCommandContext,
   type ExtensionContext,
@@ -51,6 +52,45 @@ function projectSkillRoots(cwd: string): string[] {
   return roots;
 }
 
+// Pi's own `skills` setting lists extra skill files or folders. The pi wrapper
+// passes --no-skills, so Pi ignores that list; /skill offers its skills instead,
+// off until enabled like every other candidate. Entries resolve as Pi resolves
+// them: user settings from the agent directory, project settings from the
+// project's .pi folder. Pi's include/exclude patterns (entries starting with !,
+// + or -, or containing * or ?) are skipped.
+function isPatternEntry(entry: string): boolean {
+  return /^[!+-]/.test(entry) || /[*?]/.test(entry);
+}
+
+function settingsEntryPaths(entries: unknown, baseDir: string): string[] {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "" && !isPatternEntry(entry))
+    .map((entry) => {
+      if (entry === "~") return homedir();
+      if (entry.startsWith("~/")) return join(homedir(), entry.slice(2));
+      return resolve(baseDir, entry);
+    });
+}
+
+function settingsSkillRoots(ctx: ExtensionContext, agentDir: string): string[] {
+  const projectTrusted = ctx.isProjectTrusted();
+  const settings = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted });
+  const roots = settingsEntryPaths(settings.getGlobalSettings().skills, agentDir);
+
+  if (projectTrusted) {
+    roots.push(...settingsEntryPaths(
+      settings.getProjectSettings().skills,
+      join(ctx.cwd, CONFIG_DIR_NAME),
+    ));
+  }
+
+  return roots;
+}
+
 function discoverSkills(ctx: ExtensionContext): Skill[] {
   const home = homedir();
   const agentDir = getAgentDir();
@@ -65,6 +105,10 @@ function discoverSkills(ctx: ExtensionContext): Skill[] {
   if (ctx.isProjectTrusted()) {
     roots.push(...projectSkillRoots(ctx.cwd));
   }
+
+  // Last, because the first skill found with a name wins: a folder from the
+  // setting adds skills but never replaces one found in the usual folders.
+  roots.push(...settingsSkillRoots(ctx, agentDir));
 
   return loadSkills({
     cwd: ctx.cwd,

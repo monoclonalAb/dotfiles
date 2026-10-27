@@ -28,6 +28,8 @@ zsh/p10k.zsh    ~/.config/zsh/.p10k.zsh
 
 pi/             ~/.pi/agent/
 omp/            ~/.omp/agent/
+# Pi's prompt templates also serve as OMP's (same file format).
+pi/prompts/     ~/.omp/agent/prompts/
 
 bin/            ~/.local/bin/
 lib/            ~/.local/lib/

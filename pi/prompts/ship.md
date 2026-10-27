@@ -6,7 +6,7 @@ argument-hint: "[notes, e.g. a commit message hint]"
 
 I've decided this change is small enough to skip review. Commit it and push it
 to the current branch, even if that's the default branch. Don't create a branch
-or open a pull request. Extra instructions: ${@:-none}
+or open a pull request. Extra instructions (blank means none): $ARGUMENTS
 
 1. Check `git status --short`, the current branch and its upstream. If HEAD is
    detached, or a merge, rebase or cherry-pick is in progress, stop and tell me.

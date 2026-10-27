@@ -43,7 +43,7 @@ than assuming a linked README was automatically loaded.
 | Root `AGENTS.md` and this knowledge base | Maintaining this dotfiles repository |
 | [OMP `AGENTS.md`](../omp/AGENTS.md) | Deployed to `~/.omp/agent/AGENTS.md`; cross-project defaults for OMP |
 | [OMP `TOOLING.md`](../omp/TOOLING.md) | Optional capabilities, prerequisites, and alternatives; not a live tool inventory |
-| [Global skills](../omp/skills/) and [scoped skills](../omp/scoped-skills/) | Read the matching `SKILL.md` only for its declared task; references/templates belong to that skill, not the dotfiles setup path |
+| [Global skills](../pi/skills/) and [scoped skills](../pi/scoped-skills/) | Read the matching `SKILL.md` only for its declared task; references/templates belong to that skill, not the dotfiles setup path |
 | [OMP agents](../omp/agents/) | Task-specific subagent prompts; model roles resolve from [OMP config](../omp/config.yml) |
 | [Pi extension policy](../pi/extensions/README.md) | Maintainer policy, not automatically loaded model context; includes approved exceptions |
 | [Review rules](../REVIEW_GUIDELINES.md) | Appended by Pi's `/review` to reviews started in this repository; what counts as a real bug here and what to skip |

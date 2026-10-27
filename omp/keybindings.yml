@@ -1,1 +1,7 @@
 app.plan.toggle: Ctrl+Alt+P
+# Pi's defaults where OMP's differ: Ctrl+L opens the model selector (OMP's
+# Alt+M kept; Ctrl+L live voice unbound, /live still works) and Alt+Enter
+# queues a follow-up beside OMP's Ctrl+Q / Ctrl+Enter.
+app.model.select: [Ctrl+L, Alt+M]
+app.live.toggle: []
+app.message.followUp: [Alt+Enter, Ctrl+Q, Ctrl+Enter]

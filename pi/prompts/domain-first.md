@@ -6,7 +6,7 @@ argument-hint: "[scope]"
 
 Perform a domain-first simplification sweep in the current repository.
 
-Scope: ${ARGUMENTS:-the repository; if a repository-wide sweep is too large, complete one coherent, high-confidence domain area and identify what remains}
+Scope (if blank: the repository; if a repository-wide sweep is too large, complete one coherent, high-confidence domain area and identify what remains): $ARGUMENTS
 
 ## Goal
 

@@ -5,7 +5,7 @@ argument-hint: "[notes, e.g. \"with screenshots\"]"
 # Open a pull request
 
 Open a draft pull request for the current work, or update the description if
-this branch already has one. Extra instructions: ${@:-none}
+this branch already has one. Extra instructions (blank means none): $ARGUMENTS
 
 ## Branch and commits
 
@@ -19,8 +19,11 @@ this branch already has one. Extra instructions: ${@:-none}
 
 ## Description
 
-Follow the repository's PR template if it has one, and match the title style of
-its recent PRs. Otherwise:
+Follow the repository's PR template if it has one. Otherwise read the last few
+PRs I wrote myself (skip ones with a "Generated with" footer) and match their
+title style and their description, length included: if they're one sentence,
+write one sentence. Check the repo's AGENTS.md for a PR rule too. With no PRs to
+match:
 
 - Start with one or two plain sentences: what changed and why.
 - Add only what a reviewer needs to understand the change. Mention how it was

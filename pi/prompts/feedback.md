@@ -7,7 +7,7 @@ argument-hint: "[corrective feedback or focus]"
 Treat this as an explicit, one-shot request to correct the current task and learn
 from the observed trajectory.
 
-Corrective feedback or focus: ${ARGUMENTS:-Use the most recent corrective feedback in this conversation. If none is available, ask one focused question before changing anything.}
+Corrective feedback or focus (if blank: use the most recent corrective feedback in this conversation; if none is available, ask one focused question before changing anything): $ARGUMENTS
 
 1. Fix and verify the immediate task first unless the user asks only for a
    retrospective. Do not make the user restate the request.

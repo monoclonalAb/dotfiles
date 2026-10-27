@@ -6,8 +6,8 @@ optional extras. Ownership: [`ARCHITECTURE.md`](ARCHITECTURE.md#4-agent-configur
 
 | Folder | Linked to | Holds |
 | --- | --- | --- |
-| [`pi/`](../pi/) | `~/.pi/agent/` | Pi settings, models, extensions, prompts, global MCP servers |
-| [`omp/`](../omp/) | `~/.omp/agent/` | OMP config, MCP catalogue, skills, subagents, [tooling catalogue](../omp/TOOLING.md) |
+| [`pi/`](../pi/) | `~/.pi/agent/` | Pi settings, models, extensions, prompts (also linked to `~/.omp/agent/prompts/`), global MCP servers, global and scoped skills (shared with OMP) |
+| [`omp/`](../omp/) | `~/.omp/agent/` | OMP config, models and hotkeys (ported from Pi), MCP catalogue, subagents, [tooling catalogue](../omp/TOOLING.md) |
 | [`.pi/`](../.pi/), [`.omp/`](../.omp/) | not linked | This repository's own project settings |
 
 ## Pi
@@ -46,7 +46,7 @@ context.
 
 | Extension | Adds |
 | --- | --- |
-| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`) |
+| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json) |
 | `session-controls.ts` | `/clear` and `/drop` |
 | `copy-prompt.ts` | `alt+shift+c` copies the draft |
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
@@ -79,7 +79,10 @@ their own; API keys, proxies and other providers are untouched.
 
 ### Prompts
 
-Prompt templates in [`pi/prompts/`](../pi/prompts/) run only when invoked:
+Prompt templates in [`pi/prompts/`](../pi/prompts/) run only when invoked. The
+[`links`](../links) file also mirrors them into `~/.omp/agent/prompts/`, so OMP
+has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`,
+`$@`, `$1`); OMP leaves Pi's `${ARGUMENTS:-default}` form as literal text.
 
 - `/discuss`: interview, then an implementation-ready summary.
 - `/eli5 <topic>`: a throwaway visual HTML explainer.
@@ -136,6 +139,19 @@ The global servers:
   enabled, so sessions started here connect it. OMP enables it too.
 - **linear** and **notion** are hosted OAuth servers; sign in once with
   `pi mcp login linear` / `pi mcp login notion`.
+- **exa** is Exa's hosted web search, giving Pi `web_search_exa`,
+  `web_fetch_exa` and the metered `agent_run`. It signs in through OAuth at
+  `https://mcp.exa.ai/mcp?login`; sign in once with `pi mcp login exa`. Without
+  `?login` the server answers keyless on a small free plan, so Pi never offers
+  a sign-in. Clients without OAuth can send an `x-api-key` header instead
+  ([Exa MCP docs](https://exa.ai/docs/get-started/exa-mcp)).
+- **firecrawl** is Firecrawl's hosted scraper, signed in through OAuth at
+  `https://mcp.firecrawl.dev/v2/mcp-oauth`; sign in once with
+  `pi mcp login firecrawl`. Only that URL supports sign-in: the keyless
+  `https://mcp.firecrawl.dev/v2/mcp` (scrape, search and parse within daily
+  limits) has no OAuth metadata, and logging in against it fails with
+  `Unexpected token '<'`
+  ([Firecrawl MCP docs](https://docs.firecrawl.dev/mcp-server)).
 - **beacon** is a local HTTP server (`http://127.0.0.1:47321/mcp`) for the
   Beacon productivity app. Its `Authorization` header is a `!` command that
   reads the bearer secret from `~/.config/launchpad/secrets/mcp.secret` at
@@ -148,13 +164,30 @@ The global servers:
 
 ## OMP
 
+### Settings, models and hotkeys
+
+Ported from Pi on 2026-10-20; the two files are maintained separately.
+
+- [`omp/config.yml`](../omp/config.yml): `xhigh` default thinking, hidden thinking
+  blocks, quiet startup and `tui.vimMode` (Esc enters normal mode, as with Pi's
+  Vim extension; OMP's mode edits the prompt rather than scrolling the
+  transcript). `modelRoles` stay OMP's own; Pi's `enabledModels` is not ported
+  because in OMP that key hides every other model.
+- [`omp/models.yml`](../omp/models.yml): the same LithosAI DeepSeek V4.1 Flash
+  entry as `pi/models.json` (`--model lithosai/deepseek-ai/DeepSeek-V4.1-Flash`).
+- [`omp/keybindings.yml`](../omp/keybindings.yml): Pi's `Ctrl+L` model selector and
+  `Alt+Enter` follow-up. `Ctrl+L` no longer starts live voice; use `/live`.
+
 ### MCP servers
 
-[`omp/mcp.json`](../omp/mcp.json) is an opt-in catalogue. Only the read-only
-`gcloud`, `gcp-observability` and local
-[`workspace-context`](../lib/workspace-context-mcp/README.md) servers are enabled
-globally; everything else is disabled. This repository enables Context7, DeepWiki
-and grep.app in [`.omp/mcp.json`](../.omp/mcp.json).
+[`omp/mcp.json`](../omp/mcp.json) is an opt-in catalogue. Globally enabled: the
+read-only `gcloud` and `gcp-observability`, local
+[`workspace-context`](../lib/workspace-context-mcp/README.md), and the servers
+ported from `pi/mcp.json` (`linear`, `notion`, `exa`, `firecrawl`, `paper`,
+`beacon`, `hark`). OMP keeps its own OAuth sign-ins: run `/mcp reauth <name>`
+once for linear, notion and firecrawl. Everything else is disabled. This
+repository enables Context7, DeepWiki and grep.app in
+[`.omp/mcp.json`](../.omp/mcp.json).
 
 To enable a reviewed server for one repository, add it to `<repo>/.omp/mcp.json`:
 
@@ -228,16 +261,20 @@ trace lookup.
 
 ### Skills, subagents, extensions and plugins
 
-- **Skills:** `~/.omp/agent/skills/<name>/SKILL.md` (native, highest precedence),
-  `~/.claude/skills/`, `~/.agents/skills/`, project `<cwd>/.omp/skills/`, and
-  project `<cwd>/.github/skills/`. Roots are non-recursive, one level below
-  `skills/`; the native provider requires `name` and `description` frontmatter.
-  Add roots with `skills.customDirectories`.
-- **Skill scope:** keep only cross-repository skills in `~/.omp/agent/skills/`:
+- **Skills:** the managed skills live in [`pi/skills/`](../pi/skills/)
+  (`~/.pi/agent/skills/`), shared by both harnesses: Pi's `/skill` scans it
+  natively, and [`omp/config.yml`](../omp/config.yml) adds it to OMP through
+  `skills.customDirectories`. OMP also discovers `~/.omp/agent/skills/` (native,
+  highest precedence, now unmanaged), `~/.claude/skills/`, `~/.agents/skills/`,
+  project `<cwd>/.omp/skills/`, and project `<cwd>/.github/skills/`. Roots are
+  non-recursive, one level below `skills/`, and need `name` and `description`
+  frontmatter.
+- **Skill scope:** keep only cross-repository skills in `pi/skills/`:
   `agent-handoff`, `llm-eval`, `omp-repo-setup`, `repo-recon`,
   `secret-sast-sweep` and `visual-verify`. Repository-specific skills live in
-  `~/.omp/agent/scoped-skills/`, which is not auto-discovered; link each into the
-  repositories it applies to at `.omp/skills/<name>`:
+  [`pi/scoped-skills/`](../pi/scoped-skills/) (`~/.pi/agent/scoped-skills/`),
+  which neither harness auto-discovers; link each into the repositories it
+  applies to at `.omp/skills/<name>` (both OMP and `/skill` scan that folder):
   - `lintmax`: repositories with `pnpm-lock.yaml`
   - `agent-test-author`: prompt-behemoth consumers
   - `everyday-ai-frontend-styleguide`: `de-dashboard`
