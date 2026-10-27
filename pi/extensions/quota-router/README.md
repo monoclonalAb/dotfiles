@@ -6,11 +6,12 @@ account hits its usage limit — same model, same turn — and move back once th
 resets.
 
 ```text
-acct:work ↩14:30
+· @work
 ```
 
-The footer shows `acct:<label>` and the earliest return time only while a provider
-is away from your preferred account; `route:off` means automation is disabled.
+The footer marks the active login with a dim `· @<label>` only while a provider
+is away from your preferred account; the return time is in `/accounts`, and
+`route:off` means automation is disabled.
 
 ## Commands
 

@@ -6,6 +6,7 @@ import type { Credential } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type * as Accounts from "./accounts.ts";
 import type * as Router from "./router.ts";
+import { THEME_APPLIED_EVENT } from "../theme-sync/events.ts";
 
 // Pi aliases "@earendil-works/pi-ai" for extensions to the installed compat entry point;
 // resolve the same installed modules here instead of duplicating Pi's retry policy.
@@ -27,7 +28,6 @@ const {
   classifyResponse,
   clampReset,
   DEFAULT_COOLDOWN_MS,
-  formatClock,
   formatDuration,
   isRetryableByPi,
   MAX_COOLDOWN_MS,
@@ -183,6 +183,8 @@ function harness(options: {
   const statuses: Array<string | undefined> = [];
   const timers: Array<{ delay: number; fire: () => void; cancelled: boolean }> = [];
   const opened: string[] = [];
+  const listeners = new Map<string, Array<(payload: unknown) => void>>();
+  let palette = "latte";
   const commands = new Map<string, any>();
   const oauth = new Set(options.oauthProviders ?? ["openai-codex", "anthropic"]);
   const accounts = memoryAccounts(
@@ -196,6 +198,14 @@ function harness(options: {
     registerCommand(name: string, value: any) {
       commands.set(name, value);
     },
+    events: {
+      on(name: string, listener: (payload: unknown) => void) {
+        const list = listeners.get(name) ?? [];
+        list.push(listener);
+        listeners.set(name, list);
+      },
+      emit() {},
+    },
     setModel: async () => {
       throw new Error("the router must not change models");
     },
@@ -208,6 +218,7 @@ function harness(options: {
     mode: "tui",
     isIdle: () => idle,
     ui: {
+      theme: { fg: (color: string, text: string) => `<${palette}:${color}>${text}</${palette}:${color}>` },
       notify: (message: string, type: string) => notifications.push({ message, type }),
       setStatus: (key: string, text: string | undefined) => {
         expect(key).toBe(STATUS_KEY);
@@ -234,6 +245,12 @@ function harness(options: {
   const start = () => handlers.get("session_start")!({ type: "session_start", reason: "startup" }, ctx);
   return {
     handlers, ctx, notifications, statuses, timers, opened, accounts, start,
+    setPalette: (value: string) => {
+      palette = value;
+    },
+    emitEvent: (name: string, payload?: unknown) => {
+      for (const listener of listeners.get(name) ?? []) listener(payload);
+    },
     command: (name: string, argument = "") => commands.get(name).handler(argument, ctx),
     completions: (name: string, prefix: string) => commands.get(name).getArgumentCompletions(prefix),
     setModel: (m: ActiveModel) => {
@@ -279,7 +296,7 @@ describe("router lifecycle", () => {
     expect(h.ctx.model).toBe(codex);
     // The message-reported reset (120 min) wins over the header hint (60 min).
     expect(h.accounts.state.cooldowns["openai-codex@main"].until).toBe(T0 + 120 * 60_000);
-    expect(h.statuses.at(-1)).toBe(`acct:work ↩${formatClock(T0 + 120 * 60_000)}`);
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@work");
     expect(h.notifications.map((n) => n.type)).toEqual(["warning"]);
     expect(h.notifications[0].message).toContain("account main usage limit");
     expect(h.notifications[0].message).toContain("switched to account work");
@@ -302,6 +319,16 @@ describe("router lifecycle", () => {
     expect(h.accounts.data.get("openai-codex@work")).toEqual(cred("work"));
     expect(h.statuses.at(-1)).toBeUndefined();
     expect(h.notifications.at(-1)?.message).toContain("back on account main");
+  });
+
+  test("theme-sync flavour changes repaint the account marker", async () => {
+    const h = harness();
+    await h.start();
+    await failTurn(h, CODEX_LIMIT);
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@work");
+    h.setPalette("mocha");
+    h.emitEvent(THEME_APPLIED_EVENT);
+    expect(h.statuses.at(-1)).toBe("<mocha:dim>· </mocha:dim>@work");
   });
 
   test("Anthropic 429 is already retryable: no replacement; with no parked account the error is left alone once", async () => {

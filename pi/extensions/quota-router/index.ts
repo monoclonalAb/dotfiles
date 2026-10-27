@@ -8,6 +8,7 @@ import {
   type ExtensionCommandContext,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { THEME_APPLIED_EVENT } from "../theme-sync/events.ts";
 import { ACCOUNTS_CHANGED_EVENT, AccountStore, accountIdentity, type Activation, parkedKey } from "./accounts.ts";
 import { createRuntimeBackend, createStateStore, stateDirectory } from "./backend.ts";
 import {
@@ -104,25 +105,26 @@ export function registerQuotaRouter(pi: ExtensionAPI, options: RouterOptions = {
   let noRouteNotified: string | undefined;
   let cancelTimer: (() => void) | undefined;
   let returning = false;
+  /** Session that last painted the account status, so a theme change can repaint it. */
+  let statusContext: ExtensionContext | undefined;
 
   function clearTimer(): void {
     cancelTimer?.();
     cancelTimer = undefined;
   }
 
+  /** Footer marker for the current model's provider; nothing while the preferred account is active. */
+  function statusText(ctx: ExtensionContext): string | undefined {
+    if (!enabled) return "route:off";
+    const provider = ctx.model?.provider;
+    if (!provider || !accounts().preferredLabel(provider)) return undefined;
+    return `${ctx.ui.theme.fg("dim", "· ")}@${accounts().activeLabel(provider)}`;
+  }
+
   function updateStatus(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
-    let text: string | undefined;
-    if (!enabled) text = "route:off";
-    else if (ctx.model) {
-      const provider = ctx.model.provider;
-      const preferred = accounts().preferredLabel(provider);
-      if (preferred) {
-        const cooldown = accounts().cooldown(provider, preferred);
-        text = `acct:${accounts().activeLabel(provider)}${cooldown ? ` ↩${formatClock(cooldown.until)}` : ""}`;
-      }
-    }
-    ctx.ui.setStatus(STATUS_KEY, text);
+    statusContext = ctx;
+    ctx.ui.setStatus(STATUS_KEY, statusText(ctx));
     pi.events?.emit(ACCOUNTS_CHANGED_EVENT, undefined);
   }
 
@@ -208,6 +210,7 @@ export function registerQuotaRouter(pi: ExtensionAPI, options: RouterOptions = {
 
   pi.on("session_shutdown", () => {
     clearTimer();
+    statusContext = undefined;
   });
 
   pi.on("after_provider_response", (event, ctx) => {
@@ -303,6 +306,12 @@ export function registerQuotaRouter(pi: ExtensionAPI, options: RouterOptions = {
 
   pi.on("agent_settled", async (_event, ctx) => {
     await tryReturn(ctx);
+  });
+
+  // Footer text carries the palette's ANSI code, so theme-sync's flavour changes must repaint it.
+  pi.events?.on(THEME_APPLIED_EVENT, () => {
+    const ctx = statusContext;
+    if (ctx?.hasUI) ctx.ui.setStatus(STATUS_KEY, statusText(ctx));
   });
 
   function loginInteraction(ctx: ExtensionContext, signal: AbortSignal): AuthInteraction {
