@@ -20,8 +20,19 @@ duplicate the commands). Tested with Pi 0.87.1.
 
 Needs an idle session in a Git repository. `REVIEW_GUIDELINES.md` next to the
 nearest `.pi` directory is used for trusted projects. **Loop fixing** (off by
-default, max ten passes) and "return and fix findings" start coding turns, but
-never commit, push or comment. A plain review is a prompt, not a sandbox.
+default) and "return and fix findings" start coding turns, but never commit,
+push or comment. A plain review is a prompt, not a sandbox.
+
+Loop fixing is capped so that it converges (local change):
+
+1. Only `[P0]`/`[P1]` findings start a fix round; P2/P3 go to the final summary.
+2. It stops after three reviews. If P0/P1 findings remain, it returns with the
+   summary and a warning to reconsider the approach instead of fixing again.
+3. Reviews 2 and 3 get the earlier findings and the fixer's reply (declined
+   findings stay declined unless shown wrong), and are pointed at
+   `git diff <before> <after>` of the latest fixes. The two trees are snapshots
+   made with a temporary copy of the index, so your staging area, stash and
+   commits are untouched; they leave unreferenced objects for `git gc`.
 
 `/review pr` uses `gh` and checks the PR out in the current working tree only
 after confirmation and a check for tracked changes; it never stashes or resets.

@@ -46,6 +46,7 @@ than assuming a linked README was automatically loaded.
 | [Global skills](../omp/skills/) and [scoped skills](../omp/scoped-skills/) | Read the matching `SKILL.md` only for its declared task; references/templates belong to that skill, not the dotfiles setup path |
 | [OMP agents](../omp/agents/) | Task-specific subagent prompts; model roles resolve from [OMP config](../omp/config.yml) |
 | [Pi extension policy](../pi/extensions/README.md) | Maintainer policy, not automatically loaded model context; includes approved exceptions |
+| [Review rules](../REVIEW_GUIDELINES.md) | Appended by Pi's `/review` to reviews started in this repository; what counts as a real bug here and what to skip |
 | [Vim navigation](../pi/extensions/modal-vim-navigation/README.md) and [Anthropic route](../pi/extensions/omp-anthropic-route/README.md) | Extension-specific operation and constraints; follow the policy before changing source |
 | [Active plans](plans/README.md#active-plan-index) | In-progress task state; revalidate against the worktree before resuming |
 | [Completed plans](plans/completed/) | Historical decisions and checks, not current system health or standing permission to deploy |

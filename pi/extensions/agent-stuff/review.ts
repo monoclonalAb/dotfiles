@@ -1,5 +1,7 @@
 // Vendored from mitsuhiko/agent-stuff@122e2994adddb113c04764c5697217dae120fcc6 (Apache-2.0).
-// Modified locally: per-runtime state, idle/trust guards, confirmed PR checkout and safe return.
+// Modified locally: per-runtime state, idle/trust guards, confirmed PR checkout and safe return;
+// loop fixing stops at three reviews, blocks only on P0/P1, and later reviews carry earlier
+// findings and focus on the fix diff.
 /**
  * Code Review Extension (inspired by Codex's review feature)
  *
@@ -41,6 +43,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import path from "node:path";
+import os from "node:os";
 import { promises as fs } from "node:fs";
 
 export default function reviewExtension(pi: ExtensionAPI) {
@@ -54,7 +57,8 @@ let reviewLoopInProgress = false;
 const REVIEW_STATE_TYPE = "review-session";
 const REVIEW_ANCHOR_TYPE = "review-anchor";
 const REVIEW_SETTINGS_TYPE = "review-settings";
-const REVIEW_LOOP_MAX_ITERATIONS = 10;
+const REVIEW_LOOP_MAX_REVIEWS = 3;
+const REVIEW_LOOP_CARRY_LIMIT = 4000;
 const REVIEW_LOOP_START_TIMEOUT_MS = 15000;
 const REVIEW_LOOP_START_POLL_MS = 50;
 
@@ -339,7 +343,7 @@ function hasBlockingReviewFindings(messageText: string): boolean {
 		}
 
 		foundTaggedFinding = true;
-		if (/\[(P0|P1|P2)\]/i.test(line)) {
+		if (/\[(P0|P1)\]/i.test(line)) {
 			return true;
 		}
 	}
@@ -483,10 +487,11 @@ Provide your findings in a clear, structured format:
 1. List each finding with its priority tag, file location, and explanation.
 2. Findings must reference locations that overlap with the actual diff — don't flag pre-existing code.
 3. Keep line references as short as possible (avoid ranges over 5-10 lines; pick the most suitable subrange).
-4. Provide an overall verdict: "correct" (no blocking issues) or "needs attention" (has blocking issues).
-5. Ignore trivial style issues unless they obscure meaning or violate documented standards.
-6. Do not generate a full PR fix — only flag issues and optionally provide short suggestion blocks.
-7. End with the required "Human Reviewer Callouts (Non-Blocking)" section and all applicable bold callouts (no yes/no).
+4. If the same mistake appears in several places, report it once as a pattern and list every location, so the author can fix every instance.
+5. Provide an overall verdict: "correct" (no blocking issues) or "needs attention" (has blocking issues).
+6. Ignore trivial style issues unless they obscure meaning or violate documented standards.
+7. Do not generate a full PR fix — only flag issues and optionally provide short suggestion blocks.
+8. End with the required "Human Reviewer Callouts (Non-Blocking)" section and all applicable bold callouts (no yes/no).
 
 Output all findings the author would fix if they knew about them. If there are no qualifying findings, explicitly state the code looks good. Don't stop at the first finding - list every qualifying issue. Then append the required non-blocking callouts section.`;
 
@@ -604,6 +609,67 @@ async function hasPendingChanges(pi: ExtensionAPI): Promise<boolean> {
 	const lines = stdout.trim().split("\n").filter((line) => line.trim());
 	const trackedChanges = lines.filter((line) => !line.startsWith("??"));
 	return trackedChanges.length > 0;
+}
+
+/**
+ * Record the working tree (tracked and untracked, not ignored) as a Git tree object.
+ * Works on a temporary copy of the index, so the user's staging area, stash and commits
+ * are untouched; the only side effect is unreferenced objects that `git gc` prunes.
+ * Returns null when Git cannot produce a tree.
+ */
+async function snapshotWorkingTree(pi: ExtensionAPI, cwd: string): Promise<string | null> {
+	const indexPath = await pi.exec("git", ["rev-parse", "--git-path", "index"], { cwd });
+	if (indexPath.code !== 0) return null;
+
+	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-review-snapshot-"));
+	const tempIndex = path.join(tempDir, "index");
+	try {
+		// Starting from the real index keeps `git add` fast; a repository without one starts empty.
+		const realIndex = path.resolve(cwd, indexPath.stdout.trim());
+		const hasIndex = await fs.stat(realIndex).then((stats) => stats.isFile(), () => false);
+		if (hasIndex) await fs.copyFile(realIndex, tempIndex);
+
+		const indexEnv = `GIT_INDEX_FILE=${tempIndex}`;
+		const added = await pi.exec("env", [indexEnv, "git", "add", "--all"], { cwd });
+		if (added.code !== 0) return null;
+		const tree = await pi.exec("env", [indexEnv, "git", "write-tree"], { cwd });
+		const sha = tree.stdout.trim();
+		return tree.code === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
+	} finally {
+		await fs.rm(tempDir, { recursive: true, force: true });
+	}
+}
+
+function clipLoopText(text: string): string {
+	const trimmed = text.trim();
+	return trimmed.length > REVIEW_LOOP_CARRY_LIMIT
+		? `${trimmed.slice(0, REVIEW_LOOP_CARRY_LIMIT)}\n[truncated]`
+		: trimmed;
+}
+
+/** One earlier loop round, as the next reviewer sees it: what was found and how the author answered. */
+function formatLoopRound(review: number, reviewText: string, fixText: string): string {
+	const lines = reviewText.split(/\r?\n/);
+	const bounds = getFindingsSectionBounds(lines);
+	const findings = (bounds ? lines.slice(bounds.start, bounds.end).join("\n") : "").trim() || reviewText;
+	return `### Review ${review} findings\n\n${clipLoopText(findings)}\n\n### Author's response to review ${review}\n\n${clipLoopText(fixText)}`;
+}
+
+function buildLoopReviewInstruction(
+	review: number,
+	earlierRounds: string[],
+	fixDiff: { before: string; after: string } | null,
+): string {
+	const scope = fixDiff
+		? `Run \`git diff ${fixDiff.before} ${fixDiff.after}\` to see exactly what changed since the last review. Review that diff: check whether each earlier finding is fixed and whether the fixes introduced new problems. Read the rest of the change only as needed to judge those fixes; do not re-review unchanged code from scratch.`
+		: "The diff of the latest fixes is unavailable, so review the whole change again, focusing on whether the earlier findings are fixed.";
+	return `This is review ${review} of at most ${REVIEW_LOOP_MAX_REVIEWS} in a review-and-fix loop. The author has already acted on the earlier reviews below.
+
+${scope}
+
+Do not repeat earlier findings as new ones. Report an earlier finding again only if it is still unfixed, with "(still open)" in its title. If the author declined a finding with a reason, accept the reason unless you can show it is wrong with a file and line.
+
+${earlierRounds.join("\n\n")}`;
 }
 
 /**
@@ -1305,7 +1371,7 @@ type ReviewPresetValue =
 		ctx: ExtensionCommandContext,
 		target: ReviewTarget,
 		useFreshSession: boolean,
-		options?: { includeLocalChanges?: boolean; extraInstruction?: string },
+		options?: { includeLocalChanges?: boolean; extraInstruction?: string; loopInstruction?: string },
 	): Promise<boolean> {
 		// Check if we're already in a review
 		if (reviewOriginId) {
@@ -1389,6 +1455,10 @@ type ReviewPresetValue =
 
 		if (projectGuidelines) {
 			fullPrompt += `\n\nThis project has additional instructions for code reviews:\n\n${projectGuidelines}`;
+		}
+
+		if (options?.loopInstruction) {
+			fullPrompt += `\n\n## Earlier rounds of this review loop\n\n${options.loopInstruction}`;
 		}
 
 		const modeHint = useFreshSession ? " (fresh session)" : "";
@@ -1588,15 +1658,18 @@ type ReviewPresetValue =
 		setReviewWidget(ctx, Boolean(reviewOriginId));
 		try {
 			ctx.ui.notify(
-				"Loop fixing enabled: using Empty branch mode and cycling until no blocking findings remain.",
+				`Loop fixing enabled: using Empty branch mode, up to ${REVIEW_LOOP_MAX_REVIEWS} reviews until no P0/P1 findings remain.`,
 				"info",
 			);
 
-			for (let pass = 1; pass <= REVIEW_LOOP_MAX_ITERATIONS; pass++) {
+			const earlierRounds: string[] = [];
+			let fixDiff: { before: string; after: string } | null = null;
+			for (let pass = 1; pass <= REVIEW_LOOP_MAX_REVIEWS; pass++) {
 				const reviewBaselineAssistantId = getLastAssistantSnapshot(ctx)?.id;
 				const started = await executeReview(ctx, target, true, {
 					includeLocalChanges: true,
 					extraInstruction,
+					loopInstruction: pass > 1 ? buildLoopReviewInstruction(pass, earlierRounds, fixDiff) : undefined,
 				});
 				if (!started) {
 					ctx.ui.notify("Loop fixing stopped before starting the review pass.", "warning");
@@ -1632,7 +1705,8 @@ type ReviewPresetValue =
 					return;
 				}
 
-				if (!hasBlockingReviewFindings(reviewSnapshot.text)) {
+				const isBlocking = hasBlockingReviewFindings(reviewSnapshot.text);
+				if (!isBlocking || pass === REVIEW_LOOP_MAX_REVIEWS) {
 					const finalized = await executeEndReviewAction(ctx, "returnAndSummarize", {
 						showSummaryLoader: true,
 						notifySuccess: false,
@@ -1641,12 +1715,21 @@ type ReviewPresetValue =
 						return;
 					}
 
-					ctx.ui.notify("Loop fixing complete: no blocking findings remain.", "info");
+					if (isBlocking) {
+						ctx.ui.notify(
+							`Loop fixing stopped after ${REVIEW_LOOP_MAX_REVIEWS} reviews with P0/P1 findings still open. Step back and reconsider the approach before fixing again.`,
+							"warning",
+						);
+					} else {
+						ctx.ui.notify("Loop fixing complete: no P0/P1 findings remain.", "info");
+					}
 					return;
 				}
 
-				ctx.ui.notify(`Loop fixing pass ${pass}: found blocking findings, returning to fix them...`, "info");
+				ctx.ui.notify(`Loop fixing review ${pass}: found P0/P1 findings, returning to fix them...`, "info");
 
+				// The review turn is read-only, so this is the tree the fixes start from.
+				const beforeFix = await snapshotWorkingTree(pi, ctx.cwd);
 				const fixBaselineAssistantId = getLastAssistantSnapshot(ctx)?.id;
 				const sentFixPrompt = await executeEndReviewAction(ctx, "returnAndFix", {
 					showSummaryLoader: true,
@@ -1681,12 +1764,14 @@ type ReviewPresetValue =
 					ctx.ui.notify("Loop fixing stopped: fix pass output was truncated (stopReason=length).", "warning");
 					return;
 				}
-			}
 
-			ctx.ui.notify(
-				`Loop fixing stopped after ${REVIEW_LOOP_MAX_ITERATIONS} passes (safety limit reached).`,
-				"warning",
-			);
+				const afterFix = beforeFix ? await snapshotWorkingTree(pi, ctx.cwd) : null;
+				fixDiff = beforeFix && afterFix ? { before: beforeFix, after: afterFix } : null;
+				if (!fixDiff) {
+					ctx.ui.notify("Could not snapshot the working tree; the next review covers the whole change.", "warning");
+				}
+				earlierRounds.push(formatLoopRound(pass, reviewSnapshot.text, fixSnapshot.text));
+			}
 		} finally {
 			reviewLoopInProgress = false;
 			setReviewWidget(ctx, Boolean(reviewOriginId));
@@ -1860,13 +1945,14 @@ Preserve exact file paths, function names, and error messages where available.`;
 Instructions:
 1. Treat the summary's Findings/Fix Queue as a checklist.
 2. Fix in priority order: P0, P1, then P2 (include P3 if quick and safe).
-3. If a finding is invalid/already fixed/not possible right now, briefly explain why and continue.
-4. Treat "Human Reviewer Callouts (Non-Blocking)" as informational only; do not convert them into fix tasks unless there is a separate explicit finding.
-5. Follow fail-fast error handling: do not add local catch/fallback recovery unless this scope is an explicit boundary that can safely translate the failure.
-6. If you add or keep a \`try/catch\`, explain the expected failure mode and either rethrow with context or return a boundary-safe error response.
-7. JSON parsing/decoding should fail loudly by default; avoid silent fallback parsing.
-8. Run relevant tests/checks for touched code where practical.
-9. End with: fixed items, deferred/skipped items (with reasons), and verification results.`;
+3. When a finding describes a kind of mistake, search the change for other instances of it and fix them all, not only the cited line.
+4. If a finding is invalid/already fixed/not possible right now, briefly explain why and continue.
+5. Treat "Human Reviewer Callouts (Non-Blocking)" as informational only; do not convert them into fix tasks unless there is a separate explicit finding.
+6. Follow fail-fast error handling: do not add local catch/fallback recovery unless this scope is an explicit boundary that can safely translate the failure.
+7. If you add or keep a \`try/catch\`, explain the expected failure mode and either rethrow with context or return a boundary-safe error response.
+8. JSON parsing/decoding should fail loudly by default; avoid silent fallback parsing.
+9. Run relevant tests/checks for touched code where practical.
+10. End with: fixed items, deferred/skipped items (with reasons), and verification results.`;
 
 	type EndReviewAction = "returnOnly" | "returnAndFix" | "returnAndSummarize";
 	type EndReviewActionResult = "ok" | "cancelled" | "error";

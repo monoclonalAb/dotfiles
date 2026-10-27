@@ -232,6 +232,74 @@ for (const target of ['uncommitted', 'branch main', 'commit abc123']) test(`revi
   } finally { await f.close(); }
 });
 
+const lastUserText = call => text(call.context.messages.at(-1).content);
+
+test('review loop stops after three reviews, carries earlier rounds and reviews the fix diff without touching the index', async () => {
+  // Each review reports a P1; the fixer declines it. Calls: review, summary, fix (x2), then review, summary.
+  const responses = [];
+  for (let n = 1; n <= 3; n++) {
+    responses.push(reply(`## Findings\n- [P1] Fixture bug ${n} at \`fixture.txt:1\`\n\n## Verdict\nneeds attention`), reply(`## Findings\n- [P1] Fixture bug ${n}`));
+    if (n < 3) responses.push(reply(`Declined fixture bug ${n}: the file is a test fixture.`));
+  }
+  const f = await fixture({ responses });
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd: f.cwd, encoding: 'utf8' });
+  try {
+    // A real index with staged, unstaged and untracked work, which the snapshot must not disturb.
+    git('add', 'fixture.txt');
+    git('commit', '-q', '-m', 'fixture');
+    writeFileSync(join(f.cwd, 'fixture.txt'), 'staged edit');
+    git('add', 'fixture.txt');
+    writeFileSync(join(f.cwd, 'fixture.txt'), 'unstaged edit');
+    writeFileSync(join(f.cwd, 'untracked.txt'), 'new file');
+    const statusBefore = git('status', '--porcelain');
+    assert.equal(statusBefore, 'MM fixture.txt\n?? untracked.txt\n');
+    f.sm.appendCustomEntry('review-settings', { loopFixingEnabled: true });
+    await f.session.reload();
+    const run = f.session.prompt('/review uncommitted');
+    await until(() => f.calls.length === 8 && f.session.isIdle, 'three loop reviews');
+    await run;
+    await tick();
+    assert.equal(f.calls.length, 8);
+    const reviews = f.calls.map(lastUserText).filter(p => p.startsWith('# Review Guidelines'));
+    const fixes = f.calls.map(lastUserText).filter(p => p.startsWith('Use the latest review summary'));
+    assert.equal(reviews.length, 3);
+    assert.equal(fixes.length, 2);
+    assert(fixes[0].includes('fix them all, not only the cited line'));
+    assert(!reviews[0].includes('Earlier rounds of this review loop'));
+    assert(reviews[1].includes('This is review 2 of at most 3'));
+    assert(reviews[1].includes('[P1] Fixture bug 1'));
+    assert(reviews[1].includes('Declined fixture bug 1'));
+    assert(reviews[1].includes('(still open)'));
+    const diff = reviews[1].match(/git diff ([0-9a-f]{40}) ([0-9a-f]{40})/);
+    assert(diff, 'review 2 is pointed at the fix diff');
+    // The snapshot is the working tree (including untracked files); the real index is untouched.
+    assert.equal(git('show', `${diff[1]}:fixture.txt`), 'unstaged edit');
+    assert.equal(git('show', `${diff[1]}:untracked.txt`), 'new file');
+    assert.equal(git('status', '--porcelain'), statusBefore);
+    assert.equal(git('show', ':fixture.txt'), 'staged edit');
+    assert(reviews[2].includes('This is review 3 of at most 3'));
+    assert(reviews[2].includes('Review 1 findings') && reviews[2].includes('Review 2 findings'));
+    assert(f.notices.some(n => n.level === 'warning' && n.message.includes('stopped after 3 reviews with P0/P1 findings still open')));
+    assert(f.sm.getBranch().some(e => e.type === 'branch_summary'));
+    assert(!f.sm.getBranch().findLast(e => e.customType === 'review-session').data.active);
+  } finally { await f.close(); }
+});
+
+test('review loop treats P2-only findings as non-blocking and ends after one review', async () => {
+  const f = await fixture({ responses: [reply('## Findings\n- [P2] Minor fixture issue\n\n## Verdict\ncorrect'), reply('## Findings\n- [P2] Minor fixture issue')] });
+  try {
+    f.sm.appendCustomEntry('review-settings', { loopFixingEnabled: true });
+    await f.session.reload();
+    const run = f.session.prompt('/review uncommitted');
+    await until(() => f.calls.length === 2 && f.session.isIdle, 'one loop review');
+    await run;
+    await tick();
+    assert.equal(f.calls.length, 2);
+    assert(!f.calls.map(lastUserText).some(p => p.startsWith('Use the latest review summary')));
+    assert(f.notices.some(n => n.message.includes('no P0/P1 findings remain')));
+  } finally { await f.close(); }
+});
+
 test('answer uses selected registry, real Q&A confirmation, no submission on Escape', async () => {
   const f = await fixture({ responses: [reply('Which database?'), reply('{"questions":[{"question":"Which database?"}]}'), reply('Thanks')] });
   try {
