@@ -229,6 +229,117 @@ class HerdrReviewTests(unittest.TestCase):
     def test_minimal_path_is_pinned(self):
         self.assertTrue(module.search_path({"HOME": "/h"}).startswith("/h/.local/bin:/opt/homebrew/bin:"))
 
+    def test_branch_reviews_commits_since_the_fork_plus_working_tree(self):
+        repo = GitRepo(self.repo)
+        repo.commit("init")
+        fork = repo.head()
+        repo.git("switch", "-qc", "feature")
+        repo.commit("feature work")
+        status, _ = self.run_review("--branch")
+        self.assertEqual(status, 0)
+        [run] = self.tuicr_runs()
+        self.assertEqual(run[1], ["-r", f"{fork}..HEAD", "-w", "--stdout", "--no-update-check"])
+        self.assertEqual(os.path.realpath(run[2]), os.path.realpath(self.repo))
+        self.assertEqual(self.prompts()[0][2], "w1:p1")
+        status, output = self.run_review("--check", "--branch")
+        self.assertEqual(status, 0)
+        self.assertIn(f"-r {fork}..HEAD -w --stdout", output)
+        self.assertEqual(len(self.tuicr_runs()), 1, "--check opens nothing")
+
+    def test_branch_outside_git_opens_nothing(self):
+        self.assertEqual(self.run_review("--branch")[0], 1)
+        self.assertIn("not a Git checkout", self.pause.call_args[0][0])
+        self.assertEqual(self.tuicr_runs(), [])
+        status, output = self.run_review("--check", "--branch")
+        self.assertEqual(status, 1)
+        self.assertIn("not a Git checkout", output)
+
+
+class GitRepo:
+    """A throwaway Git repository with an isolated config."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.env = {"HOME": str(self.path), "PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": os.devnull,
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+        self.count = 0
+        self.git("init", "-q", "-b", "main")
+
+    def git(self, *args):
+        return subprocess.run(["git", *args], cwd=self.path, env=self.env, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(self, message, name="a.py"):
+        self.count += 1
+        (self.path / name).write_text(f"x = {self.count}\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", message)
+        return self.head()
+
+    def head(self):
+        return self.git("rev-parse", "HEAD")
+
+
+class BranchArgumentsTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="herdr review branch ")
+        self.addCleanup(temp.cleanup)
+        path = Path(temp.name) / "repo"
+        path.mkdir()
+        self.repo = GitRepo(path)
+
+    def arguments(self):
+        return module.branch_arguments(str(self.repo.path), self.repo.env)
+
+    def test_main_moving_on_does_not_leak_into_the_branch(self):
+        fork = self.repo.commit("init")
+        self.repo.git("switch", "-qc", "feature")
+        self.repo.commit("feature 1", "b.py")
+        self.repo.commit("feature 2", "b.py")
+        self.repo.git("switch", "-q", "main")
+        self.repo.commit("main moved on")
+        self.repo.git("switch", "-q", "feature")
+        self.assertEqual(self.arguments(), ["-r", f"{fork}..HEAD", "-w"])
+
+    def test_newer_origin_main_beats_a_stale_local_main(self):
+        self.repo.commit("init")
+        fetched = self.repo.commit("fetched later")
+        self.repo.git("update-ref", "refs/remotes/origin/main", fetched)
+        self.repo.git("switch", "-qc", "feature")
+        self.repo.git("branch", "-qf", "main", "HEAD~1")  # local main never pulled
+        self.repo.commit("feature", "b.py")
+        self.assertEqual(self.arguments(), ["-r", f"{fetched}..HEAD", "-w"])
+
+    def test_origin_head_names_the_default_branch(self):
+        fork = self.repo.commit("init")
+        self.repo.git("branch", "-qm", "main", "trunk")
+        self.repo.git("update-ref", "refs/remotes/origin/trunk", fork)
+        self.repo.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+        self.repo.git("switch", "-qc", "feature")
+        self.repo.commit("feature", "b.py")
+        self.assertEqual(self.arguments(), ["-r", f"{fork}..HEAD", "-w"])
+
+    def test_on_the_default_branch_unpushed_commits_count(self):
+        pushed = self.repo.commit("pushed")
+        self.repo.git("update-ref", "refs/remotes/origin/main", pushed)
+        self.repo.commit("unpushed")
+        self.assertEqual(self.arguments(), ["-r", f"{pushed}..HEAD", "-w"])
+
+    def test_nothing_committed_yet_reviews_the_working_tree(self):
+        self.assertEqual(self.arguments(), ["-w"], "unborn HEAD")
+        self.repo.commit("init")
+        self.assertEqual(self.arguments(), ["-w"], "local-only main")
+        self.repo.git("switch", "-qc", "feature")
+        self.assertEqual(self.arguments(), ["-w"], "branch without commits")
+
+    def test_unknown_default_branch_is_an_error(self):
+        self.repo.commit("init")
+        self.repo.git("branch", "-qm", "main", "feature")
+        with self.assertRaisesRegex(module.ReviewError, "cannot find the default branch"):
+            self.arguments()
+
 
 def real_tuicr():
     candidate = os.environ.get("HERDR_REVIEW_TUICR_TEST_BIN") or shutil.which(
@@ -270,11 +381,11 @@ class RealTuicrTests(unittest.TestCase):
                         HERDR_ACTIVE_TAB_ID="w1:t1", FAKE_STATE=str(self.state_path),
                         FAKE_LOG=str(self.log))
 
-    def drive(self, keys):
+    def drive(self, keys, *argv):
         import fcntl, pty, struct, termios
         pid, fd = pty.fork()
         if pid == 0:
-            os.execve(sys.executable, [sys.executable, str(SOURCE)], self.env)
+            os.execve(sys.executable, [sys.executable, str(SOURCE), *argv], self.env)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
 
         def pump(seconds):
@@ -319,6 +430,22 @@ class RealTuicrTests(unittest.TestCase):
         # ZQ discards a new comment without sending it.
         self.assertEqual(self.drive(["jjjj", "c", "Discard me", "\r", "ZQ"]), 0)
         self.assertEqual(len(self.prompts()), 1)
+
+    def test_branch_review_covers_commits_and_working_tree(self):
+        def git(*args):
+            return subprocess.run(["git", *args], cwd=self.repo, env=self.env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        git("switch", "-qc", "feature")
+        (self.repo / "b.py").write_text("committed = 1\n")
+        git("add", "b.py")
+        git("commit", "-qm", "feature")
+        commit = git("rev-parse", "--short", "HEAD")
+        self.assertEqual(self.drive(["jjjj", "c", "Branch note", "\r", "ZZ"], "--branch"), 0)
+        [prompt] = self.prompts()
+        self.assertIn(f"Reviewing staged + unstaged + commits: {commit}", prompt[3])
+        self.assertIn("- Branch note", prompt[3])
+        self.assertEqual(self.drive(["ZZ"], "--branch"), 0)
+        self.assertEqual(len(self.prompts()), 1, "sent branch comments were cleared")
 
 
 if __name__ == "__main__":

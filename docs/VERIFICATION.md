@@ -23,6 +23,7 @@ Use temporary directories outside the repository for generated output.
 | Pi task launcher | `node --test herdr/plugins/task-launcher/*.test.mjs`, then `python3 herdr/plugins/task-launcher/pty-smoke.py` | Installed npm Pi/Node; temporary Git fixtures (including a local `origin`), fake Herdr/Pi, loopback naming provider, closed-tab hangup; no real clipboard or agent |
 | Pi task launcher prerequisites | `env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/sh herdr/plugins/task-launcher/launch.sh --check` | Minimal-PATH Pi/Node resolution; no model requests |
 | Herdr review popup | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/herdr-review -p 'test_*.py'` | Fake Herdr/tuicr; with tuicr installed, also drives real tuicr in a PTY. No live Herdr or agent input |
+| Tern worktree sessions (`tw`) | [Tern `tw` smoke](#tern-tw-smoke) below | Temporary repository, isolated Tern daemon and fake `omp`; no live Tern window, agent or model request |
 | Terminal Neovim opener | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s lib/terminal-links -p 'test_*.py'` | Hint TOML/argv and headless Neovim; GUI launches mocked |
 | Workspace Context MCP | `node --test lib/workspace-context-mcp/*.test.mjs` | Temporary fixture workspace and a spawned stdio server; never reads the real workspace |
 | Pi extensions (Bun) | `bun test ./pi/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `theme-sync`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `long-context`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links`, `token-speed` |
@@ -55,6 +56,29 @@ sh -n herdr/plugins/task-launcher/launch.sh
   done
 )
 ```
+
+### Tern `tw` smoke
+
+Tern panes ignore the daemon's `HOME` and load the real `~/.zshrc`, so a fake
+`omp` placed early on `PATH` is not enough: the real agent starts, runs the test
+prompt and spends quota. Tern puts `$TERN_CONFIG_DIR/omp/bin` first on every
+pane's `PATH`, so put the fake there and prove it before typing a prompt.
+
+1. In `d=$(mktemp -d)`, write an executable `$d/config/omp/bin/omp` that prints
+   its arguments and `$PWD`.
+2. With every other `TERN_*` variable unset, set `TERN_CONFIG_DIR=$d/config` and
+   `TERN_DAEMON_SOCKET=$d/daemon.sock`, then run `tern daemon --socket
+   $d/daemon.sock` in the background. `tern ls --json` with the same variables
+   must list no sessions; the live window's sessions mean it is not isolated.
+3. Open a guard session in a temporary repository (`tern new session guard
+   --cwd <repo>`) and `tern run` `whence -a omp > <file>` in it. The fake must
+   come first.
+4. Source the `tw` function into `zsh -f` with
+   `WORKTRUNK_CONFIG_PATH=<repo>/worktrunk/config.toml` and a temporary `HOME`
+   (Worktrunk honours it, so worktrees land there). Run `tw`, then check
+   `tern ls --json` (session name, `cwd`, `shown`) and `tern capture` for the
+   fake's output.
+5. Stop the daemon and delete `$d`.
 
 ## Documentation and links
 
@@ -101,7 +125,7 @@ and side effects first; use them when the affected live path is in scope.
 | Shell | `zsh -ic 'exit'`, then the affected command | Runs startup hooks and may write local caches. Record warnings even if exit status is 0 |
 | Theme | `theme status`, then inspect the affected consumer | Diagnostic only; a status report does not prove visual updates. `theme apply`, `set`, `cycle`, and `opacity` write outputs and reload consumers |
 | Herdr config | `herdr config check` | Checks generated deployed config, **not** an unstaged or ungenerated base-file edit |
-| Herdr review target | `HERDR_ACTIVE_PANE_ID=<pane> HERDR_ACTIVE_TAB_ID=<tab> bin/herdr-review --check` inside Herdr | Read-only: resolves the agent, directory and tuicr command; opens nothing |
+| Herdr review target | `HERDR_ACTIVE_PANE_ID=<pane> HERDR_ACTIVE_TAB_ID=<tab> bin/herdr-review --check [--branch]` inside Herdr | Read-only: resolves the agent, directory, branch range and tuicr command; opens nothing |
 | Pi Tasks native UI | [Pi Tasks verification](../herdr/plugins/task-launcher/README.md#verification) | Needs the deployed plugin and regenerated config; keep the task text empty |
 | tmux | `tmux source-file ~/.config/tmux/tmux.conf` | Changes the running server and executes configured hooks/plugins; not syntax-only |
 | Neovim | `nvim --headless '+qa'`, then `nvim +checkhealth` when appropriate | Startup can bootstrap/download plugins and language tools; only run against a reviewed, provisioned environment |

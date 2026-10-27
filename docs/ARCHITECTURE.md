@@ -35,7 +35,7 @@ credential-bearing `hosts.yml` is local.
 | Terminal and window environment | [`alacritty/`](../alacritty/), [`ghostty/`](../ghostty/), [`aerospace/`](../aerospace/) | Terminal defaults, key handling, and macOS workspace routing |
 | Terminal workspaces | [`herdr/`](../herdr/), [`tmux/`](../tmux/) | Primary and fallback multiplexing, navigation, persistence, and attention state |
 | User commands and automation | [`bin/`](../bin/), [`lib/`](../lib/) (helpers and tests, linked to `~/.local/lib/`) | Cross-application orchestration and audited builds. Machine-local scheduled jobs (LaunchAgents and their scripts) stay in `$HOME`, outside this repository: the repo carries portable per-tool configuration for a new Mac, not single-machine workflows |
-| Git clients | [`git/`](../git/), [`gh/`](../gh/), [`tuicr/`](../tuicr/) | Global identity and ignore behaviour, non-secret GitHub CLI preferences, and tuicr review-view defaults |
+| Git clients | [`git/`](../git/), [`gh/`](../gh/), [`tuicr/`](../tuicr/), [`worktrunk/`](../worktrunk/) | Global identity and ignore behaviour, non-secret GitHub CLI preferences, tuicr review-view defaults, and Worktrunk's worktree layout and `.worktreeinclude` copy |
 | Agent harnesses | [`omp/`](../omp/), [`pi/`](../pi/), [`.omp/`](../.omp/) | Global OMP configuration and skills, Pi extensions, and this repository's project-scoped tools |
 | Human operations | [`README.md`](../README.md), [`SETUP.md`](SETUP.md), [`HERDR.md`](HERDR.md), [`THEME.md`](THEME.md), [`AGENT-TOOLS.md`](AGENT-TOOLS.md) | Short entry point, then new-machine setup, live operation, and troubleshooting per topic |
 | Agent knowledge | [`AGENTS.md`](../AGENTS.md), [`docs/`](./) | Progressive task routing, architecture, principles, quality, and plans |
@@ -60,7 +60,8 @@ consumer; do not fix generated output or add a second writer.
 | Worktree pull-request names and state icons | `herdr/plugins/pr-status/pr_status.py` | Herdr events → `gh pr view` per linked worktree → `pr_*` Space tokens → pinned patch's Spaces tree; `test_pr_status.py`, then `pty-smoke.py` with the build |
 | Herdr rendering or binary behaviour | `herdr/patches/` | `bin/install-herdr-focus` → built binary → next client attach / server start |
 | Start a Pi task from Herdr | `herdr/plugins/task-launcher/README.md` | `prefix+t` → plugin popup → Herdr worktree API → Pi tab; Node suite and PTY smoke test |
-| Review an agent's changes | `bin/herdr-review` | `prefix+v` popup → tuicr in the agent's cwd → `herdr agent prompt`; unittest suite, then `--check` |
+| Review an agent's changes | `bin/herdr-review` | `prefix+v` / `prefix+V` (`--branch`) popups → tuicr in the agent's cwd → `herdr agent prompt`; unittest suite, then `--check` |
+| Open a worktree as a Tern session | `tw` in `zsh/zshrc`, `worktrunk/config.toml` | `wt switch --create` → pre-start `.worktreeinclude` copy → `tern new session` → `omp` typed into its shell; isolated-daemon smoke in `docs/VERIFICATION.md` |
 | Pi extension command, UI, or display metadata | `pi/extensions/README.md`, then owning extension | `bin/pi` and installed Pi API → focused suite → safe fresh-session check |
 | Pi prompt template | `pi/prompts/*.md` | Global prompt discovery → explicit `/name` invocation |
 | Click Pi file links into Neovim | `pi/extensions/local-file-links/README.md` | File URLs → Alacritty hint → `bin/terminal-open` → Neovim |

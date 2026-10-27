@@ -1,0 +1,12 @@
+# Worktrunk (`wt`) user config, linked to ~/.config/worktrunk/config.toml.
+# `tw` in zsh/zshrc builds on it; see docs/HERDR.md#worktrees-in-tern.
+# Approvals for project hooks stay in Worktrunk's own approvals.toml beside the
+# link, never in this repository.
+
+# One folder per repository, outside the project folders themselves.
+worktree-path = "~/.worktrees/{{ repo }}/{{ branch | sanitize }}"
+
+# Before anything runs in a new worktree, clone the gitignored files the
+# repository lists in .worktreeinclude (.env, node_modules/, ...). Same file and
+# rule as Herdr's C-a t: nothing is copied when the file is absent.
+pre-start = "wt step copy-ignored --require-include"

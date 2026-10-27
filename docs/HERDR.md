@@ -82,10 +82,55 @@ and `Space` enters resize mode. Splits are refused below 10 columns or 4 rows.
 | `C-a m` | Keep the current conversation unread until you reply; press again to mark it read |
 | `C-a t` | Start a [Pi task](../herdr/plugins/task-launcher/README.md) in a new worktree Space |
 | `C-a v` | Review the focused agent's uncommitted changes in tuicr and send comments back |
+| `C-a V` | The same for its whole branch: commits since it left `main`, plus uncommitted changes |
 | `C-a ;` / `C-a :` | Toggle Personal/Work / send the current Space to the other environment |
 | `C-a '` | Switch this client to the next online machine (for example the saved `home`) |
 | `C-a K` / `C-a J` | Move the focused linked worktree up / down within its repository |
 | `C-a R` | Reload the generated config (does not pick up `config.base.toml` edits; run `theme apply` for those) |
+
+Tern (`keymap: tmux`, prefix `ctrl+a`) carries the same prefix keys where it has
+a matching action. They are `keybinds` overrides in Tern's app-owned
+`~/Library/Application Support/Tern/settings.json`, which this repository does
+not track. Herdr workspaces map to Tern sessions (`s` new, `w` switch, `W` rename,
+`D` close), and `C-a t` opens an OMP agent block instead of a Pi task. `C-a o`
+and `C-a u` open Tern's needs-attention inbox. `C-a v` opens a git block, not
+tuicr. `x` and `C-h/j/k/l` move panes rather than swap them. Worktree keys,
+`;` / `:`, `m`, `U`, `V`, `` ` ``, `[`, `Space` and `M-1..9` have no Tern action; for
+worktrees use [`tw`](#worktrees-in-tern).
+
+## Worktrees in Tern
+
+Tern cannot make worktrees, so the `tw` shell function in
+[`zsh/zshrc`](../zsh/zshrc) makes one with [Worktrunk](https://worktrunk.dev)
+(`wt`) and opens it as its own Tern session: one session per worktree, as Herdr
+has one Space per worktree. For example, from any shell inside `beacon`:
+
+1. `tw fix-login Fix the login spinner` makes the branch `fix-login` from the
+   default branch (`main`), checked out in `~/.worktrees/beacon/fix-login`.
+2. Before anything runs there, the gitignored files listed in the repository's
+   `.worktreeinclude` (the file `C-a t` reads) are cloned in. Without that file
+   nothing is copied.
+3. Tern opens a session named `beacon/fix-login` and shows it. Its shell runs
+   `omp 'Fix the login spinner'`; quitting omp leaves that shell in the
+   worktree. Without a prompt, plain `omp` starts.
+4. `C-a w` switches between sessions, and `C-a o` shows which agent needs you.
+
+When the work is done:
+
+- `wt list` shows every worktree with its changes and ahead/behind counts.
+- `wt merge`, run in the worktree, squashes and rebases the branch,
+  fast-forwards `main` to it and removes the worktree. Or push and open a pull
+  request as usual.
+- `wt remove` (in the worktree, or `wt remove <branch>`) deletes the worktree,
+  and its branch if merged. `wt step prune` removes every merged one.
+- `C-a D` closes the Tern session.
+
+If the branch already exists, `tw` stops before opening anything; `wt switch
+<branch>` reaches it. If Tern is not running, the worktree is still made and
+`tw` prints its path. The folder layout and the `.worktreeinclude` copy are set in
+[`worktrunk/config.toml`](../worktrunk/config.toml). Worktrunk keeps its
+approvals for project hooks (`.config/wt.toml`) in
+`~/.config/worktrunk/approvals.toml`, outside this repository.
 
 ## Agent state
 
@@ -149,7 +194,13 @@ only agent in the tab).
 3. If the agent is waiting on a question, the comments stay in tuicr and are
    copied to the clipboard instead.
 
-For committed work, run `herdr-review -r main..HEAD` from a shell pane.
+`C-a V` (`herdr-review --branch`) does the same for everything on the agent's
+branch. Example: the agent branched from `main`, made two commits and is editing
+a third change. `C-a V` shows all three; changes that landed on `main` after the
+branch was made are left out. The starting point is the newer of `main` and
+`origin/main` (or `origin/HEAD`'s branch). On `main` itself it shows the commits
+not yet pushed. Other ranges: `herdr-review -r <base>...HEAD` from a shell pane
+in the agent's tab.
 
 ## Environments and machines
 
@@ -168,7 +219,7 @@ environments; `C-a '` skips offline machines. From a plain terminal,
 ## Troubleshooting
 
 | Symptom | Cause and fix |
-|---|---|
+| --- | --- |
 | Herdr ignores an edit to `config.base.toml` | Run `theme apply`: it regenerates `config.toml` and reloads the server. `C-a R` (`herdr server reload-config`) only reloads the already-generated file |
 | `C-a '` says `home is not ready` or `no other machine is saved` | Save it with `herdr machine add <ssh-target> --label home`; check `herdr machine list --json`. A stock client (`herdr --version` without the patch) lacks `next_machine`: rerun `install-herdr-focus` |
 | A worktree shows its branch, not its pull request | Run `herdr plugin action invoke martinro.pr-status.refresh`, then `herdr plugin log list --plugin martinro.pr-status` for the `gh` result, and `gh pr view` in that checkout. If tokens are reported but the row is unchanged, the client predates the feature: rerun `install-herdr-focus` and reattach |

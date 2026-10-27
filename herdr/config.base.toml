@@ -129,6 +129,15 @@ width = "95%"
 height = "90%"
 description = "review changes and send comments to the agent"
 
+# Same, for the whole branch: commits since it left main, plus uncommitted work.
+[[keys.command]]
+key = "prefix+shift+v"
+type = "popup"
+command = "$HOME/.local/bin/herdr-review --branch"
+width = "95%"
+height = "90%"
+description = "review the whole branch and send comments to the agent"
+
 # Personal/Work environments (martinro.spaces-env). "prefix+:" is the same
 # physical chord as prefix+shift+; and, unlike a literal "prefix+shift+;",
 # matches under both legacy and kitty keyboard encodings.

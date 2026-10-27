@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """Review an agent's changes in tuicr, then send the comments back to it.
 
-Bound to C-a v as a Herdr popup (herdr/config.base.toml). Herdr
-starts popup commands with the focused pane's HERDR_ACTIVE_PANE_ID and
+Bound to C-a v (uncommitted changes) and C-a V (--branch: the whole branch) as
+Herdr popups (herdr/config.base.toml). Herdr starts popup commands with the focused pane's HERDR_ACTIVE_PANE_ID and
 HERDR_ACTIVE_TAB_ID. The target is that pane when it runs an agent, otherwise
 the only agent in the same tab. tuicr opens in the agent's working directory:
 `:wq`/`ZZ` sends the numbered comments as one prompt and clears them from
@@ -19,15 +19,17 @@ import sys
 
 FLAVOURS = ("latte", "frappe", "macchiato", "mocha")
 DEFAULT_TUICR_ARGS = ["-w"]  # staged + unstaged working-tree changes
-USAGE = """Usage: herdr-review [--check] [tuicr arguments...]
+USAGE = """Usage: herdr-review [--check] [--branch] [tuicr arguments...]
 
 Review the focused Herdr agent's changes in tuicr and send the comments to it.
-Run from Herdr: C-a v, or a shell pane in the agent's tab. tuicr arguments
-default to -w (uncommitted changes); `herdr-review -r main..HEAD` reviews
-committed branch work instead.
+Run from Herdr: C-a v / C-a V, or a shell pane in the agent's tab. tuicr
+arguments default to -w (uncommitted changes).
 
-  --check  resolve the Herdr client, target agent, directory and tuicr command
-           without opening tuicr or sending anything.
+  --branch  review everything on the agent's branch: the commits since it left
+            the default branch (main), plus uncommitted changes. On the
+            default branch itself, the commits not yet pushed.
+  --check   resolve the Herdr client, target agent, directory and tuicr command
+            without opening tuicr or sending anything.
 """
 
 
@@ -100,6 +102,61 @@ def agent_directory(agent):
         if directory and os.path.isdir(directory):
             return directory
     raise ReviewError(f"agent {agent.get('pane_id')} has no readable working directory")
+
+
+def git(directory, env, *args):
+    """Run a read-only git query; return its trimmed output, or None on failure."""
+    try:
+        completed = subprocess.run(["git", "-C", directory, *args], env=env,
+                                   capture_output=True, text=True)
+    except OSError:
+        raise ReviewError("git is not installed")
+    return completed.stdout.strip() if completed.returncode == 0 else None
+
+
+def default_branch(directory, env):
+    remote_head = git(directory, env, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    if remote_head and remote_head.startswith("origin/"):
+        return remote_head[len("origin/"):]
+    for name in ("main", "master"):
+        for ref in (f"refs/heads/{name}", f"refs/remotes/origin/{name}"):
+            if git(directory, env, "rev-parse", "--verify", "--quiet", ref):
+                return name
+    return None
+
+
+def branch_arguments(directory, env):
+    """tuicr arguments for the whole branch: commits since it forked, plus -w.
+
+    The fork point is the newest merge-base of HEAD with the local and remote
+    default branch, so a stale local main or a newer origin/main adds nothing.
+    On the default branch only its remote copy counts: unpushed commits.
+    """
+    if git(directory, env, "rev-parse", "--is-inside-work-tree") != "true":
+        raise ReviewError(f"{directory} is not a Git checkout; --branch needs Git")
+    head = git(directory, env, "rev-parse", "--verify", "--quiet", "HEAD")
+    if not head:
+        return ["-w"]  # no commits yet
+    current = git(directory, env, "symbolic-ref", "--quiet", "--short", "HEAD")
+    default = default_branch(directory, env)
+    if not default:
+        raise ReviewError("cannot find the default branch (origin/HEAD, main or master); "
+                          "run herdr-review -r <base>...HEAD from a shell pane")
+    base = None
+    for ref in (f"refs/heads/{default}", f"refs/remotes/origin/{default}"):
+        if ref == f"refs/heads/{current}" or not git(directory, env, "rev-parse", "--verify", "--quiet", ref):
+            continue
+        fork = git(directory, env, "merge-base", "HEAD", ref)
+        if fork and (base is None or git(directory, env, "merge-base", "--is-ancestor", base, fork) is not None):
+            base = fork
+    if base is None:
+        if current == default:
+            return ["-w"]  # a local-only default branch has nothing to compare against
+        raise ReviewError(f"{current or 'HEAD'} shares no history with {default}")
+    if base == head:
+        return ["-w"]  # nothing committed on the branch yet
+    # tuicr diffs A..B from A's tree, so A must be the fork point, not main's tip.
+    return ["-r", f"{base}..HEAD", "-w"]
 
 
 def tuicr_arguments(args, env):
@@ -175,7 +232,7 @@ def review(herdr, tuicr, agent, directory, args, env):
     return 1
 
 
-def check(env, args):
+def check(env, args, branch=False):
     ok = True
     rows = []
     try:
@@ -183,12 +240,18 @@ def check(env, args):
         rows.append(("herdr", herdr))
         agent = resolve_agent(herdr, env)
         rows.append(("agent", f"{agent.get('pane_id')} ({agent.get('agent')}, {agent.get('agent_status')})"))
-        rows.append(("cwd", agent_directory(agent)))
+        directory = agent_directory(agent)
+        rows.append(("cwd", directory))
+        if branch:
+            args = branch_arguments(directory, env) + args
     except ReviewError as error:
         rows.append(("error", str(error)))
         ok = False
     try:
-        rows.append(("tuicr", " ".join([tuicr_client(env), *tuicr_arguments(args, env)])))
+        command = [tuicr_client(env)]
+        if ok or not branch:  # unresolved --branch has no meaningful arguments
+            command += tuicr_arguments(args, env)
+        rows.append(("tuicr", " ".join(command)))
     except ReviewError as error:
         rows.append(("tuicr", f"missing: {error}"))
         ok = False
@@ -204,13 +267,18 @@ def main(argv=None, environ=None):
     if argv[:1] in (["-h"], ["--help"]):
         print(USAGE, end="")
         return 0
-    if argv[:1] == ["--check"]:
-        return check(env, argv[1:])
+    flags = set()
+    while argv[:1] in (["--check"], ["--branch"]):
+        flags.add(argv.pop(0))
+    if "--check" in flags:
+        return check(env, argv, "--branch" in flags)
     try:
         herdr = herdr_client(env)
         agent = resolve_agent(herdr, env)
         directory = agent_directory(agent)
         tuicr = tuicr_client(env)
+        if "--branch" in flags:
+            argv = branch_arguments(directory, env) + argv
     except ReviewError as error:
         pause(str(error))
         return 1
