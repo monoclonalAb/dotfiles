@@ -135,6 +135,13 @@ the link with a real file; to keep a new style, run
 commit. `.zprofile` adds Homebrew to `PATH` (the installer's suggested
 `~/.zprofile` line is never read because `ZDOTDIR` is set).
 
+A new terminal is ready in about 150 ms because `.zshrc` avoids two slow
+steps. First, it puts the Node that `nvm use default` would pick on `PATH`
+itself; `nvm`'s own functions load the first time you run `nvm`. Second, it
+caches the `pyenv init` and `direnv hook` scripts in `~/.cache/zsh/` and runs
+`pyenv rehash` in the background. The cache refreshes when pyenv or direnv is
+upgraded or a pyenv plugin is added.
+
 **Terminal.** Alacritty uses `JetBrainsMono Nerd Font` from the Brewfile.
 **Cmd-click** a `file://` URL to open it in a new Neovim window
 (**Cmd+Shift-click** inside Herdr); web links open in the browser and
@@ -317,6 +324,7 @@ Herdr problems are in [`HERDR.md`](HERDR.md#troubleshooting); theme problems in
 | `. "$HOME/.cargo/env": no such file or directory` on every prompt | rustup missing (step 3) |
 | `no such file or directory: /opt/homebrew/share/powerlevel10k/…` | `brew bundle` did not run; or an Intel Mac, where `.zshrc`'s Homebrew `source` paths need `/usr/local/share/...` |
 | `gls: command not found` from the `ls` alias | `brew install coreutils` |
+| `pyenv` or direnv acts like an older install | `rm -rf ~/.cache/zsh` and open a new shell; `.zshrc` regenerates their cached init scripts |
 | Boxes instead of icons | Nerd Font not installed, or not selected in the terminal |
 | `dotfiles-link: changed nothing` with `conflict` lines | something occupies the target; inspect it, move it aside and rerun ([step 7](#7-link-everything)) |
 | Telescope `live_grep` returns nothing | `ripgrep` missing |

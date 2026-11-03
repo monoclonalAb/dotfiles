@@ -74,7 +74,8 @@ source /opt/homebrew/share/powerlevel10k/powerlevel10k.zsh-theme
 # zsh syntax highlighting
 source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 source /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-source $(brew --prefix)/opt/zsh-vi-mode/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
+# Homebrew's prefix from brew's own location; `brew --prefix` costs ~13 ms.
+source ${${commands[brew]:-/opt/homebrew/bin/brew}:h:h}/opt/zsh-vi-mode/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
 
 ################
 # AutoComplete #
@@ -88,8 +89,76 @@ zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 # nvm #
 #######
 
+# Sourcing nvm.sh costs 250-400 ms per shell, nearly all of it the automatic
+# `nvm use` at its end. Instead, put the Node that `nvm use` would choose on
+# PATH here, and load nvm itself the first time `nvm` (or its completion) runs.
+# Any case this shortcut does not recognise sources nvm.sh as before.
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  nvm() { unfunction nvm nvm_ls; . "$NVM_DIR/nvm.sh" --no-use && nvm "$@" }
+  nvm_ls() { unfunction nvm nvm_ls; . "$NVM_DIR/nvm.sh" --no-use && nvm_ls "$@" }
+
+  # nvm_change_path for the entries nvm writes itself: <array> <suffix> <dir>.
+  # Replace the first nvm entry in place, or prepend when there is none or a
+  # system bin dir comes before one. Result in $reply; fails on other nvm paths.
+  _nvm_fast_change_path() {
+    local -a list=("${(@P)1}")
+    local -i i sys=0 first=0 last=0
+    for (( i = 1; i <= $#list; i++ )); do
+      if [[ $list[i] == $NVM_DIR/versions/node/v<->.<->.<->$2 ]]; then
+        (( first )) || first=i
+        last=i
+      elif [[ $list[i] == *$NVM_DIR/* ]]; then
+        return 1
+      elif (( ! sys )) && [[ $list[i] == (/usr/local|/usr|)$2 ]]; then
+        sys=i
+      fi
+    done
+    if (( ! first || (sys && sys < last) )); then
+      reply=("$3$2" "${list[@]}")
+    else
+      list[first]=$3$2
+      reply=("${list[@]}")
+    fi
+  }
+
+  # What nvm.sh's automatic `nvm use` does: keep an nvm Node already first on
+  # PATH (a nested shell), otherwise use the `default` alias, followed through
+  # $NVM_DIR/alias (default -> lts/* -> lts/krypton -> v24.19.0).
+  _nvm_fast_use() {
+    emulate -L zsh
+    [[ $NVM_SYMLINK_CURRENT != true ]] || return 1
+    local node=${commands[node]} version=default dir
+    local -i hops=0
+    local -a new_path
+    if [[ $node == $NVM_DIR/versions/node/v<->.<->.<->/bin/node ]]; then
+      dir=${node:h:h}
+    elif [[ $node == *$NVM_DIR/* ]]; then
+      return 1
+    else
+      while [[ -f $NVM_DIR/alias/$version ]]; do
+        (( ++hops <= 10 )) && [[ -r $NVM_DIR/alias/$version ]] || return 1
+        IFS= read -r version < $NVM_DIR/alias/$version
+        [[ -n $version && $version != *[^[:lower:][:digit:]./*_-]* && $version != lts/-* ]] || return 1
+      done
+      [[ $version == v<->.<->.<-> ]] || return 1
+      dir=$NVM_DIR/versions/node/$version
+    fi
+    [[ -x $dir/bin/node ]] || return 1
+    _nvm_fast_change_path path /bin $dir || return 1
+    new_path=("${reply[@]}")
+    if (( $+commands[manpath] )) && [[ -n $MANPATH ]]; then
+      _nvm_fast_change_path manpath /share/man $dir || return 1
+      manpath=("${reply[@]}")
+      export MANPATH
+    fi
+    path=("${new_path[@]}")
+    export NVM_BIN=$dir/bin NVM_INC=$dir/include/node
+  }
+
+  _nvm_fast_use || \. "$NVM_DIR/nvm.sh"
+  unfunction _nvm_fast_use _nvm_fast_change_path
+fi
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 ########
@@ -138,11 +207,37 @@ export PATH="$HOME/.local/bin:$PATH"
 # To customize prompt, run `p10k configure` or edit ~/.config/zsh/.p10k.zsh.
 [[ ! -f ~/.config/zsh/.p10k.zsh ]] || source ~/.config/zsh/.p10k.zsh
 
+# _zsh_init_cache <name> <key> <command…>: set $REPLY to the command's output,
+# reusing ~/.cache/zsh/<name>.zsh until <key> changes. For tool init scripts
+# that take milliseconds to generate but only change when the tool does.
+# Delete ~/.cache/zsh/ to force a refresh.
+_zsh_init_cache() {
+  local file=${XDG_CACHE_HOME:-$HOME/.cache}/zsh/$1.zsh key="# $2" line=
+  shift 2
+  [[ -r $file ]] && IFS= read -r line < $file
+  if [[ $line == "$key" ]]; then
+    REPLY=$(<$file)
+  else
+    REPLY=$("$@") || return
+    { mkdir -p ${file:h} && print -r -- "$key"$'\n'"$REPLY" >| $file.$$ &&
+      command mv -f $file.$$ $file } 2>/dev/null
+  fi
+}
+
 # Route Python commands through the version selected by pyenv.
 export PYENV_ROOT="$HOME/.pyenv"
 [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
 if command -v pyenv >/dev/null 2>&1; then
-  eval "$(pyenv init - zsh)"
+  # `pyenv init` takes ~20 ms and the `pyenv rehash` it runs ~40 ms. Cache the
+  # init script per pyenv install, PYENV_ROOT and set of pyenv-sh-* commands
+  # (plugins add these to its shell function), and rehash in the background.
+  () {
+    local libexec=${commands[pyenv]:A:h}
+    local -a sh_cmds=($^path/pyenv-sh-*(N:t) $libexec/pyenv-sh-*(N:t)
+      $PYENV_ROOT/plugins/*/bin/pyenv-sh-*(N:t) ${libexec:h}/plugins/*/bin/pyenv-sh-*(N:t))
+    _zsh_init_cache pyenv-init "$libexec $PYENV_ROOT ${(ou)sh_cmds}" pyenv init - --no-rehash zsh
+  } && eval "$REPLY"
+  ( command pyenv rehash >/dev/null 2>&1 & )
 fi
 
 # Google Cloud SDK PATH and completion: the Brewfile's gcloud-cli cask, or a
@@ -165,7 +260,8 @@ if command -v direnv >/dev/null 2>&1; then
   # Load the startup directory's .envrc quietly: output before the first prompt
   # trips p10k's instant-prompt warning. Later cd's still log normally.
   eval "$(direnv export zsh 2>/dev/null)"
-  eval "$(direnv hook zsh)"
+  _zsh_init_cache direnv-hook "${commands[direnv]} ${commands[direnv]:A}" direnv hook zsh &&
+    eval "$REPLY"
 fi
 
 export PATH=$PATH:/Users/eric/.spicetify
