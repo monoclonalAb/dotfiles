@@ -63,7 +63,7 @@ consumer; do not fix generated output or add a second writer.
 | Review an agent's changes | `bin/herdr-review` | `prefix+v` / `prefix+V` (`--branch`) popups → tuicr in the agent's cwd → `herdr agent prompt`; unittest suite, then `--check` |
 | Open a worktree as a Tern session | `tw` in `zsh/zshrc`, `worktrunk/config.toml` | `wt switch --create` → pre-start `.worktreeinclude` copy → `tern new session` → `omp` typed into its shell; isolated-daemon smoke in `docs/VERIFICATION.md` |
 | Pi extension command, UI, or display metadata | `pi/extensions/README.md`, then owning extension | `bin/pi` and installed Pi API → focused suite → safe fresh-session check |
-| Pi/OMP prompt template | `pi/prompts/*.md` (also linked to `~/.omp/agent/prompts/`) | Global prompt discovery in both harnesses → explicit `/name` invocation; only `$ARGUMENTS`/`$@`/`$N` placeholders |
+| Pi/OMP prompt template | `pi/prompts/*.md` (also linked to `~/.omp/agent/prompts/`) | Global prompt discovery in both harnesses → explicit `/name` invocation; only `$ARGUMENTS`/`$@`/`$N` placeholders. Both load only direct children, so `pi/prompts/rho/` holds checklists `/rho` reads by path, not commands |
 | Click Pi file links into Neovim | `pi/extensions/local-file-links/README.md` | File URLs → Alacritty hint → `bin/terminal-open` → Neovim |
 | Add an MCP server | `pi/mcp.json`, and `omp/mcp.json` to keep OMP in step | Pi's built-in MCP support; `pi mcp list` connects it, then `/reload` and `/mcp`; OMP `/mcp reload` and `/mcp reauth <name>` |
 | Global or scoped skills | `pi/skills/`, `pi/scoped-skills/` | `/skill` in Pi; OMP via `skills.customDirectories` in `omp/config.yml`; scoped skills only where a project links them |

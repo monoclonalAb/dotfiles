@@ -22,7 +22,8 @@
   "hideThinkingBlock": true,
   "quietStartup": true,
   "skills": [
-    "~/Desktop/projects/DE/shared-agent-skills/skills"
+    "~/Desktop/projects/DE/shared-agent-skills/skills",
+    "~/.local/share/pstack/plugins/pstack/skills"
   ],
   "modelThinkingLevels": {
     "lithosai/deepseek-ai/DeepSeek-V4.1-Flash": "max",

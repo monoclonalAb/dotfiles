@@ -1,0 +1,154 @@
+#!/bin/sh
+# pi-agent: run one helper agent. It is a separate Pi process that answers one
+# prompt in print mode and exits. pstack's skills call these subagents; see
+# docs/AGENT-TOOLS.md (pstack). The child loads no skills, no MCP servers and no
+# extensions except the Claude OAuth route, so it cannot change the caller's
+# Herdr pane, and it saves no session.
+set -eu
+
+usage() {
+    cat >&2 <<'EOF'
+usage: pi-agent [options] [--] [prompt ...]
+  -m, --model MODEL      other (the caller's other provider: Claude <-> GPT),
+                         claude, gpt, fast, the pstack names opus, fable,
+                         sonnet, haiku, or provider/id
+                         (default: the calling Pi session's model)
+  -t, --thinking LEVEL   off, minimal, low, medium, high, xhigh or max
+                         (default: the calling session's level)
+  -a, --agent NAME|FILE  a pstack agent (poteto-agent, comment-sicko, ...) or a
+                         Markdown file; its body is added to the system prompt
+  -r, --readonly         remove the edit and write tools (bash stays)
+      --mcp              connect the configured MCP servers
+  -C, --cd DIR           run in DIR, for example a worktree
+  -o, --out FILE         write the reply to FILE and errors to FILE.log
+  -p, --prompt TEXT      the prompt; otherwise the remaining arguments, or
+                         stdin when there are none
+EOF
+    exit 2
+}
+
+pstack_root=${PSTACK_HOME:-$HOME/.local/share/pstack}/plugins/pstack
+route_extension=$HOME/.pi/agent/extensions/omp-anthropic-route/index.ts
+max_depth=3
+
+# Pi exports the calling session's model to its bash tool.
+parent_model=${PI_MODEL:+${PI_PROVIDER:+$PI_PROVIDER/}$PI_MODEL}
+model=$parent_model
+thinking=${PI_REASONING_LEVEL:-}
+agent=
+readonly=false
+mcp=false
+directory=
+out=
+prompt=
+
+need_value() {
+    [ "$2" -ge 2 ] || { printf 'pi-agent: %s needs a value\n' "$1" >&2; usage; }
+}
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        -m|--model) need_value "$1" $#; model=$2; shift 2 ;;
+        -t|--thinking) need_value "$1" $#; thinking=$2; shift 2 ;;
+        -a|--agent) need_value "$1" $#; agent=$2; shift 2 ;;
+        -r|--readonly) readonly=true; shift ;;
+        --mcp) mcp=true; shift ;;
+        -C|--cd) need_value "$1" $#; directory=$2; shift 2 ;;
+        -o|--out) need_value "$1" $#; out=$2; shift 2 ;;
+        -p|--prompt) need_value "$1" $#; prompt=$2; shift 2 ;;
+        -h|--help) usage ;;
+        --) shift; break ;;
+        -*) printf 'pi-agent: unknown option %s\n' "$1" >&2; usage ;;
+        *) break ;;
+    esac
+done
+
+depth=${PI_AGENT_DEPTH:-0}
+if [ "$depth" -ge "$max_depth" ]; then
+    printf 'pi-agent: refusing to nest deeper than %s agents\n' "$max_depth" >&2
+    exit 1
+fi
+
+if [ -n "$prompt" ] && [ $# -gt 0 ]; then
+    printf 'pi-agent: give the prompt with --prompt or as arguments, not both\n' >&2
+    usage
+elif [ $# -gt 0 ]; then
+    prompt=$*
+elif [ -z "$prompt" ]; then
+    prompt=$(cat)
+fi
+[ -n "$prompt" ] || { printf 'pi-agent: empty prompt\n' >&2; usage; }
+
+# Short model names. "other" gives a reviewer from the other provider than the
+# caller, so a second opinion never comes from the same model family. The
+# pstack names map so its review panels mix Claude and GPT too.
+case $model in
+    other)
+        case ${PI_PROVIDER:-} in
+            anthropic) model=gpt ;;
+            '') printf 'pi-agent: -m other needs the caller'\''s PI_PROVIDER; use -m claude or -m gpt\n' >&2
+                exit 2 ;;
+            *) model=claude ;;
+        esac ;;
+esac
+case $model in
+    claude) model=anthropic/claude-opus-5-5 ;;
+    gpt) model=openai-codex/gpt-6.1-sol ;;
+    fast) model=openai-codex/gpt-6-luna ;;
+    opus) model=anthropic/claude-opus-5-5 ;;
+    fable) model=anthropic/claude-fable-5-1 ;;
+    sonnet) model=openai-codex/gpt-6.1-sol ;;
+    haiku) model=openai-codex/gpt-6-luna ;;
+    inherit-parent|auto) model=$parent_model ;;
+esac
+
+set -- -p --no-session --no-extensions --no-prompt-templates
+[ -f "$route_extension" ] && set -- "$@" -e "$route_extension"
+[ -n "$model" ] && set -- "$@" --model "$model"
+[ -n "$thinking" ] && set -- "$@" --thinking "$thinking"
+[ "$readonly" = true ] && set -- "$@" --exclude-tools edit,write
+[ "$mcp" = true ] || set -- "$@" --no-mcp
+
+system_file=
+cleanup() { [ -z "$system_file" ] || rm -f "$system_file"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ -n "$agent" ]; then
+    case $agent in
+        */*|*.md) agent_file=$agent ;;
+        *) agent_file=$pstack_root/agents/${agent#pstack:}.md ;;
+    esac
+    if ! [ -f "$agent_file" ]; then
+        printf 'pi-agent: no agent file %s\n' "$agent_file" >&2
+        exit 1
+    fi
+    system_file=$(mktemp "${TMPDIR:-/tmp}/pi-agent.XXXXXX")
+    # Drop the YAML front matter; the body is the agent's instructions.
+    awk 'NR == 1 && $0 == "---" { inside = 1; next }
+         inside && $0 == "---" { inside = 0; next }
+         !inside' "$agent_file" > "$system_file"
+    printf '\nThe poteto-mode skill is at %s/skills/poteto-mode/SKILL.md.\n' \
+        "$pstack_root" >> "$system_file"
+    set -- "$@" --append-system-prompt "$system_file"
+fi
+
+# --out is relative to where pi-agent was called, not to --cd.
+case $out in
+    ''|/*) ;;
+    *) out=$PWD/$out ;;
+esac
+if [ -n "$directory" ]; then
+    cd "$directory"
+fi
+
+PI_AGENT_DEPTH=$((depth + 1))
+export PI_AGENT_DEPTH
+
+# "--" keeps a prompt that starts with "-" from being read as an option.
+if [ -n "$out" ]; then
+    pi "$@" -- "$prompt" > "$out" 2> "$out.log"
+else
+    pi "$@" -- "$prompt"
+fi

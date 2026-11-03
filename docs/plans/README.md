@@ -30,6 +30,7 @@ placeholder directories are unnecessary.
 ## Active plan index
 
 - [Pi provider-native compaction](active/2026-09-15-pi-provider-native-compaction.md) — planned; baseline verified, API-first vs subscription-first scope decision pending.
+- [rho: many small, verified PRs a day](active/2026-11-03-rho-workflow.md) — `/rho`, `/rho-verify` and the merge rule written; a week of real use and the first project verify skill pending.
 
 When there are no active plans, use `No active plans.` instead of the list.
 Keep other tasks' entries intact when adding or completing your own plan.

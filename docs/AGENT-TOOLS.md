@@ -92,6 +92,71 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
 - `/ship [notes]`: commit this task's changes and push straight to the current
   branch, even the default branch, with no PR. For changes small enough to skip
   review.
+- `/rho <task>`: the default way to work on a task (below).
+- `/rho-verify [notes]`: build or repair a project's verify skill (below).
+- `/poteto <task>`: work on the task in pstack's poteto-mode (below).
+
+### rho and helper agents
+
+`/rho <task>` ([`pi/prompts/rho.md`](../pi/prompts/rho.md)) is a personal
+workflow modelled on the habits behind Lauren Tan's pstack results. The agent
+restates the goal, writes a done check that can fail, follows a short checklist
+(question, bug or feature, AI decision change; or, read from
+[`pi/prompts/rho/`](../pi/prompts/rho/), refactor, speed or a measured number,
+and multi-PR plan), proves the result on real data,
+gets a second opinion from the other model family, and ships a small PR through
+`/pr`'s rules. It merges its own PR without asking only where
+[`rho-may-merge`](../bin/rho-may-merge) says yes (your own GitHub repositories
+under `~/Desktop/projects/personal/`, worktrees included), CI passed and the
+review found nothing proven. `/rho` overrides repository rules against
+committing, pushing or merging. It also covers overnight runs ("I'm away") and
+pausing through the [`agent-handoff`](../pi/skills/agent-handoff/SKILL.md)
+skill.
+
+`/rho-verify` ([`pi/prompts/rho-verify.md`](../pi/prompts/rho-verify.md)), run
+once per project, builds `.agents/skills/verify/` in that project: a script that
+starts the app, checks its health, drives a feature and saves evidence, with
+every external write blocked, plus a short feature list. `/rho` uses it to prove
+changes. Status and next steps:
+[plan](plans/active/2026-11-03-rho-workflow.md).
+
+[`pi-agent`](../bin/pi-agent) runs a helper agent: a separate `pi -p` process
+with no session, skills or MCP servers, and no extensions except
+`omp-anthropic-route`, so it cannot touch the caller's Herdr pane. `-m other`
+picks the other model family than the calling session (Claude or GPT), which is
+how `/rho` gets its second opinion. `-m claude`, `gpt` and `fast` (GPT-6 Luna)
+and pstack's names also work. Each Claude child runs the route's preflight,
+including one small probe request. See `pi-agent --help`.
+
+### pstack
+
+[pstack](https://github.com/cursor/plugins/tree/main/pstack) is Lauren Tan's set
+of skills for verified agent work. It is kept as reference and a short
+experiment until `/rho` replaces it; the plan removes it afterwards. Pi runs it
+skills-only. The pstack Pi extension is not installed, because it registers
+tools and adds instructions to every turn, which the
+[extension policy](../pi/extensions/README.md) forbids.
+
+The skills come from the Pi port
+[`michael-denyer/pstack-claude`](https://github.com/michael-denyer/pstack-claude),
+cloned outside this repository at a reviewed commit:
+
+```sh
+git clone https://github.com/michael-denyer/pstack-claude ~/.local/share/pstack
+git -C ~/.local/share/pstack checkout 513c0886b79a   # v0.9.120
+```
+
+To update, run `git -C ~/.local/share/pstack fetch`, read
+`git -C ~/.local/share/pstack log --stat HEAD..origin/main`, check out the
+reviewed commit, and change the pin above.
+
+- `/poteto <task>` ([`pi/prompts/poteto.md`](../pi/prompts/poteto.md)) is the
+  entry point. The agent reads `poteto-mode` by path, and the prompt maps
+  pstack's Claude Code tools to what exists here.
+- `/skill` also lists every pstack skill, because Pi's `skills` setting names the
+  clone. Enable one to use it directly, for example `how` or `interrogate`.
+- Subagents run through `pi-agent` (above), which maps pstack's `opus` and
+  `fable` to Claude and `sonnet` and `haiku` to GPT-6.1 Sol and GPT-6 Luna.
 
 ### MCP servers
 
