@@ -215,7 +215,8 @@ export function chooseThinking(model, requested = "high") {
 export function initialSelection(models, defaults, remembered) {
   const key = remembered?.model ?? defaults.model;
   const model = models.find((entry) => entry.key === key);
-  const thinking = remembered?.thinking ?? defaults.modelThinkingLevels?.[key] ?? defaults.thinking ?? "high";
+  const thinking = remembered?.thinking ?? (key === defaults.model ? defaults.startupThinking : undefined)
+    ?? defaults.modelThinkingLevels?.[key] ?? defaults.thinking ?? "high";
   return { model, thinking: chooseThinking(model, thinking), startFrom: remembered?.startFrom ?? "current",
     notice: key && !model ? "Previous/default model is unavailable. Choose a model explicitly." : "" };
 }

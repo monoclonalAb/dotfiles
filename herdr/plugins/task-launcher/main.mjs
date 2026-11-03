@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { createNamer, findExecutable, findPi, loadCatalog, loadPiModules, loadPiSdk, projectTrust, readStartupDefaults,
-  sessionLookup } from "./pi-runtime.mjs";
+  sessionLookup, startupModel } from "./pi-runtime.mjs";
 import { rpc } from "./rpc.mjs";
 import { runTask } from "./runner.mjs";
 import { PLUGIN_ID, TaskLaunch, discoverRepo, initialSelection, loadPromptTemplates, readDraft, readHistory,
@@ -108,10 +108,13 @@ export async function main(args) {
   ]);
   const keybindings = modules.bindings.KeybindingsManager.create(agentDir);
   if (models.length === 0) throw new Error("No available Pi models. Configure a provider with /login in Pi, then reopen Pi Tasks.");
-  const namer = createNamer(runtime, models, [config.naming_model, defaults.model].filter(Boolean));
+  const startup = startupModel(defaults, cycleModels);
+  const namer = createNamer(runtime, models, [config.naming_model, startup.model].filter(Boolean),
+    defaults.enabledModels.length ? cycleModels.map((choice) => choice.model) : []);
   const renderer = new modules.tui.TuiMainScreen(new modules.tui.ProcessTerminal());
   const launch = new TaskLaunch({ repo, stateDir: stateDir(), rpc, summarize: namer.summarize, trust, templates });
-  const selection = initialSelection(models, defaults, remembered);
+  const selection = initialSelection(models, { ...defaults, model: startup.model, startupThinking: startup.thinking },
+    remembered);
   selection.notice = [selection.notice, ...notices].filter(Boolean).join(" ");
   await new Promise((resolve) => {
     let closed = false;

@@ -74,6 +74,8 @@ test("remembered model wins, unavailable choices never silently switch provider"
   assert.equal(initialSelection([model], defaults, { model: "missing", thinking: "max" }).model, undefined);
   assert.match(initialSelection([model], defaults, { model: "missing" }).notice, /unavailable/);
   assert.equal(initialSelection([model], { ...defaults, modelThinkingLevels: { [model.key]: "max" } }).thinking, "max");
+  assert.equal(initialSelection([model], { ...defaults, startupThinking: "max", modelThinkingLevels: { [model.key]: "off" } }).thinking, "max");
+  assert.equal(initialSelection([model], { ...defaults, startupThinking: "max" }, { model: model.key, thinking: "high" }).thinking, "high");
   assert.equal(branchName("日本語"), "task/new-task");
   assert.equal(branchName("Implement Keyboard Controls"), "task/implement-keyboard-controls");
   assert.match(branchName("-- $(touch /tmp/no); toolbar"), /^task\/[a-z0-9-]+$/);

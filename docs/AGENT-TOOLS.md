@@ -20,14 +20,14 @@ diffs; review and commit them like any other change.
 ### Models
 
 [`pi/models.json`](../pi/models.json) adds DeepSeek V4.1 Flash (Base tier) through
-LithosAI's OpenAI-compatible API. [`pi/settings.json`](../pi/settings.json) lists
-it first at max reasoning (a `:max` thinking suffix), so a new session starts on
-it and `Ctrl+P` switches to Opus 5.5 next. The API key comes from the macOS
-keychain item `lithosai`; keep its value out of this repository. To pick another
-model for one session:
+LithosAI's OpenAI-compatible API. It is not in the `Ctrl+P` cycle; choose it with
+`/model`, where [`pi/settings.json`](../pi/settings.json) pins it to max reasoning.
+A new session starts on Opus 5.5 (`defaultModel`, also first in `enabledModels`).
+The API key comes from the macOS keychain item `lithosai`; keep its value out of
+this repository. To pick another model for one session:
 
 ```sh
-pi --model anthropic/claude-opus-5-5
+pi --model lithosai/deepseek-ai/DeepSeek-V4.1-Flash
 ```
 
 Opening `/model` reloads the model configuration. The entry allows low, high or

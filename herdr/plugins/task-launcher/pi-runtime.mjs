@@ -157,12 +157,23 @@ export function needsExtensionRoute(runtime, model) {
   return Boolean(runtime.isUsingOAuth?.("anthropic"));
 }
 
+// The model a plain `pi` starts a new session with, so the form follows the
+// models Pi actually runs. Mirrors Pi's main.js (buildSessionOptions): with
+// enabledModels, `defaultModel` counts only when it is one of them, else the
+// first one wins, with its own `:level` suffix. Without any, `defaultModel`.
+export function startupModel(defaults, cycleModels) {
+  if (!defaults.enabledModels?.length || !cycleModels.length) return { model: defaults.model };
+  const entry = cycleModels.find((choice) => choice.model.key === defaults.model) ?? cycleModels[0];
+  return { model: entry.model.key, thinking: entry.thinkingLevel };
+}
+
 // Names come from a quick model chosen once (plugin config naming_model, else
-// Pi's default model), and only fall back to the task's own model.
-export function createNamer(runtime, models, preferred = []) {
+// Pi's startup model), then the task's own model, then the rest of Pi's
+// enabledModels in order.
+export function createNamer(runtime, models, preferred = [], fallbacks = []) {
   const byKey = new Map(models.map((model) => [model.key, model]));
   const usable = (model) => model && !needsExtensionRoute(runtime, model);
-  const pick = (selected) => [...preferred.map((key) => byKey.get(key)), selected].find(usable);
+  const pick = (selected) => [...preferred.map((key) => byKey.get(key)), selected, ...fallbacks].find(usable);
   return {
     pick,
     summarize: async ({ prompt, model }) => {

@@ -1,8 +1,8 @@
 {
-  "lastChangelogVersion": "1.4.0",
+  "lastChangelogVersion": "1.5.0",
   "theme": "light",
-  "defaultProvider": "lithosai",
-  "defaultModel": "deepseek-ai/DeepSeek-V4.1-Flash",
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-opus-5-5",
   "defaultThinkingLevel": "xhigh",
   "transport": "auto",
   "tuiMode": "fullscreen",

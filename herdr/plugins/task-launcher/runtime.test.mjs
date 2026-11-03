@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { createNamer, findExecutable, findPi, generateTaskTitle, loadCatalog, loadPiModules, needsExtensionRoute, projectTrust,
-  readClipboardContent, readStartupDefaults, sessionLookup } from "./pi-runtime.mjs";
+  readClipboardContent, readStartupDefaults, sessionLookup, startupModel } from "./pi-runtime.mjs";
 import { chooseThinking, piArgs, resumeArgs } from "./task.mjs";
 
 const exec = promisify(execFile);
@@ -251,6 +251,19 @@ test("naming prefers the configured, then default, model and never sends Claude 
   assert.equal(await createNamer(runtime(true), models, [fast.key]).summarize({ prompt: "Login hangs", model: claude }), "fix login hang");
   assert.deepEqual(named, ["lithosai/flash"]);
   await assert.rejects(createNamer(runtime(true), models, []).summarize({ prompt: "x", model: claude }), /set naming_model/);
+  // Route-only startup and task models fall through to Pi's next enabled model.
+  assert.equal(createNamer(runtime(true), models, [claude.key], [claude, codex]).pick(claude), codex);
+  assert.equal(createNamer(runtime(true), models, [], [claude]).pick(claude), undefined);
+});
+
+test("the startup model follows Pi: a saved default outside enabledModels is ignored", () => {
+  const choice = (key, thinkingLevel) => ({ model: { key }, thinkingLevel });
+  const cycle = [choice("anthropic/claude-opus-5-5"), choice("openai-codex/gpt-6-astra", "max")];
+  const stale = { model: "lithosai/deepseek-ai/DeepSeek-V4.1-Flash", enabledModels: ["anthropic/claude-opus-5-5", "openai-codex/gpt-6-astra:max"] };
+  assert.deepEqual(startupModel(stale, cycle), { model: "anthropic/claude-opus-5-5", thinking: undefined });
+  assert.deepEqual(startupModel({ ...stale, model: "openai-codex/gpt-6-astra" }, cycle), { model: "openai-codex/gpt-6-astra", thinking: "max" });
+  assert.deepEqual(startupModel({ ...stale, enabledModels: [] }, cycle), { model: stale.model });
+  assert.deepEqual(startupModel(stale, []), { model: stale.model }); // No enabled model is available.
 });
 
 test("trust and session lookups use Pi's own stores without writing them", async (t) => {

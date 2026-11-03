@@ -8,7 +8,7 @@ Pi. It is a local Herdr plugin, not a Herdr patch or a Pi extension.
 ## Using the form
 
 ```text
- Pi task · beacon                                  named by DeepSeek-V4.1-Flash
+ Pi task · beacon                                          named by gpt-6-astra
  ──────────────────────────────────────────────────────────────────────────────
  Describe the task
  ──────────────────────────────────────────────────────────────────────────────
@@ -48,8 +48,10 @@ The next `C-a t` there restores it. Starting the task clears it.
 **Options, left to right:**
 
 - **Model / effort.** The model defaults to the last one used for this repository
-  (shared across its worktrees), else Pi's startup default. An unavailable model
-  must be re-chosen; it never silently switches provider.
+  (shared across its worktrees), else the model a plain `pi` starts with. Like Pi,
+  that is the first of Pi's `enabledModels`, or `defaultModel` only when it is one
+  of them (or when there is no list). An unavailable model must be re-chosen; it
+  never silently switches provider.
 - **from main.** By default the task starts from the source checkout's committed
   `HEAD` when the form opened. Switching to `from origin/main` (or whatever
   `origin/HEAD` names) fetches that branch when you press Enter and starts there.
@@ -79,8 +81,9 @@ provider's default. The top right of the form shows which model will do it:
 
 1. `naming_model` from `~/.config/herdr/plugins/config/martinro.task-launcher/config.toml`,
    for example `naming_model = "lithosai/deepseek-ai/DeepSeek-V4.1-Flash"`.
-2. Otherwise Pi's default model (`defaultProvider` / `defaultModel`).
+2. Otherwise the model a plain `pi` starts with (as for the form's default above).
 3. Otherwise the task's own model.
+4. Otherwise the first model in Pi's `enabledModels` that is not skipped below.
 
 Models that must go through the `omp-anthropic-route` Pi extension (direct Anthropic
 with a Claude subscription login) are skipped. This launcher loads no Pi
