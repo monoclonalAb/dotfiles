@@ -329,14 +329,16 @@ test('answer uses selected registry, real Q&A confirmation, no submission on Esc
   } finally { await f.close(); }
 });
 
-test('BTW uses inherited native read tools, never sends its thread to the parent until explicit summary', async () => {
+test('BTW gets native read/search tools, never sends its thread to the parent until explicit summary', async () => {
   const f = await fixture({ responses: [reply('Main response'), tool('read', { path: 'fixture.txt' }), reply('Side answer from evidence'), reply('Side handoff'), reply('Main acknowledges')] });
   try {
     await f.session.prompt('main task');
     const main = structuredClone(f.session.messages);
     await f.session.prompt('/btw read the fixture and explain it');
     assert.equal(f.calls.length, 3);
-    assert.deepEqual(f.calls[1].context.tools.map(t => t.name), ['read']);
+    assert.deepEqual(f.calls[1].context.tools.map(t => t.name).sort(), ['find', 'grep', 'ls', 'read']);
+    assert.match(f.calls[1].context.systemPrompt, /only tools are: read, grep, find, ls\. /);
+    assert.doesNotMatch(f.calls[1].context.systemPrompt, /Use bash only/);
     assert.deepEqual(f.calls[1].auth, f.calls[0].auth);
     assert.equal(f.calls[1].auth.headers['x-auth-fixture'], 'dynamic');
     assert.equal(f.calls[1].model.baseUrl, f.calls[0].model.baseUrl);
@@ -351,6 +353,17 @@ test('BTW uses inherited native read tools, never sends its thread to the parent
     assert(text(f.calls[4].context.messages.at(-1).content).includes('Side handoff'));
     assert(f.sm.getBranch().some(e => e.customType === 'btw-thread-reset'));
     assert.equal(readFileSync(join(f.cwd, 'fixture.txt'), 'utf8'), 'read-only evidence');
+  } finally { await f.close(); }
+});
+
+test('BTW adds bash only when the main chat has built-in bash active', async () => {
+  const f = await fixture({ tools: ['read', 'bash'], responses: [reply('Side answer')] });
+  try {
+    await f.session.prompt('/btw what changed?');
+    assert.equal(f.calls.length, 1);
+    assert.deepEqual(f.calls[0].context.tools.map(t => t.name).sort(), ['bash', 'find', 'grep', 'ls', 'read']);
+    assert.match(f.calls[0].context.systemPrompt, /only tools are: read, grep, find, ls, bash\. /);
+    assert.match(f.calls[0].context.systemPrompt, /Use bash only to inspect/);
   } finally { await f.close(); }
 });
 

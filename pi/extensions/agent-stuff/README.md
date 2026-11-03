@@ -12,7 +12,7 @@ duplicate the commands). Tested with Pi 0.87.1.
 | `/review [target]` | Code review in an **Empty branch** (isolated) or the current session. Targets: `uncommitted`, `branch main`, `commit abc123`, `pr 123` or a PR URL, `folder src docs`, plus `--extra "focus"` |
 | `/end-review` | Leave an Empty-branch review: return only, return and summarize, or return and fix findings |
 | `/answer` / `Ctrl+.` | Extract the questions in the last reply and answer them in a form; only the final confirmation submits |
-| `/btw [question]` | Side chat in an overlay, with a snapshot of the main context and read-only tools |
+| `/btw [question]` | Side chat in an overlay, with a snapshot of the main context, read/search tools and `bash` |
 | `/goal <objective>` | Keep working automatically until the goal is complete, blocked, paused or over budget |
 | `/session-breakdown` | 7/30/90-day local usage dashboard from session files |
 
@@ -40,10 +40,14 @@ after confirmation and a check for tracked changes; it never stashes or resets.
 
 ## BTW
 
-The side chat uses the selected model and thinking level, and only the active
-built-in `read`/`grep`/`find`/`ls` tools (no bash, edits, MCP or extensions). Its
-thread is saved in the session but stays out of the main context unless you choose
-**Inject summary into main chat**. The prompt is Pi's editor with the main editor's
+The side chat uses the selected model and thinking level. It always gets the
+built-in `read`/`grep`/`find`/`ls` tools, so it can search the repository even
+when the main chat only has `read` (local change). It also gets built-in `bash`
+when the main chat has it active, so it can inspect Git history and run `rg`.
+**Bash is not sandboxed**: the side chat is only told to inspect and never change
+files, commit or contact services. It never gets `edit`, `write`, `codemode`, MCP
+or extension tools. Its thread is saved in the session but stays out of the main
+context unless you choose **Inject summary into main chat**. The prompt is Pi's editor with the main editor's
 [clipboard images](../modal-vim-navigation/README.md): Up/Down recall earlier BTW
 prompts, `Ctrl+J` adds a newline, `Option+Shift+C` copies, `Ctrl+C` copies and
 clears, `PageUp`/`PageDown` or the wheel scroll, `Escape` cancels and closes.

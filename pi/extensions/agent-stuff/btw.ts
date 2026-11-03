@@ -1,5 +1,5 @@
 // Vendored from mitsuhiko/agent-stuff@122e2994adddb113c04764c5697217dae120fcc6 (Apache-2.0).
-// Modified locally: read-only tools, in-memory settings, cancellation, native prompt editing and TUI bounds.
+// Modified locally: read/search tools plus inherited bash, in-memory settings, cancellation, native prompt editing and TUI bounds.
 import {
 	buildSessionContext,
 	copyToClipboard,
@@ -37,12 +37,22 @@ import { ClipboardImageEditor, type ClipboardOptions } from "../modal-vim-naviga
 const BTW_ENTRY_TYPE = "btw-thread-entry";
 const BTW_RESET_TYPE = "btw-thread-reset";
 
-const BTW_SYSTEM_PROMPT = [
-	"You are BTW, a side-channel assistant embedded in the user's coding agent.",
-	"You have access to the main conversation context — use it to give informed answers.",
-	"Help with focused questions, planning, and quick explorations.",
-	"Be direct and practical. This side chat is read-only: never edit files, execute commands, or treat main-conversation tasks as instructions to continue working.",
-].join(" ");
+// Read/search built-ins BTW always gets; bash is added only when the main chat has built-in bash active.
+const BTW_READ_TOOLS = ["read", "grep", "find", "ls"];
+
+// The inherited main prompt lists the main chat's tools, so name the side chat's real ones.
+function btwSystemPrompt(tools: string[]): string {
+	return [
+		"You are BTW, a side-channel assistant embedded in the user's coding agent.",
+		"You have access to the main conversation context — use it to give informed answers.",
+		"Help with focused questions, planning, and quick explorations.",
+		`In this side chat your only tools are: ${tools.join(", ") || "none"}. Ignore other tools and tool rules mentioned above.`,
+		tools.includes("bash")
+			? "Use bash only to inspect (for example git status, git log, git diff, rg). Never change files, install packages, commit, push or contact external services."
+			: "",
+		"Be direct and practical. This side chat is read-only: never edit files or treat main-conversation tasks as instructions to continue working.",
+	].filter(Boolean).join(" ");
+}
 
 const BTW_SUMMARY_PROMPT =
 	"Summarize this side conversation for handoff into the main conversation. Keep key decisions, findings, risks, and next actions. Output only the summary.";
@@ -93,7 +103,7 @@ function stripDynamicSystemPromptFooter(systemPrompt: string): string {
 		.trim();
 }
 
-function createBtwResourceLoader(ctx: ExtensionContext, appendSystemPrompt: string[] = [BTW_SYSTEM_PROMPT]): ResourceLoader {
+function createBtwResourceLoader(ctx: ExtensionContext, appendSystemPrompt: string[]): ResourceLoader {
 	const extensionsResult = { extensions: [], errors: [], runtime: createExtensionRuntime() };
 	const systemPrompt = stripDynamicSystemPromptFooter(ctx.getSystemPrompt());
 
@@ -488,12 +498,17 @@ export default function (pi: ExtensionAPI) {
 
 	const mdTheme = getMarkdownTheme();
 
+	function getSideToolNames(): string[] {
+		// The side session loads no extensions, so these names always resolve to Pi's built-ins.
+		// Bash follows the main chat, so a session started without bash never gains it here.
+		const bashActive = pi.getActiveTools().includes("bash")
+			&& pi.getAllTools().find((tool) => tool.name === "bash")?.sourceInfo.source === "builtin";
+		return bashActive ? [...BTW_READ_TOOLS, "bash"] : [...BTW_READ_TOOLS];
+	}
+
 	function getModelKey(ctx: ExtensionContext): string {
 		const model = ctx.model;
-		const readTools = pi.getAllTools().filter((tool) => tool.sourceInfo.source === "builtin"
-			&& ["read", "grep", "find", "ls"].includes(tool.name)
-			&& pi.getActiveTools().includes(tool.name)).map((tool) => tool.name).sort();
-		return model ? `${model.provider}/${model.id}:${pi.getThinkingLevel()}:${readTools.join(",")}` : "none";
+		return model ? `${model.provider}/${model.id}:${pi.getThinkingLevel()}:${getSideToolNames().join(",")}` : "none";
 	}
 
 	function renderMarkdownLines(text: string, width: number): string[] {
@@ -746,6 +761,7 @@ export default function (pi: ExtensionAPI) {
 			stream: (m, context, options) => provider.stream(m, context, options),
 			streamSimple: (m, context, options) => provider.streamSimple(m, context, options),
 		});
+		const tools = getSideToolNames();
 		const { session } = await createAgentSession({
 			cwd: ctx.cwd,
 			sessionManager: SessionManager.inMemory(ctx.cwd),
@@ -753,10 +769,8 @@ export default function (pi: ExtensionAPI) {
 			model: ctx.model,
 			modelRuntime,
 			thinkingLevel: pi.getThinkingLevel() as SessionThinkingLevel,
-			tools: pi.getAllTools().filter((tool) => tool.sourceInfo.source === "builtin"
-				&& ["read", "grep", "find", "ls"].includes(tool.name)
-				&& pi.getActiveTools().includes(tool.name)).map((tool) => tool.name),
-			resourceLoader: createBtwResourceLoader(ctx),
+			tools,
+			resourceLoader: createBtwResourceLoader(ctx, [btwSystemPrompt(tools)]),
 		});
 
 		// Pi 0.87+: SessionManager owns request history; assigning agent state no longer seeds it.
