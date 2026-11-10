@@ -128,14 +128,14 @@ persistent-workspaces = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'D', 
     alt-8 = 'workspace 8'
     alt-9 = 'workspace 9'
 
-    alt-0 = 'workspace 0' # discord / slack
+    alt-0 = 'workspace 0' # discord / slack / books
     alt-d = 'workspace D' # development tools
     alt-e = 'workspace E' # terminal
     alt-g = 'workspace G' # game
     alt-m = 'workspace M' # mail / calendar
     alt-o = 'workspace O' # notes / reading
     alt-p = 'workspace P' # planning / focus
-    alt-q = 'workspace Q'
+    alt-q = 'workspace Q' # paper
     alt-r = 'workspace R' # terminal
     alt-s = 'workspace S' # spotify
     alt-t = 'workspace T' # terminals
@@ -224,6 +224,10 @@ if.app-id = 'com.tinyspeck.slackmacgap'
 run = "move-node-to-workspace 0"
 
 [[on-window-detected]]
+if.app-id = 'com.apple.iBooksX'
+run = "move-node-to-workspace 0"
+
+[[on-window-detected]]
 if.app-id = 'com.valvesoftware.steam'
 run = "move-node-to-workspace G"
 
@@ -264,6 +268,11 @@ run = "move-node-to-workspace 5"
 if.app-id = 'com.canva.CanvaDesktop'
 run = "move-node-to-workspace 5"
 
+# Paper (design tool)
+[[on-window-detected]]
+if.app-id = 'com.todesktop.2601167vjw8xe'
+run = "move-node-to-workspace Q"
+
 # AI
 [[on-window-detected]]
 if.app-id = 'com.openai.codex'
@@ -281,6 +290,10 @@ run = "move-node-to-workspace D"
 
 [[on-window-detected]]
 if.app-id = 'com.cmuxterm.app'
+run = "move-node-to-workspace T"
+
+[[on-window-detected]]
+if.app-id = 'dev.herdr.app'
 run = "move-node-to-workspace T"
 
 # Mail and calendar
@@ -308,4 +321,8 @@ run = "move-node-to-workspace O"
 # Planning and focus
 [[on-window-detected]]
 if.app-id = 'com.linear'
+run = "move-node-to-workspace P"
+
+[[on-window-detected]]
+if.app-id = 'notion.id'
 run = "move-node-to-workspace P"
