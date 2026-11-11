@@ -119,6 +119,10 @@ const fs = require('node:fs');
     process.stdout.write(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: error } })); return;
   }
   const mode = fs.readFileSync(${JSON.stringify(modeFile)}, 'utf8');
+  if (mode === 'limit-main' && !probe && request.headers.authorization === 'Bearer sk-ant-oat-synthetic-pi') {
+    console.log(JSON.stringify({ status: 429, statusText: 'Too Many Requests', headers: [['content-type', 'application/json'], ['retry-after', '1']] }));
+    process.stdout.write(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: "This request would exceed your account's rate limit. Please try again later." } })); return;
+  }
   const tool = declared.find(t => t.name.toLowerCase() === '_' + mode.toLowerCase());
   if (tool) fs.writeFileSync(${JSON.stringify(modeFile)}, 'text');
   const events = [
@@ -136,6 +140,7 @@ const fs = require('node:fs');
 globalThis.fetch = async () => { throw new Error("Unexpected external request blocked"); };
 const sdk = await import(pathToFileURL(join(pkg, "dist/index.js")));
 const ai = await import(pathToFileURL(join(pkg, "node_modules/@earendil-works/pi-ai/dist/index.js")));
+const { Type } = await import(pathToFileURL(join(pkg, "node_modules/typebox/build/index.mjs")));
 const { anthropicProvider } = await import(pathToFileURL(join(pkg, "node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js")));
 const baseModel = anthropicProvider().getModels().find(m => m.compat?.forceAdaptiveThinking);
 assert.ok(baseModel);
@@ -145,7 +150,7 @@ writeFileSync(modelsPath, JSON.stringify({ providers: { anthropic: { modelOverri
 } } } }));
 const deployed = join(process.env.PI_CODING_AGENT_DIR, "extensions/omp-anthropic-route");
 mkdirSync(deployed, { recursive: true });
-for (const name of ["index.ts", "transport.ts", "omp-compat.ts", "omp-token.ts", "bun-fetch.ts", "bun-fetch-bridge.ts"]) {
+for (const name of ["index.ts", "transport.ts", "omp-compat.ts", "bun-fetch.ts", "bun-fetch-bridge.ts"]) {
   symlinkSync(join(source, name), join(deployed, name));
 }
 
@@ -158,13 +163,21 @@ async function fixture(options = {}) {
   const config = JSON.parse(readFileSync(modelsPath, "utf8"));
   if (options.baseUrl) config.providers.anthropic.baseUrl = options.baseUrl;
   writeFileSync(fixtureModelsPath, JSON.stringify(config));
-  const models = await sdk.ModelRuntime.create({ credentials, modelsPath: fixtureModelsPath, modelsStore: new ai.InMemoryModelsStore(), allowModelNetwork: false, refreshOnCreate: false });
+  const authPath = join(process.env.PI_CODING_AGENT_DIR, "auth.json");
+  if (options.router) {
+    writeFileSync(authPath, JSON.stringify({
+      anthropic: await credentials.read("anthropic"),
+      "anthropic@work": { type: "oauth", access: "sk-ant-oat-synthetic-work", refresh: "synthetic-work", expires: Date.now() + 3_600_000 },
+    }), { mode: 0o600 });
+    rmSync(join(root, ".local/state/pi/quota-router"), { recursive: true, force: true });
+  }
+  const models = await sdk.ModelRuntime.create({ ...(options.router ? { authPath } : { credentials }), modelsPath: fixtureModelsPath, modelsStore: new ai.InMemoryModelsStore(), allowModelNetwork: false, refreshOnCreate: false });
   const model = options.otherProvider ? models.getModels("openai")[0]
     : { ...models.getModel("anthropic", options.id ?? baseModel.id), ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}) };
-  const settings = sdk.SettingsManager.inMemory({ retry: { enabled: false, provider: { maxRetries: 0, timeoutMs: 5000 } }, compaction: { enabled: false } });
+  const settings = sdk.SettingsManager.inMemory({ retry: { enabled: options.retry ?? false, maxRetries: 3, baseDelayMs: 10, provider: { maxRetries: 0, timeoutMs: 5000 } }, compaction: { enabled: false } });
   const loader = new sdk.DefaultResourceLoader({
     cwd: root, agentDir: process.env.PI_CODING_AGENT_DIR, settingsManager: settings,
-    noExtensions: true, additionalExtensionPaths: [join(deployed, "index.ts")],
+    noExtensions: true, additionalExtensionPaths: [join(deployed, "index.ts"), ...(options.router ? [join(source, "../quota-router/index.ts")] : [])],
     noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     systemPromptOverride: () => "Synthetic fixture only",
   });
@@ -175,17 +188,98 @@ async function fixture(options = {}) {
     cwd: root, agentDir: process.env.PI_CODING_AGENT_DIR, resourceLoader: loader,
     settingsManager: settings, modelRuntime: models, model, thinkingLevel: "high",
     tools: ["read", "mcp_search"], customTools: ["read", "mcp_search"].map(name => ({
-      name, label: name, description: "Synthetic no-I/O tool", parameters: ai.Type.Object({}),
+      name, label: name, description: "Synthetic no-I/O tool", parameters: Type.Object({}),
       execute: async () => { executed.push(name); return { content: [{ type: "text", text: "synthetic tool result" }] }; },
     })), sessionManager: sdk.SessionManager.inMemory(root),
   });
   const errors = [];
   const notices = [];
   await session.bindExtensions({ mode: "json", onError: error => errors.push(error),
-    uiContext: { notify: (message, type) => notices.push({ message, type }) },
+    uiContext: { notify: (message, type) => notices.push({ message, type }),
+      theme: { fg: (_color, text) => text }, setStatus: () => {} },
   });
   return { session, models, model, executed, errors, notices, async close() { await session.abort(); session.dispose(); } };
 }
+
+test("/accounts use changes both Claude's probe and real request, without using OMP's login", async () => {
+  const before = lines(requestLog).length, commandsBefore = lines(commandLog).length;
+  const f = await fixture({ router: true });
+  try {
+    for (const [label, token, count] of [
+      ["main", "sk-ant-oat-synthetic-pi", 2],
+      ["work", "sk-ant-oat-synthetic-work", 2],
+      ["main", "sk-ant-oat-synthetic-pi", 1],
+    ]) {
+      const start = lines(requestLog).length;
+      await f.session.prompt(`/accounts use anthropic ${label}`);
+      assert.equal(lines(requestLog).length, start, "account selection itself must stay passive");
+      await f.session.prompt(`Request on ${label}`);
+      assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+      const requests = lines(requestLog).slice(start);
+      assert.equal(requests.length, count, "only a new credential needs a probe");
+      for (const request of requests) assert.equal(request.headers.authorization, `Bearer ${token}`);
+    }
+    assert.equal(lines(requestLog).length, before + 5);
+    assert.ok(!lines(commandLog).slice(commandsBefore).some(args => args[0] === "token"), "the bridge must never resolve OMP's saved account");
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+test("a real 429 automatically retries the same turn on Pi's parked work login through the bridge", async () => {
+  const f = await fixture({ router: true, retry: true });
+  const before = lines(requestLog).length;
+  try {
+    writeFileSync(modeFile, "limit-main");
+    await f.session.prompt("Continue after an account rate limit");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+    assert.equal(f.session.messages.filter(m => m.role === "user").length, 1);
+    const requests = lines(requestLog).slice(before);
+    assert.deepEqual(requests.map(r => r.headers.authorization), [
+      "Bearer sk-ant-oat-synthetic-pi", "Bearer sk-ant-oat-synthetic-pi",
+      "Bearer sk-ant-oat-synthetic-work", "Bearer sk-ant-oat-synthetic-work",
+    ]);
+    assert.deepEqual(requests.map(r => JSON.stringify(r.body.messages).includes("PI_ROUTE_OK")), [true, false, true, false]);
+    assert.ok(f.notices.some(n => /account main rate limit.*switched to account work/.test(n.message)));
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); writeFileSync(modeFile, "text"); }
+});
+
+test("a failed probe belongs only to its request credential; another selected login can verify", async () => {
+  const f = await fixture();
+  const before = lines(requestLog).length;
+  const run = apiKey => f.models.completeSimple(f.model, {
+    messages: [{ role: "user", content: "Credential-specific probe", timestamp: 0 }],
+  }, { apiKey, maxTokens: 512, maxRetries: 0 });
+  try {
+    writeFileSync(probeModeFile, "reject");
+    assert.equal((await run("sk-ant-oat-synthetic-pi")).stopReason, "error");
+    writeFileSync(probeModeFile, "pass");
+    const work = await run("sk-ant-oat-synthetic-work");
+    assert.equal(work.stopReason, "stop", work.errorMessage);
+    assert.equal(lines(requestLog).length, before + 3);
+    assert.equal(lines(requestLog).at(-1).headers.authorization, "Bearer sk-ant-oat-synthetic-work");
+    assert.equal((await run("sk-ant-oat-synthetic-pi")).stopReason, "error", "switching back cannot bypass a cached failed probe");
+    assert.equal(lines(requestLog).length, before + 3);
+  } finally { await f.close(); writeFileSync(probeModeFile, "pass"); }
+});
+
+test("concurrent credentials keep their own probe and request on both stream entrypoints", async () => {
+  const f = await fixture();
+  const before = lines(requestLog).length;
+  try {
+    const results = await Promise.all(["stream", "streamSimple"].map((method, i) => f.models[method](f.model, {
+      messages: [{ role: "user", content: "Concurrent credential isolation", timestamp: 0 }],
+    }, { apiKey: `sk-ant-oat-synthetic-${i}`, maxTokens: 512, maxRetries: 0 }).result()));
+    for (const result of results) assert.equal(result.stopReason, "stop", result.errorMessage);
+    const requests = lines(requestLog).slice(before);
+    assert.equal(requests.length, 4);
+    for (let i = 0; i < 2; i++) {
+      const own = requests.filter(r => r.headers.authorization === `Bearer sk-ant-oat-synthetic-${i}`);
+      assert.equal(own.length, 2);
+      assert.equal(own.filter(r => JSON.stringify(r.body.messages).includes("PI_ROUTE_OK")).length, 1);
+    }
+  } finally { await f.close(); }
+});
 
 test("native Pi loads the linked route, executes tools, changes tools/thinking, follows up and reloads", { timeout: 20000 }, async () => {
   const f = await fixture();
@@ -244,9 +338,9 @@ test("first Opus request verifies once; startup/status/reload are passive and la
     assert.equal(probe.body.model, f.model.id);
     assert.equal(probe.body.max_tokens, 512);
     assert.equal(probe.body.tools.length, 0);
-    assert.equal(probe.headers.authorization, "Bearer sk-ant-oat-synthetic-omp");
-    assert.match(probe.headers['user-agent'], /2\.1\.280/);
-    assert.match(probe.body.system[0].text, /cc_version=2\.1\.280\./);
+    assert.equal(probe.headers.authorization, "Bearer sk-ant-oat-synthetic-pi");
+    assert.match(probe.headers['user-agent'], /2\.1\.321/);
+    assert.match(probe.body.system[0].text, /cc_version=2\.1\.321\./);
     assert.doesNotMatch(JSON.stringify(probe.body), /Synthetic fixture only|synthetic tool result/);
     assert.doesNotMatch(JSON.stringify(f.session.messages), /PI_ROUTE_OK/, "probe must not enter the conversation");
     const messagesBeforeStatus = structuredClone(f.session.messages);
@@ -255,9 +349,10 @@ test("first Opus request verifies once; startup/status/reload are passive and la
       await f.session.prompt("/omp-anthropic-route");
       const notice = f.notices.at(-1);
       assert.equal(notice.type, "info");
-      assert.match(notice.message, /active \(verified\)/);
-      assert.match(notice.message, /Live model test: passed; served claude-opus-5-5/);
-      assert.match(notice.message, /Wire reference: OMP 18\.3\.1 \/ Claude Code 2\.1\.280 \(not a CLI version pin\)/);
+      assert.match(notice.message, /last request verified/);
+      assert.match(notice.message, /Live model test \(last request\): passed; served claude-opus-5-5/);
+      assert.match(notice.message, /Credential source: Pi's selected request login/);
+      assert.match(notice.message, /Wire reference: OMP 18\.18\.6 \/ Claude Code 2\.1\.321 \(not a CLI version pin\)/);
       assert.match(notice.message, /Latest OMP release: 18\.3\.2/);
     }
     assert.equal(lines(commandLog).length, commandsBeforeStatus);
@@ -332,7 +427,7 @@ test("new release with changed formula is not installed; Claude continues on the
     assert.equal(f.session.messages.at(-1).stopReason, "stop");
     assert.equal(f.notices.filter(n => n.type === "warning").length, 1);
     await f.session.prompt("/omp-anthropic-route");
-    assert.match(f.notices.at(-1).message, /active \(verified\)/);
+    assert.match(f.notices.at(-1).message, /last request verified/);
     assert.match(f.notices.at(-1).message, /OMP update: skipped: Latest OMP formula needs review/);
   } finally { await f.close(); writeFileSync(installedFile, currentVersion); writeFileSync(formulaFile, formula); }
 });
@@ -437,7 +532,7 @@ test("concurrent first requests share one release check and same-model probe", a
   } finally { await f.close(); }
 });
 
-test("an already-aborted first request does not update, resolve OMP tokens or probe", async () => {
+test("an already-aborted first request does not update or probe", async () => {
   const commandsBefore = lines(commandLog).length, requestsBefore = lines(requestLog).length, releasesBefore = lines(releaseLog).length;
   const f = await fixture();
   try {
@@ -496,7 +591,7 @@ test("all bundled Anthropic models stream with low/high reasoning through the re
         assert.equal(result.content[0].text, "fixture ok");
         const request = lines(requestLog).at(-1);
         assert.equal(request.body.model, model.id);
-        assert.equal(request.headers.authorization, "Bearer sk-ant-oat-synthetic-omp");
+        assert.equal(request.headers.authorization, "Bearer sk-ant-oat-synthetic-pi");
         assert.ok(request.body.max_tokens <= 64_000);
         if (request.body.thinking?.type === "enabled") assert.ok(request.body.max_tokens > request.body.thinking.budget_tokens);
       }

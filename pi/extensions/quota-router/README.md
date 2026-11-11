@@ -44,7 +44,7 @@ and cooldowns. Pi re-reads `auth.json` per request, so a switch applies to **eve
 running Pi session** — intended, since limits are per account. Tokens are never
 logged or copied.
 
-When the active account reports a subscription limit (a 429 with reset hints, or
+When the active account reports a rate or usage limit (a 429 with reset hints, or
 the limit text in the assistant error), the extension records a cooldown (the
 reported reset, else `cooldownMinutes`, bounded to 1 minute – 7 days), activates the
 first parked account without one, and lets **Pi's own auto-retry** finish the turn.
@@ -53,11 +53,17 @@ Codex's limit text does not match Pi's retry policy, so `message_end` appends
 Context-overflow, transport and 5xx errors never count, a plain 429 counts only for
 OAuth logins, and it never switches provider. When the preferred account's cooldown
 passes, an idle session moves back. With nothing left to try, the error is shown
-once with the `/accounts add` hint.
+once with the `/accounts add` hint. Warnings retain the detected limit type: a
+generic 429 says `rate limit`, not that the subscription allowance is exhausted.
+The no-account warning means no parked login is currently eligible (including
+cooldowns); it does not identify which browser account you signed into.
 
 Caveats: Pi's `/logout` lists parked keys as `openai-codex@work` — use
 `/accounts remove` instead. The [OMP Anthropic route](../omp-anthropic-route/README.md)
-uses OMP's token, so Anthropic account moves only matter when that route is not in use.
+keeps Pi's selected request credential, so account moves also apply to Claude
+requests through that bridge. Each new credential must pass its own model probe;
+OMP's separately saved login is not used. Existing sessions need `/reload` after
+the bridge source changes, not after each account switch.
 
 ## Tests
 

@@ -65,7 +65,7 @@ const OVERFLOW_PATTERN =
 const HARD_LIMIT_PATTERN =
   /usage_limit_reached|usage_not_included|ChatGPT usage limit|GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing/i;
 
-// Throttling that, for a subscription login, means the five-hour or weekly window is used up.
+// Throttling may be transient or an exhausted usage window; a generic 429 cannot distinguish them.
 const SOFT_LIMIT_PATTERN =
   /rate_limit_error|rate_limit_exceeded|rate.?limit|too many requests|usage limit|\b429\b/i;
 

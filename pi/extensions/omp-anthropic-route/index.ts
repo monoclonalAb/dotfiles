@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,6 @@ import {
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createBunFetch } from "./bun-fetch.ts";
 import { OmpCompatibilityResolver } from "./omp-compat.ts";
-import { OmpAccountGuard, OmpAnthropicTokenResolver } from "./omp-token.ts";
 import {
   AnthropicIdentityResolver, CLAUDE_CODE_VERSION, createOmpAnthropicFetch,
   loadOrCreateInstallId, OMP_PROTOCOL_REVIEW_VERSION, readInstallId,
@@ -57,13 +56,10 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
     loadOrCreateInstallId(join(getAgentDir(), "omp-anthropic-route", "install-id"));
   const identityResolver = new AnthropicIdentityResolver();
   const compatibilityResolver = new OmpCompatibilityResolver();
-  const tokenResolver = new OmpAnthropicTokenResolver();
   const bunFetch = createBunFetch(fileURLToPath(new URL("./bun-fetch-bridge.ts", import.meta.url)));
   const lifetime = new AbortController();
-  // Shares the transport's per-token bootstrap lookup, so no extra identity request.
-  const accountGuard = new OmpAccountGuard(async token => (await identityResolver.resolve(token, bunFetch, lifetime.signal)).accountId);
   const probes = new Map<string, Probe>();
-  const eligibleModels = new Set<string>();
+  const lastProbeKeys = new Map<string, string>();
   let upstream: Provider | undefined;
   let ui: ExtensionContext["ui"] | undefined;
   let updateWarningShown = false;
@@ -75,10 +71,13 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
     }) } as T;
   }
 
-  async function ensureReady(model: Model<"anthropic-messages">, callerSignal?: AbortSignal): Promise<string> {
+  async function ensureReady(model: Model<"anthropic-messages">, apiKey: string, callerSignal?: AbortSignal): Promise<string> {
     const signal = callerSignal ? AbortSignal.any([lifetime.signal, callerSignal]) : lifetime.signal;
     signal.throwIfAborted();
-    eligibleModels.add(modelKey(model));
+    // Pi owns account selection and refresh. Never substitute OMP's saved login,
+    // or reuse another credential's probe when /accounts switches or retries.
+    const key = `${modelKey(model)}:${createHash("sha256").update(apiKey).digest("hex")}`;
+    lastProbeKeys.set(modelKey(model), key);
     if (!compatibilityResolver.status) ui?.notify("Claude preflight: checking latest stable OMP (may upgrade Homebrew omp).", "info");
     const compatibility = await untilAborted(compatibilityResolver.resolve(), signal);
     if (!compatibility.compatible) throw new Error(`Claude preflight blocked: ${compatibility.error ?? "OMP CLI unavailable"}. Fix it, then resend (rechecked automatically).`);
@@ -86,10 +85,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
       updateWarningShown = true;
       ui?.notify(`Claude preflight: OMP update skipped (${compatibility.updateError}). Continuing with installed OMP ${compatibility.installedVersion}; the update retries next session or /reload.`, "warning");
     }
-    const apiKey = await tokenResolver.resolve(signal);
-    await accountGuard.accept(apiKey);
     signal.throwIfAborted();
-    const key = modelKey(model);
     let probe = probes.get(key);
     if (!probe) {
       ui?.notify(`Claude preflight: verifying ${model.id} (one synthetic request, ≤${PROBE_MAX_TOKENS} output tokens; uses quota).`, "info");
@@ -140,7 +136,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
     return apiKey;
   }
 
-  function usesAnthropicOAuth(options: ProviderStreamOptions | SimpleStreamOptions | undefined): boolean {
+  function usesAnthropicOAuth<T extends ProviderStreamOptions | SimpleStreamOptions>(options: T | undefined): options is T & { apiKey: string } {
     return options?.apiKey?.includes("sk-ant-oat") ?? false;
   }
   function registerRoute(ctx: ExtensionContext): void {
@@ -154,14 +150,14 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
       stream(model: Model<Api>, context: TranscriptContext, options?: ProviderStreamOptions) {
         if (!isDirectAnthropicModel(model) || !usesAnthropicOAuth(options)) return native.stream(model as never, context, options as never);
         return lazyStream(model, async () => {
-          const apiKey = await ensureReady(model, options?.signal);
+          const apiKey = await ensureReady(model, options.apiKey, options.signal);
           return native.stream(requestLevelEffortModel(model) as never, context, routeOptions(model, context, { ...options, apiKey }) as never);
         });
       },
       streamSimple(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions) {
         if (!isDirectAnthropicModel(model) || !usesAnthropicOAuth(options)) return native.streamSimple(model, context, options);
         return lazyStream(model, async () => {
-          const apiKey = await ensureReady(model, options?.signal);
+          const apiKey = await ensureReady(model, options.apiKey, options.signal);
           return native.streamSimple(requestLevelEffortModel(model), context, routeOptions(model, context, { ...options, apiKey }));
         });
       },
@@ -170,7 +166,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
 
   function selected(ctx: ExtensionContext): Model<Api> | undefined {
     return upstream && ctx.model && isDirectAnthropicModel(ctx.model) &&
-      (eligibleModels.has(modelKey(ctx.model)) || ctx.modelRegistry.isUsingOAuth(ctx.model)) ? ctx.model : undefined;
+      (lastProbeKeys.has(modelKey(ctx.model)) || ctx.modelRegistry.isUsingOAuth(ctx.model)) ? ctx.model : undefined;
   }
   // Merely selecting Claude or reloading is passive. The provider boundary owns
   // updates/probes, so CLI, SDK and extension requests get the same guard.
@@ -178,12 +174,13 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => { lifetime.abort(); });
 
   pi.registerCommand(STATUS_COMMAND, {
-    description: "Show Claude request preflight and live probe results (no new work)",
+    description: "Show Claude preflight and last-request probe results (no new work)",
     handler: async (_args, ctx) => {
       const model = selected(ctx);
       const compatibility = compatibilityResolver.status;
-      const probe = model ? probes.get(modelKey(model)) : undefined;
-      const state = !model ? "standby" : probe?.state === "passed" ? "active (verified)"
+      const key = model ? lastProbeKeys.get(modelKey(model)) : undefined;
+      const probe = key ? probes.get(key) : undefined;
+      const state = !model ? "standby" : probe?.state === "passed" ? "last request verified"
         : compatibility?.error || probe?.state === "failed" ? "blocked" : "pending (first Claude request)";
       const update = !compatibility?.latestVersion && !compatibility?.updateError ? "not checked"
         : compatibility?.updateError ? `skipped: ${compatibility.updateError} (using installed CLI; retries next session or /reload)`
@@ -193,11 +190,12 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
         `Wire reference: OMP ${OMP_PROTOCOL_REVIEW_VERSION} / Claude Code ${CLAUDE_CODE_VERSION} (not a CLI version pin)`,
         `Latest OMP release: ${compatibility?.latestVersion ?? "not checked"}; installed: ${compatibility?.installedVersion ?? "not checked"}`,
         `OMP update: ${update}`,
-        `Live model test: ${probe?.state ?? "not run"}${probe?.servedModel ? `; served ${probe.servedModel}; ${probe.outputTokens} output tokens` : ""}`,
+        "Credential source: Pi's selected request login; OMP's saved login is not used.",
+        `Live model test (last request): ${probe?.state ?? "not run"}${probe?.servedModel ? `; served ${probe.servedModel}; ${probe.outputTokens} output tokens` : ""}`,
         ...(compatibility?.error ? [compatibility.error] : []),
         ...(probe?.error ? [probe.error] : []),
-        "Policy: first direct Claude OAuth request tries to update OMP to latest stable using the reviewed formula recipe; update failures warn and keep the installed CLI. Wire code stays pinned. One bounded probe per model/runtime; no fallback on probe failure.",
-        "This command does not update, resolve credentials or send a test. /reload resets the check; the next Claude request performs it (and may use quota).",
+        "Policy: first direct Claude OAuth request tries to update OMP to latest stable using the reviewed formula recipe; update failures warn and keep the installed CLI. Wire code stays pinned. One bounded probe per model/credential/runtime; no fallback on probe failure.",
+        "This is the last request's snapshot, not a fresh account check. This command does not update, resolve credentials or send a test. /reload resets the checks; the next Claude request verifies its selected credential (and may use quota).",
       ].join("\n"), model && probe?.state !== "passed" ? "warning" : "info");
     },
   });

@@ -80,6 +80,7 @@ interface Plan {
   provider: string;
   from: string;
   to: string;
+  reason: string;
   /** Pi's own auto-retry will continue this turn after the switch. */
   retryable: boolean;
   until: number;
@@ -248,11 +249,11 @@ export function registerQuotaRouter(pi: ExtensionAPI, options: RouterOptions = {
       return;
     }
     if (!to) {
-      noRouteReason = `no other signed-in ${provider} account is available (/accounts add ${provider} <label>)`;
+      noRouteReason = `${signal.reason} reached; no other signed-in ${provider} account is available (/accounts add ${provider} <label>)`;
       return;
     }
 
-    plan = { provider, from, to, retryable: isRetryableByPi(event.message.errorMessage), until };
+    plan = { provider, from, to, reason: signal.reason, retryable: isRetryableByPi(event.message.errorMessage), until };
     if (plan.retryable) return;
     const annotated = annotateForRetry(event.message.errorMessage ?? "", to);
     if (!annotated) return;
@@ -270,7 +271,7 @@ export function registerQuotaRouter(pi: ExtensionAPI, options: RouterOptions = {
         const key = `${provider}:${accounts().cooldown(provider, accounts().activeLabel(provider))?.until ?? 0}`;
         if (noRouteNotified !== key) {
           noRouteNotified = key;
-          ctx.ui.notify(`quota-router: ${provider} usage limit reached; ${noRouteReason}`, "warning");
+          ctx.ui.notify(`quota-router: ${provider} ${noRouteReason}`, "warning");
         }
         noRouteReason = undefined;
         updateStatus(ctx);
@@ -289,7 +290,7 @@ export function registerQuotaRouter(pi: ExtensionAPI, options: RouterOptions = {
     const wait = formatDuration(current.until - now());
     ctx.ui.notify(
       activation
-        ? `quota-router: ${current.provider} account ${current.from} usage limit (retry after ~${wait}, ${formatClock(current.until)}); switched to account ${current.to}`
+        ? `quota-router: ${current.provider} account ${current.from} ${current.reason} (retry after ~${wait}, ${formatClock(current.until)}); switched to account ${current.to}`
         : `quota-router: ${current.provider} already switched to account ${current.to} by another session`,
       "warning",
     );

@@ -59,7 +59,7 @@ test("an up-to-date CLI still checks freshness, once per runtime", async () => {
   assert.equal(await f.resolver.resolve(), a);
 });
 
-for (const latest of ["18.3.2", "18.4.0", "19.0.0"]) test(`new stable CLI ${latest} upgrades without changing the wire reference`, async () => {
+for (const latest of ["18.18.7", "18.19.0", "19.0.0"]) test(`new stable CLI ${latest} upgrades without changing the wire reference`, async () => {
   const f = fixture({ installed: OMP_PROTOCOL_REVIEW_VERSION, latest });
   const result = await f.resolver.resolve();
   assert.equal(result.compatible, true); assert.equal(result.installedVersion, latest);

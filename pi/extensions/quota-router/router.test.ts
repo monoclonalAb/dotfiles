@@ -337,6 +337,8 @@ describe("router lifecycle", () => {
     expect(await failTurn(h, ANTHROPIC_LIMIT, undefined, {}, "anthropic")).toBeUndefined();
     expect(h.accounts.data.get("anthropic")).toEqual(cred("a"));
     expect(h.notifications).toHaveLength(1);
+    expect(h.notifications[0].message).toContain("anthropic rate limit reached");
+    expect(h.notifications[0].message).not.toContain("usage limit");
     expect(h.notifications[0].message).toContain("no other signed-in anthropic account");
     expect(h.notifications[0].message).toContain("/accounts add anthropic <label>");
     // Pi retries the same provider within its own budget: the warning is not repeated.
@@ -362,6 +364,15 @@ describe("router lifecycle", () => {
     h.setClock(T0 + 121 * 60_000);
     await h.handlers.get("agent_settled")!({ type: "agent_settled" }, h.ctx);
     expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "main" });
+  });
+
+  test("Anthropic 429 rotates using rate-limit wording, not a claim of exhausted usage", async () => {
+    const h = harness({ initial: claude, credentials: { anthropic: cred("main"), "anthropic@work": cred("work") } });
+    await h.start();
+    await failTurn(h, ANTHROPIC_LIMIT, 429, {}, "anthropic");
+    expect(h.accounts.state.providers.anthropic.active).toBe("work");
+    expect(h.notifications[0].message).toContain("account main rate limit");
+    expect(h.notifications[0].message).not.toContain("usage limit");
   });
 
   test("API-key throttling is left to Pi; hard quota wording still rotates", async () => {

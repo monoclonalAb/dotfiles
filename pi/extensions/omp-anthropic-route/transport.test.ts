@@ -143,16 +143,18 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   assert.equal(headers.get("x-api-key"), null);
   assert.equal(headers.get("user-agent"), `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`);
   assert.equal(headers.get("x-claude-code-session-id"), sessionId);
-  assert.equal(headers.get("x-stainless-package-version"), "0.112.1");
+  assert.equal(headers.get("x-stainless-package-version"), "0.128.0");
   assert.equal(headers.get("x-app"), "cli");
   assert.equal(headers.get("x-extra-safe-header"), "kept");
   assert.deepEqual(headers.get("anthropic-beta")!.split(","), [
     "claude-code-20250219", "oauth-2025-04-20", "interleaved-thinking-2025-05-14",
     "thinking-token-count-2026-05-13", "context-management-2025-06-27",
-    "prompt-caching-scope-2026-01-05", "mid-conversation-system-2026-04-07",
+    "prompt-caching-scope-2026-01-05",
     "effort-2025-11-24", "fallback-credit-2026-06-01",
   ]);
-  assert.equal(headers.get("anthropic-usage-limit"), null, "OMP 18.3.1 slow mode remains opt-in upstream");
+  // OMP 18.18.6 / Claude Code 2.1.321 treat the mid-conversation system role as GA.
+  assert.doesNotMatch(headers.get("anthropic-beta") ?? "", /mid-conversation-system-2026-04-07/);
+  assert.equal(headers.get("anthropic-usage-limit"), null, "OMP 18.18.6 slow mode remains opt-in upstream");
   assert.doesNotMatch(headers.get("anthropic-beta") ?? "", /server-side-fallback/);
   assert.doesNotMatch(headers.get("anthropic-beta") ?? "", /mid-conversation-output-config|thinking-binding-controls/);
 
@@ -173,7 +175,7 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   assert.equal(body.max_tokens, 64_000);
   // OMP 18.3.0 switched SHA-256 to Bun; these fixed vectors keep Node's
   // implementation byte-compatible with the reviewed upstream calculation.
-  assert.match(body.system[0].text, /^x-anthropic-billing-header: cc_version=2\.1\.280\.01e;/);
+  assert.match(body.system[0].text, /^x-anthropic-billing-header: cc_version=2\.1\.321\.d57;/);
   assert.doesNotMatch(body.system[0].text, /cch=00000/);
   assert.equal(body.system[0].cache_control, undefined);
   assert.equal(body.system[1].text, CLAUDE_CODE_SYSTEM_INSTRUCTION);
@@ -207,7 +209,7 @@ test("OAuth requests use the OMP route and response tool names return to Pi", as
   assert.doesNotMatch(responseText, /"name":"_read"/);
 });
 
-test("OMP 18.3.1 retains the utility profile without opting into compaction or user profiles", async () => {
+test("OMP 18.18.6 retains the utility profile without opting into compaction or user profiles", async () => {
   const result = await inspectOmpRoutedRequest("https://api.anthropic.com/v1/messages", {
     headers: {
       authorization: "Bearer sk-ant-oat-test",
@@ -218,9 +220,9 @@ test("OMP 18.3.1 retains the utility profile without opting into compaction or u
     installId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", modelId: "claude-opus-5-5",
     messages: [], identityResolver: new AnthropicIdentityResolver(),
   });
-  assert.equal(result.headers!.get("user-agent"), "claude-cli/2.1.280 (external, cli)");
-  assert.equal(result.headers!.get("x-stainless-package-version"), "0.112.1");
-  assert.equal(result.headers!.get("x-stainless-runtime-version"), "v26.3.0");
+  assert.equal(result.headers!.get("user-agent"), "claude-cli/2.1.321 (external, cli)");
+  assert.equal(result.headers!.get("x-stainless-package-version"), "0.128.0");
+  assert.equal(result.headers!.get("x-stainless-runtime-version"), "v26.12.1");
   assert.deepEqual(result.headers!.get("anthropic-beta")!.split(","), [
     "oauth-2025-04-20", "interleaved-thinking-2025-05-14", "thinking-token-count-2026-05-13",
     "context-management-2025-06-27", "prompt-caching-scope-2026-01-05", "structured-outputs-2025-12-15",

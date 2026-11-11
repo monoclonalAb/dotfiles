@@ -3,8 +3,10 @@ import { closeSync, constants, mkdirSync, openSync, readFileSync, unlinkSync, wr
 import { dirname } from "node:path";
 
 /**
- * Anthropic OAuth request alignment reviewed against Oh My Pi v18.3.1
- * (https://github.com/can1357/oh-my-pi/tree/6204b7508014bcdf12d95f0b3fd470905fd99344), MIT licensed.
+ * Anthropic OAuth request alignment reviewed against Oh My Pi v18.18.6
+ * (https://github.com/can1357/oh-my-pi/tree/9058ab9d229663e229e2867824ba6df6f21e9e59), MIT licensed.
+ * The 18.3.1 -> 18.18.6 wire delta is upstream c899a8a169 (Claude Code 2.1.321,
+ * SDK 0.128.0, Stainless runtime v26.12.1, GA mid-conversation system role).
  *
  * This module intentionally operates at the fetch boundary. Pi's native
  * Anthropic adapter still owns message conversion and stream parsing; this
@@ -14,9 +16,9 @@ import { dirname } from "node:path";
 // Wire reference, not an installed CLI version requirement. OMP supplies tokens;
 // its guarded updater never rewrites this adapter or adopts server-suggested
 // fingerprints. Changes to the wire profile still need source review.
-export const OMP_PROTOCOL_REVIEW_VERSION = "18.3.1";
-export const CLAUDE_CODE_VERSION = "2.1.280";
-export const CLAUDE_CODE_SDK_VERSION = "0.112.1";
+export const OMP_PROTOCOL_REVIEW_VERSION = "18.18.6";
+export const CLAUDE_CODE_VERSION = "2.1.321";
+export const CLAUDE_CODE_SDK_VERSION = "0.128.0";
 export const CLAUDE_CODE_SYSTEM_INSTRUCTION =
   "You are Claude Code, Anthropic's official CLI for Claude.";
 
@@ -49,7 +51,6 @@ const OAUTH_AGENT_BETAS = [
   "thinking-token-count-2026-05-13",
   "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
-  "mid-conversation-system-2026-04-07",
 ] as const;
 
 // Pi's native serializer emits per-message effort, thinking binding controls
@@ -308,8 +309,8 @@ export function loadOrCreateInstallId(filePath: string): string {
 }
 
 export class AnthropicIdentityResolver {
-  // Latest access token only (SHA-256 fingerprint, memory only). OMP refreshes
-  // OAuth access tokens every few hours; each new token is looked up once.
+  // Latest Pi-resolved access token only (SHA-256 fingerprint, memory only).
+  // Account changes and refreshed tokens trigger a new bootstrap lookup.
   private resolved: { credential: string; identity: Promise<AnthropicIdentity> } | undefined;
 
   resolve(
@@ -852,7 +853,7 @@ function buildAlignedHeaders(
     "X-Stainless-Package-Version": CLAUDE_CODE_SDK_VERSION,
     "X-Stainless-Retry-Count": "0",
     "X-Stainless-Runtime": "node",
-    "X-Stainless-Runtime-Version": "v26.3.0",
+    "X-Stainless-Runtime-Version": "v26.12.1",
     "X-Stainless-Timeout": "600",
     "anthropic-beta": betaHeader,
     "anthropic-dangerous-direct-browser-access": "true",
