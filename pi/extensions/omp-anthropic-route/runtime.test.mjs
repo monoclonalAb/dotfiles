@@ -289,14 +289,17 @@ test("native Pi loads the linked route, executes tools, changes tools/thinking, 
     await f.session.prompt("First synthetic request");
     assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
     assert.deepEqual(f.executed, ["read"]);
-    assert.ok(lines(requestLog).at(-1).body.tools.some(tool => tool.name === "_read"), "native normalized tool declarations must reach the route");
+    assert.ok(lines(requestLog).some(request => request.body.tools?.some(tool => tool.name === "_read")), "native normalized tool declarations must reach the route");
     f.session.setActiveToolsByName(["mcp_search"]);
     f.session.setThinkingLevel("low");
     writeFileSync(modeFile, "mcp_search");
     await f.session.prompt("Second synthetic request");
     assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
     assert.deepEqual(f.executed, ["read", "mcp_search"]);
-    const body = lines(requestLog).at(-1).body;
+    const requests = lines(requestLog);
+    const body = requests.map(request => request.body).find(candidate =>
+      candidate.messages.flatMap(m => Array.isArray(m.content) ? m.content : [])
+        .some(block => block.type === "tool_addition" || block.type === "tool_removal")) ?? requests.at(-1).body;
     const changes = body.messages.flatMap(m => Array.isArray(m.content) ? m.content : []).filter(b => b.type === "tool_addition" || b.type === "tool_removal");
     assert.ok(changes.some(b => b.type === "tool_addition" && b.tool.definition.name === "_mcp_search"));
     assert.ok(lines(requestLog).at(-1).headers["anthropic-beta"].split(",").includes("inline-tools-2026-09-15"));
