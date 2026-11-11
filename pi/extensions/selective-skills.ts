@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   CONFIG_DIR_NAME,
   getAgentDir,
@@ -25,6 +25,68 @@ const STATUS_KEY = "selective-skills";
 
 interface SkillsState {
   enabledPaths: string[];
+}
+
+// Skills tied to one folder. A new session started anywhere inside the folder
+// begins with them on (/skill can still turn them off). Outside the folder,
+// /skill does not offer them at all. A linked Git worktree, such as a Herdr
+// task in ~/.herdr/worktrees/<repo>/<branch>, counts as inside the folder
+// when its main checkout is.
+const FOLDER_SKILLS: { folder: string; skills: string[] }[] = [
+  {
+    folder: join(homedir(), "Desktop", "projects", "DE"),
+    skills: ["everyday-ai-frontend-styleguide"],
+  },
+];
+
+function isInside(path: string, folder: string): boolean {
+  const fromFolder = relative(resolve(folder), resolve(path));
+  return fromFolder === "" || (!fromFolder.startsWith("..") && !isAbsolute(fromFolder));
+}
+
+// The main checkout of the Git repository containing cwd. In a linked
+// worktree, .git is a file ("gitdir: <main>/.git/worktrees/<name>") whose
+// commondir file leads back to <main>/.git.
+function mainCheckout(cwd: string): string | undefined {
+  let current = resolve(cwd);
+  while (true) {
+    const dotGit = join(current, ".git");
+    if (existsSync(dotGit)) {
+      if (statSync(dotGit).isDirectory()) return current;
+
+      const pointer = readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)$/m);
+      if (!pointer) return undefined;
+      const gitDir = resolve(current, pointer[1].trim());
+      const commonFile = join(gitDir, "commondir");
+      const commonDir = existsSync(commonFile)
+        ? resolve(gitDir, readFileSync(commonFile, "utf8").trim())
+        : gitDir;
+      return basename(commonDir) === ".git" ? dirname(commonDir) : undefined;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+function inFolder(cwd: string, folder: string): boolean {
+  if (isInside(cwd, folder)) return true;
+  const main = mainCheckout(cwd);
+  return main !== undefined && isInside(main, folder);
+}
+
+function folderAllows(skill: Skill, cwd: string): boolean {
+  const scopes = FOLDER_SKILLS.filter((scope) => scope.skills.includes(skill.name));
+  return scopes.length === 0 || scopes.some((scope) => inFolder(cwd, scope.folder));
+}
+
+function folderDefaults(cwd: string): Set<string> {
+  return new Set(
+    FOLDER_SKILLS
+      .filter((scope) => inFolder(cwd, scope.folder))
+      .flatMap((scope) => scope.skills),
+  );
 }
 
 function uniqueExistingPaths(paths: string[]): string[] {
@@ -115,7 +177,9 @@ function discoverSkills(ctx: ExtensionContext): Skill[] {
     agentDir,
     skillPaths: uniqueExistingPaths(roots),
     includeDefaults: false,
-  }).skills.sort((left, right) => left.name.localeCompare(right.name));
+  }).skills
+    .filter((skill) => folderAllows(skill, ctx.cwd))
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export default function selectiveSkills(pi: ExtensionAPI) {
@@ -142,7 +206,7 @@ export default function selectiveSkills(pi: ExtensionAPI) {
   }
 
   function restoreState(ctx: ExtensionContext): void {
-    let savedPaths: string[] = [];
+    let savedPaths: string[] | undefined;
 
     for (const entry of ctx.sessionManager.getEntries()) {
       if (entry.type !== "custom" || entry.customType !== STATE_TYPE) continue;
@@ -150,8 +214,17 @@ export default function selectiveSkills(pi: ExtensionAPI) {
       if (Array.isArray(data?.enabledPaths)) savedPaths = data.enabledPaths;
     }
 
-    enabledPaths = new Set(savedPaths);
+    enabledPaths = new Set(savedPaths ?? []);
     refreshCandidates(ctx);
+
+    // No /skill choice saved in this session yet: start with the folder's skills.
+    if (!savedPaths) {
+      const defaults = folderDefaults(ctx.cwd);
+      for (const skill of candidates) {
+        if (defaults.has(skill.name)) enabledPaths.add(skill.filePath);
+      }
+    }
+
     updateStatus(ctx);
   }
 
