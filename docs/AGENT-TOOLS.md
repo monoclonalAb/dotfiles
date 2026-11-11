@@ -38,6 +38,23 @@ updating the entry, see the
 [LithosAI Pi guide](https://docs.lithosai.com/agent-integrations/pi) and
 [pricing](https://www.lithosai.com/pricing).
 
+It also adds Gemini 4 Carbon (`google-vertex/gemini-4-carbon`), which Pi 1.5.2
+does not ship yet. It goes through Vertex AI, not a Gemini API key, because
+Google for Startups Cloud credits sit on a Cloud billing account and cover
+Gemini on Vertex; whether they cover AI Studio API-key usage is unclear. Sign
+in with `/login google-vertex`, choose Application Default Credentials, and
+enter a project linked to the credited billing account with location `global`.
+The project ID is stored in `~/.pi/agent/auth.json`, not here. It is in the
+`Ctrl+P` cycle (in GPT-6 Astra's former place) and starts at medium reasoning
+(high is its highest). Costs use the
+introductory $2 / $10 per million tokens; Google's rate becomes $4 / $20 after
+30 November 2026, so update `cost` then
+([announcement](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-carbon-now-available/)).
+Delete the entry once a Pi release lists the model itself. Its thinking blocks
+arrive as Google's summariser's working notes ("Thinking Process: 1. Analyze the
+Request…"); [`gemini-thinking-tidy`](../pi/extensions/gemini-thinking-tidy/README.md)
+shows only the summary at the end of each note.
+
 ### Extensions
 
 Global extensions live in [`pi/extensions/`](../pi/extensions/). Read its
@@ -46,7 +63,7 @@ context.
 
 | Extension | Adds |
 | --- | --- |
-| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json) |
+| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
 | `session-controls.ts` | `/clear` and `/drop` |
 | `copy-prompt.ts` | `alt+shift+c` copies the draft |
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
@@ -59,7 +76,9 @@ context.
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`theme-sync`](../pi/extensions/theme-sync/README.md) | Follows the shared Catppuccin flavour ([`THEME.md`](THEME.md)) |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
-| `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task; see [`HERDR.md`](HERDR.md#agent-state)) |
+| [`gemini-thinking-tidy`](../pi/extensions/gemini-thinking-tidy/README.md) | Gemini 4 Carbon thinking blocks show only the summaries, not the summariser's working notes (display only) |
+| [`readable-transcript`](../pi/extensions/readable-transcript/README.md) | Frames thinking blocks behind a `│` rail and tidies `codemode` and multi-line `bash` script rows (display only) |
+| `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task; see [`HERDR.md`](HERDR.md#agent-state)); in the Herdr app also a conversation summary for the [Brief panel](HERDR-APP.md#brief) (a second small request) |
 | [`omp-anthropic-route`](../pi/extensions/omp-anthropic-route/README.md) | Sends Claude OAuth requests in OMP's reviewed shape (below) |
 
 **Claude via OMP.** The first direct Claude OAuth request after starting Pi or
@@ -72,9 +91,12 @@ context.
 2. It sends one small synthetic request to check the requested model (uses
    quota). A missing CLI or failed check blocks instead of falling back.
 
-Later requests reuse the check. Startup, model selection and reload do nothing on
-their own; API keys, proxies and other providers are untouched.
-`/omp-anthropic-route` shows the cached status. Guards and recovery:
+Later requests with the same model and credential reuse the check. Pi's selected
+login supplies both probe and inference credentials; OMP's saved login is not
+used. `/accounts` switches and quota-router fallback therefore also apply to this
+bridge. A new access token needs its own probe. Startup, model selection and reload
+do nothing on their own; API keys, proxies and other providers are untouched.
+`/omp-anthropic-route` shows the last request's cached status. Guards and recovery:
 [request preflight](../pi/extensions/omp-anthropic-route/README.md#request-preflight).
 
 ### Prompts
@@ -86,6 +108,12 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
 
 - `/discuss`: interview, then an implementation-ready summary.
 - `/eli5 <topic>`: a throwaway visual HTML explainer.
+- `/tutor <topic>`: Socratic tutoring to mastery. Adapted from the
+  `socratic-tutor` skill in
+  [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills)
+  (commit `7c6715c`) without its intent check, which only matters when a skill
+  starts itself. Its MIT licence is in
+  [`pi/prompts/tutor/`](../pi/prompts/tutor/LICENSE.md).
 - `/domain-first [scope]`, `/test-sweep [scope]`, `/feedback [correction]`.
 - `/pr [notes]`: commit, push, and open or update a draft PR with a short
   description (screenshots only when asked).
@@ -95,6 +123,32 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
 - `/rho <task>`: the default way to work on a task (below).
 - `/rho-verify [notes]`: build or repair a project's verify skill (below).
 - `/poteto <task>`: work on the task in pstack's poteto-mode (below).
+
+### HTML artifacts
+
+HTML pages that agents make for you (reports, audits, explainers, mocks) live in
+one store, `~/Desktop/artifacts/`, so a later session can find and reuse them.
+The [`artifact`](../bin/artifact) command manages it, and the `HTML artifacts`
+section of [`pi/AGENTS.md`](../pi/AGENTS.md) tells every Pi session to use it.
+Set `ARTIFACTS_DIR` to move the store. `/eli5` pages stay throwaway.
+
+A typical week:
+
+1. Monday: an agent runs `artifact list pr audit`, finds nothing, then
+   `artifact new pr-284-audit --title ... --summary ... --tags audit,pr`. That
+   makes `2026-11-10-pr-284-audit/` with an `artifact.json` holding the title,
+   summary, tags, project (the main Git checkout, even from a worktree) and Pi
+   session file. The agent writes `index.html` into the folder.
+2. Thursday: another session runs `artifact list audit`, finds Monday's page and
+   starts the next one from a copy: `artifact new pr-301-audit --from pr-284 ...`.
+3. Any time: `artifact open` shows a gallery of every page with a filter box;
+   `artifact open pr-284` opens one page.
+
+The `artifact.json` files are the index, read fresh by every `list`; the gallery
+(`index.html` in the store) is rewritten after each change. To bring in an older
+page, `artifact add <file or folder> --summary ...` copies it and leaves the
+original. Nothing deletes pages; remove a folder by hand. The store is private
+(`0700`) because pages can hold work data, and it is outside this repository.
 
 ### rho and helper agents
 
