@@ -1,8 +1,8 @@
 diff --git a/docs/next/website/src/data/config-reference.json b/docs/next/website/src/data/config-reference.json
-index 36afe33..2b6d4e1 100644
+index f06507c1..9a94c026 100644
 --- a/docs/next/website/src/data/config-reference.json
 +++ b/docs/next/website/src/data/config-reference.json
-@@ -517,6 +517,18 @@
+@@ -523,6 +523,18 @@
            "default": "unset",
            "description": "Delete the selected managed worktree checkout after confirmation. Unset by default."
          },
@@ -21,7 +21,7 @@ index 36afe33..2b6d4e1 100644
          {
            "key": "keys.rename_workspace",
            "type": "keybinding",
-@@ -619,6 +631,18 @@
+@@ -625,6 +637,18 @@
            "default": "unset",
            "description": "Focus the next agent shown in the agent panel. Unset by default."
          },
@@ -40,7 +40,7 @@ index 36afe33..2b6d4e1 100644
          {
            "key": "keys.focus_agent",
            "type": "keybinding",
-@@ -969,6 +993,12 @@
+@@ -981,6 +1005,12 @@
            "default": "true",
            "description": "Draw borders along the outside edge of the pane area. Disable with pane gaps disabled for tmux-style internal splitters without an outside frame."
          },
@@ -53,7 +53,7 @@ index 36afe33..2b6d4e1 100644
          {
            "key": "ui.pane_scrollbars",
            "type": "boolean",
-@@ -987,6 +1017,18 @@
+@@ -999,6 +1029,18 @@
            "default": "false",
            "description": "Show agent labels in split pane borders when no manual pane label is set."
          },
@@ -72,7 +72,7 @@ index 36afe33..2b6d4e1 100644
          {
            "key": "ui.hide_tab_bar_when_single_tab",
            "type": "boolean",
-@@ -1066,6 +1108,12 @@
+@@ -1078,6 +1120,12 @@
            "default": "{}",
            "description": "Complete Agent-row overrides keyed by strict canonical agent id. Agents without an override use ui.sidebar.agents.rows."
          },
@@ -86,10 +86,10 @@ index 36afe33..2b6d4e1 100644
            "key": "ui.sidebar.spaces.row_gap",
            "type": "integer",
 diff --git a/src/app/agent_resume.rs b/src/app/agent_resume.rs
-index 2cbd93a..c47b358 100644
+index f088138c..2e1d2a74 100644
 --- a/src/app/agent_resume.rs
 +++ b/src/app/agent_resume.rs
-@@ -131,6 +131,7 @@ impl App {
+@@ -152,6 +152,7 @@ impl App {
              self.state.pane_borders,
              self.state.pane_gaps,
              self.state.pane_outer_borders,
@@ -97,7 +97,7 @@ index 2cbd93a..c47b358 100644
          );
  
          if self.state.active == Some(ws_idx)
-@@ -292,12 +293,14 @@ fn derived_pending_agent_resume_pane_infos(
+@@ -324,12 +325,14 @@ fn derived_pending_agent_resume_pane_infos(
      pane_borders: crate::config::PaneBordersConfig,
      pane_gaps: bool,
      pane_outer_borders: bool,
@@ -113,17 +113,10 @@ index 2cbd93a..c47b358 100644
      .into_iter()
      .map(|mut info| {
 diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
-index a025f0b..e72ed1f 100644
+index b5f3baf6..1c05152f 100644
 --- a/src/app/api/panes.rs
 +++ b/src/app/api/panes.rs
-@@ -62,13 +62,29 @@ impl App {
-         let host_terminal_theme = self.state.host_terminal_theme;
-         let host_terminal_appearance = self.state.host_terminal_appearance;
-         let previous_focus = self.state.current_pane_focus_target();
--        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
--            return encode_error(id, "pane_not_found", "pane not found");
--        };
-         let direction = match params.direction {
+@@ -56,6 +56,22 @@ impl App {
              crate::api::schema::SplitDirection::Right => ratatui::layout::Direction::Horizontal,
              crate::api::schema::SplitDirection::Down => ratatui::layout::Direction::Vertical,
          };
@@ -143,13 +136,10 @@ index a025f0b..e72ed1f 100644
 +                ),
 +            );
 +        }
-+        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
-+            return encode_error(id, "pane_not_found", "pane not found");
-+        };
-         let shell_config = crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode);
-         let split_result = match params.ratio {
-             Some(ratio) => ws.split_pane_with_ratio(
-@@ -2015,6 +2031,7 @@ impl App {
+         let (rows, cols) = self
+             .state
+             .new_pane_size(crate::ui::NewPanePlacement::Split {
+@@ -2133,6 +2149,7 @@ impl App {
              self.state.pane_borders,
              self.state.pane_gaps,
              self.state.pane_outer_borders,
@@ -158,7 +148,7 @@ index a025f0b..e72ed1f 100644
          .into_iter()
          .filter_map(|pane| {
 diff --git a/src/app/api/plugins/panes.rs b/src/app/api/plugins/panes.rs
-index 0579188..f21db1e 100644
+index a4f30b0c..c123fefd 100644
 --- a/src/app/api/plugins/panes.rs
 +++ b/src/app/api/plugins/panes.rs
 @@ -115,6 +115,20 @@ impl App {
@@ -179,14 +169,14 @@ index 0579188..f21db1e 100644
 +                ),
 +            );
 +        }
-         let (rows, cols) = self.state.estimate_pane_size();
-         let previous_focus = self.state.current_pane_focus_target();
-         let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+         let new_pane_placement = if placement == PluginPanePlacement::Zoomed {
+             crate::ui::NewPanePlacement::ZoomedOverlay
+         } else {
 diff --git a/src/app/mod.rs b/src/app/mod.rs
-index 757a7f6..ebcb2b9 100644
+index 6effa3a5..2a80250e 100644
 --- a/src/app/mod.rs
 +++ b/src/app/mod.rs
-@@ -491,9 +491,12 @@ impl App {
+@@ -537,9 +537,12 @@ impl App {
              confirm_close: config.ui.confirm_close,
              pane_borders: config.ui.pane_borders,
              pane_outer_borders: config.ui.pane_outer_borders,
@@ -199,7 +189,7 @@ index 757a7f6..ebcb2b9 100644
              tab_bar_right: Vec::new(),
              tab_bar_right_separator: String::new(),
              reveal_hidden_cursor_for_cjk_ime: config.experimental.reveal_hidden_cursor_for_cjk_ime,
-@@ -839,10 +842,13 @@ impl App {
+@@ -902,10 +905,13 @@ impl App {
                  self.state.confirm_close = config.ui.confirm_close;
                  self.state.pane_borders = config.ui.pane_borders;
                  self.state.pane_outer_borders = config.ui.pane_outer_borders;
@@ -213,7 +203,7 @@ index 757a7f6..ebcb2b9 100644
                  self.configure_tab_bar_status(
                      &config.ui.tab_bar_right,
                      &config.ui.tab_bar_right_separator,
-@@ -2734,6 +2740,51 @@ mod tests {
+@@ -2905,6 +2911,51 @@ mod tests {
          }
      }
  
@@ -266,10 +256,10 @@ index 757a7f6..ebcb2b9 100644
      async fn pane_split_request_uses_active_focused_pane_when_target_is_omitted() {
          let _guard = config_env_lock().lock().unwrap();
 diff --git a/src/app/state.rs b/src/app/state.rs
-index 892ec5e..8988a57 100644
+index f30279d6..87f170d5 100644
 --- a/src/app/state.rs
 +++ b/src/app/state.rs
-@@ -833,9 +833,12 @@ pub struct AppState {
+@@ -832,9 +832,12 @@ pub struct AppState {
      pub confirm_close: bool,
      pub pane_borders: crate::config::PaneBordersConfig,
      pub pane_outer_borders: bool,
@@ -282,7 +272,7 @@ index 892ec5e..8988a57 100644
      pub tab_bar_right: Vec<TabBarStatusSegment>,
      pub tab_bar_right_separator: String,
      /// Expose the focused pane's cursor anchor to the outer terminal even when
-@@ -929,6 +932,31 @@ impl AppState {
+@@ -944,6 +947,31 @@ impl AppState {
          }
      }
  
@@ -314,7 +304,7 @@ index 892ec5e..8988a57 100644
      /// Returns true when the given (workspace, tab, pane) refers to the
      /// currently focused pane in the active workspace's active tab.
      pub(crate) fn runtime_for_pane_in_workspace<'a>(
-@@ -1060,9 +1088,12 @@ impl AppState {
+@@ -1074,9 +1102,12 @@ impl AppState {
              confirm_close: true,
              pane_borders: crate::config::PaneBordersConfig::Auto,
              pane_outer_borders: true,
@@ -328,7 +318,7 @@ index 892ec5e..8988a57 100644
              tab_bar_right_separator: " ".into(),
              reveal_hidden_cursor_for_cjk_ime: false,
 diff --git a/src/build_info.rs b/src/build_info.rs
-index 1fdedfb..6bac396 100644
+index 1fdedfbb..6bac396a 100644
 --- a/src/build_info.rs
 +++ b/src/build_info.rs
 @@ -3,7 +3,7 @@
@@ -341,10 +331,10 @@ index 1fdedfb..6bac396 100644
  
  pub fn build_id() -> Option<&'static str> {
 diff --git a/src/client/shell.rs b/src/client/shell.rs
-index 95ee5e7..582c9d4 100644
+index 2d180443..d78c54f4 100644
 --- a/src/client/shell.rs
 +++ b/src/client/shell.rs
-@@ -33,6 +33,7 @@ mod settings;
+@@ -34,6 +34,7 @@ mod settings;
  mod state;
  mod surface_patch;
  mod text_editor;
@@ -353,10 +343,10 @@ index 95ee5e7..582c9d4 100644
  mod worktrees;
  use text_editor::TextEditor;
 diff --git a/src/client/shell/actions.rs b/src/client/shell/actions.rs
-index 12d8cc1..ea73681 100644
+index 83819b0d..cfc328da 100644
 --- a/src/client/shell/actions.rs
 +++ b/src/client/shell/actions.rs
-@@ -949,6 +949,14 @@ impl ClientShellState {
+@@ -991,6 +991,14 @@ impl ClientShellState {
                      tab_id: tabs[next].tab_id.clone(),
                  }))
              }
@@ -372,10 +362,10 @@ index 12d8cc1..ea73681 100644
                  let tabs = snapshot
                      .tabs
 diff --git a/src/client/shell/composition.rs b/src/client/shell/composition.rs
-index e0888d0..495aef4 100644
+index b7ab4a96..3368f824 100644
 --- a/src/client/shell/composition.rs
 +++ b/src/client/shell/composition.rs
-@@ -54,6 +54,7 @@ impl ClientShellState {
+@@ -61,6 +61,7 @@ impl ClientShellState {
              collapsed_endpoints: &self.collapsed_endpoints,
              collapsed_groups: &self.collapsed_groups,
              remote_collapsed_groups: &self.remote_collapsed_groups,
@@ -383,21 +373,25 @@ index e0888d0..495aef4 100644
              workspace_scroll: &mut self.workspace_scroll,
              agent_scroll: &mut self.agent_scroll,
              tab_scroll: &mut self.tab_scroll,
-@@ -70,7 +71,12 @@ impl ClientShellState {
+@@ -78,7 +79,16 @@ impl ClientShellState {
              dragged_workspace_id: None,
              workspace_drop_indicator_row: None,
          };
 -        if let Some(snapshot) = local_snapshot {
 +        if self.config.spaces.inline_agents {
 +            super::tree::render_tree(
-+                &mut buffer, sidebar, self.snapshot.as_deref(),
-+                &self.config, &mut render_state, &mut self.hits,
++                &mut buffer,
++                sidebar,
++                self.snapshot.as_deref(),
++                &self.config,
++                &mut render_state,
++                &mut self.hits,
 +            );
 +        } else if let Some(snapshot) = local_snapshot {
              render::render_sidebar(
                  &mut buffer,
                  sidebar,
-@@ -189,6 +195,7 @@ impl ClientShellState {
+@@ -217,6 +227,7 @@ impl ClientShellState {
                  collapsed_endpoints: &self.collapsed_endpoints,
                  collapsed_groups: &self.collapsed_groups,
                  remote_collapsed_groups: &self.remote_collapsed_groups,
@@ -406,7 +400,7 @@ index e0888d0..495aef4 100644
                  agent_scroll: &mut self.agent_scroll,
                  tab_scroll: &mut self.tab_scroll,
 diff --git a/src/client/shell/config.rs b/src/client/shell/config.rs
-index 2d16b00..f286803 100644
+index 04a3ddb5..d823fd47 100644
 --- a/src/client/shell/config.rs
 +++ b/src/client/shell/config.rs
 @@ -72,6 +72,7 @@ impl ClientShellState {
@@ -437,7 +431,7 @@ index 2d16b00..f286803 100644
                  if let Some(snapshot) = self.snapshot.as_deref() {
                      let profile = snapshot.server_keybindings_toml.clone();
 diff --git a/src/client/shell/endpoint_navigation.rs b/src/client/shell/endpoint_navigation.rs
-index 6cb8c2c..3af8d0b 100644
+index 3d99e5a6..925abd8c 100644
 --- a/src/client/shell/endpoint_navigation.rs
 +++ b/src/client/shell/endpoint_navigation.rs
 @@ -27,6 +27,7 @@ impl ClientShellState {
@@ -466,7 +460,7 @@ index 6cb8c2c..3af8d0b 100644
              return false;
          }
          if matches!(
-@@ -213,6 +223,46 @@ impl ClientShellState {
+@@ -225,6 +235,46 @@ impl ClientShellState {
          false
      }
  
@@ -514,14 +508,15 @@ index 6cb8c2c..3af8d0b 100644
          &mut self,
          endpoint_id: ClientEndpointId,
 diff --git a/src/client/shell/endpoint_sidebar.rs b/src/client/shell/endpoint_sidebar.rs
-index 34d2ccd..40a8fb5 100644
+index 96982487..ed4d6dc8 100644
 --- a/src/client/shell/endpoint_sidebar.rs
 +++ b/src/client/shell/endpoint_sidebar.rs
-@@ -31,19 +31,16 @@ pub(super) fn render_collapsed(
+@@ -31,19 +31,23 @@ pub(super) fn render_collapsed(
              continue;
          }
          if let Some(snapshot) = endpoint.snapshot.as_deref() {
-+            let keep_visible = state.selected_workspace_id
++            let keep_visible = state
++                .selected_workspace_id
 +                .filter(|target| target.endpoint_id == endpoint.endpoint_id)
 +                .map(|target| target.workspace_id.as_str());
 +            let entries = super::sidebar::flat_workspace_entries_keeping(snapshot, keep_visible);
@@ -532,25 +527,31 @@ index 34d2ccd..40a8fb5 100644
 -                {
 -                    selected_row = snapshot
 -                        .workspaces
--                        .iter()
++                selected_row = selected_row.or_else(|| {
++                    entries
+                         .iter()
 -                        .position(|workspace| workspace.workspace_id == target.workspace_id)
 -                        .map(|index| total_rows + index);
 -                }
-+                selected_row = selected_row.or_else(|| entries.iter()
-+                    .position(|entry| Some(snapshot.workspaces[entry.index].workspace_id.as_str()) == keep_visible)
-+                    .map(|index| total_rows + index));
++                        .position(|entry| {
++                            Some(snapshot.workspaces[entry.index].workspace_id.as_str())
++                                == keep_visible
++                        })
++                        .map(|index| total_rows + index)
++                });
              }
 -            total_rows += snapshot.workspaces.len();
 +            total_rows += entries.len();
          }
      }
      let height = usize::from(workspace_area.height);
-@@ -107,7 +104,11 @@ pub(super) fn render_collapsed(
+@@ -121,7 +125,12 @@ pub(super) fn render_collapsed(
          let Some(snapshot) = endpoint.snapshot.as_deref() else {
              continue;
          };
 -        for workspace in &snapshot.workspaces {
-+        let keep_visible = state.selected_workspace_id
++        let keep_visible = state
++            .selected_workspace_id
 +            .filter(|target| target.endpoint_id == endpoint.endpoint_id)
 +            .map(|target| target.workspace_id.as_str());
 +        for entry in super::sidebar::flat_workspace_entries_keeping(snapshot, keep_visible) {
@@ -558,20 +559,34 @@ index 34d2ccd..40a8fb5 100644
              if skip > 0 {
                  skip -= 1;
                  continue;
-@@ -263,7 +264,10 @@ pub(super) fn render_expanded(
+@@ -283,12 +292,19 @@ pub(super) fn render_expanded(
              let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                  .unwrap_or(&empty_collapsed_groups);
              rows.extend(
 -                super::sidebar::workspace_entries(snapshot, collapsed_groups)
-+                super::sidebar::workspace_entries_keeping(snapshot, collapsed_groups,
-+                    state.selected_workspace_id
+-                    .into_iter()
+-                    .map(|entry| Row::Workspace {
+-                        endpoint: endpoint_index,
+-                        entry,
+-                    }),
++                super::sidebar::workspace_entries_keeping(
++                    snapshot,
++                    collapsed_groups,
++                    state
++                        .selected_workspace_id
 +                        .filter(|target| target.endpoint_id == endpoint.endpoint_id)
-+                        .map(|target| target.workspace_id.as_str()))
-                     .into_iter()
-                     .map(|entry| Row::Workspace {
-                         endpoint: endpoint_index,
++                        .map(|target| target.workspace_id.as_str()),
++                )
++                .into_iter()
++                .map(|entry| Row::Workspace {
++                    endpoint: endpoint_index,
++                    entry,
++                }),
+             );
+         }
+     }
 diff --git a/src/client/shell/mouse.rs b/src/client/shell/mouse.rs
-index 0b9326d..5317a85 100644
+index 8e873d68..a0c5645c 100644
 --- a/src/client/shell/mouse.rs
 +++ b/src/client/shell/mouse.rs
 @@ -508,6 +508,50 @@ impl ClientShellState {
@@ -615,7 +630,7 @@ index 0b9326d..5317a85 100644
 +            .filter_map(|(before, position)| {
 +                let row = (usize::from(body.y) + position).checked_sub(start)?;
 +                (row + 1 >= usize::from(body.y) && row < usize::from(body.bottom()))
-+                    .then(|| (before, row as u16))
++                    .then_some((before, row as u16))
 +            })
 +            .enumerate()
 +            .min_by_key(|(index, (_, row))| (point.1.abs_diff(*row), *index))
@@ -625,7 +640,7 @@ index 0b9326d..5317a85 100644
      fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
          if self.hits.workspace_body.height == 0
              || point.1 < self.hits.workspace_body.y.saturating_sub(1)
-@@ -573,6 +617,14 @@ impl ClientShellState {
+@@ -594,6 +638,14 @@ impl ClientShellState {
              .workspaces
              .iter()
              .find(|workspace| workspace.workspace_id == source_workspace_id)?;
@@ -640,7 +655,7 @@ index 0b9326d..5317a85 100644
          if source
              .worktree
              .as_ref()
-@@ -1158,8 +1210,12 @@ impl ClientShellState {
+@@ -1204,8 +1256,12 @@ impl ClientShellState {
                      outcome.repaint = true;
                      return;
                  }
@@ -655,7 +670,7 @@ index 0b9326d..5317a85 100644
                      if let Some(ClientChromeDrag::Workspace {
                          target: current, ..
                      }) = self.chrome_drag.as_mut()
-@@ -1180,7 +1236,9 @@ impl ClientShellState {
+@@ -1226,7 +1282,9 @@ impl ClientShellState {
                      let source_workspace_id = press.workspace_id.clone();
                      let draggable = self.endpoint_workspace_is_draggable(press);
                      if draggable {
@@ -666,7 +681,7 @@ index 0b9326d..5317a85 100644
                              self.chrome_drag = Some(ClientChromeDrag::Workspace {
                                  source_workspace_id,
                                  target: Some(target),
-@@ -1983,6 +2041,10 @@ impl ClientShellState {
+@@ -2041,6 +2099,10 @@ impl ClientShellState {
                  if self.handle_endpoint_machine_click(point, outcome) {
                      return;
                  }
@@ -677,7 +692,7 @@ index 0b9326d..5317a85 100644
                  if super::contains(self.hits.global_launcher, point) {
                      self.toggle_global_menu();
                      outcome.repaint = true;
-@@ -2049,6 +2111,21 @@ impl ClientShellState {
+@@ -2098,6 +2160,21 @@ impl ClientShellState {
                      self.persist_chrome_preferences(outcome);
                      return;
                  }
@@ -700,7 +715,7 @@ index 0b9326d..5317a85 100644
                      .hits
                      .workspaces
 diff --git a/src/client/shell/render.rs b/src/client/shell/render.rs
-index 8038701..37999e9 100644
+index 248216c1..a28d2cc3 100644
 --- a/src/client/shell/render.rs
 +++ b/src/client/shell/render.rs
 @@ -42,10 +42,17 @@ pub(super) fn render_mode_bar(
@@ -743,7 +758,7 @@ index 8038701..37999e9 100644
              }
              ClientShellMode::Navigate => {
                  segments.extend([
-@@ -235,6 +232,7 @@ pub(super) struct ShellRenderState<'a> {
+@@ -236,6 +233,7 @@ pub(super) struct ShellRenderState<'a> {
      pub(super) collapsed_endpoints: &'a HashSet<ClientEndpointId>,
      pub(super) collapsed_groups: &'a HashSet<String>,
      pub(super) remote_collapsed_groups: &'a HashMap<ClientEndpointId, HashSet<String>>,
@@ -751,7 +766,7 @@ index 8038701..37999e9 100644
      pub(super) workspace_scroll: &'a mut usize,
      pub(super) agent_scroll: &'a mut usize,
      pub(super) tab_scroll: &'a mut usize,
-@@ -267,7 +265,36 @@ pub(super) fn render_shell(
+@@ -268,7 +266,37 @@ pub(super) fn render_shell(
          );
      }
      if layout.sidebar.width > 0 {
@@ -780,7 +795,8 @@ index 8038701..37999e9 100644
 +                config,
 +                state.active_endpoint_id,
 +                machine_label,
-+                state.selected_workspace_id
++                state
++                    .selected_workspace_id
 +                    .filter(|target| &target.endpoint_id == state.active_endpoint_id)
 +                    .map(|target| target.workspace_id.as_str()),
 +                &mut hits,
@@ -789,7 +805,7 @@ index 8038701..37999e9 100644
              if state.sidebar_collapsed {
                  super::endpoint_sidebar::render_collapsed(
                      buffer,
-@@ -331,6 +358,8 @@ pub(super) fn render_shell(
+@@ -332,6 +360,8 @@ pub(super) fn render_shell(
          hits.workspaces.clear();
          hits.agents.clear();
          hits.endpoint_agents.clear();
@@ -799,29 +815,26 @@ index 8038701..37999e9 100644
          hits.tab_scroll_right = Rect::default();
          hits.new_tab = Rect::default();
 diff --git a/src/client/shell/sidebar.rs b/src/client/shell/sidebar.rs
-index 161aecd..09d89e3 100644
+index 46c3a1a0..d11adf1c 100644
 --- a/src/client/shell/sidebar.rs
 +++ b/src/client/shell/sidebar.rs
-@@ -35,12 +35,13 @@ pub(crate) fn render_collapsed_sidebar(
-     let palette = &config.palette;
+@@ -57,12 +57,12 @@ pub(crate) fn render_collapsed_sidebar(
+     let active_background = workspace_active_background(palette, selected_workspace_id.is_some());
      render_sidebar_background(buffer, area, palette);
      let (workspace_area, divider_y, detail_area) = collapsed_sidebar_sections(area);
 -    for (index, workspace) in snapshot
 -        .workspaces
 -        .iter()
--        .take(workspace_area.height as usize)
--        .enumerate()
-+    for (index, entry) in
-+        flat_workspace_entries_keeping(snapshot, selected_workspace_id)
-+            .into_iter()
-+            .take(workspace_area.height as usize)
-+            .enumerate()
++    for (index, entry) in flat_workspace_entries_keeping(snapshot, selected_workspace_id)
++        .into_iter()
+         .take(workspace_area.height as usize)
+         .enumerate()
      {
 +        let workspace = &snapshot.workspaces[entry.index];
          let rect = Rect::new(
              workspace_area.x,
              workspace_area.y + index as u16,
-@@ -73,7 +74,7 @@ pub(crate) fn render_collapsed_sidebar(
+@@ -89,7 +89,7 @@ pub(crate) fn render_collapsed_sidebar(
              rect.x,
              rect.y,
              rect.width.min(2),
@@ -830,7 +843,7 @@ index 161aecd..09d89e3 100644
              number_style,
          );
          let status = workspace.agent_status;
-@@ -210,7 +211,13 @@ pub(crate) fn render_sidebar(
+@@ -226,7 +226,14 @@ pub(crate) fn render_sidebar(
              .add_modifier(Modifier::BOLD),
      );
  
@@ -838,14 +851,15 @@ index 161aecd..09d89e3 100644
 +    let entries = workspace_entries_keeping(
 +        snapshot,
 +        state.collapsed_groups,
-+        state.selected_workspace_id
++        state
++            .selected_workspace_id
 +            .filter(|target| &target.endpoint_id == state.active_endpoint_id)
 +            .map(|target| target.workspace_id.as_str()),
 +    );
      let body = Rect::new(
          workspace_area.x,
          workspace_area.y.saturating_add(WORKSPACE_HEADER_ROWS),
-@@ -439,12 +446,41 @@ pub(crate) fn render_sidebar(
+@@ -455,12 +462,48 @@ pub(crate) fn render_sidebar(
      );
  }
  
@@ -854,9 +868,16 @@ index 161aecd..09d89e3 100644
 +    snapshot: &ClientShellSnapshot,
 +    keep_visible: Option<&str>,
 +) -> Vec<WorkspaceEntry> {
-+    snapshot.workspaces.iter().enumerate()
++    snapshot
++        .workspaces
++        .iter()
++        .enumerate()
 +        .filter(|(_, workspace)| !super::tree::workspace_sidebar_hidden(workspace, keep_visible))
-+        .map(|(index, _)| WorkspaceEntry { index, indented: false, last_child: false })
++        .map(|(index, _)| WorkspaceEntry {
++            index,
++            indented: false,
++            last_child: false,
++        })
 +        .collect()
 +}
 +
@@ -887,7 +908,7 @@ index 161aecd..09d89e3 100644
          if let Some(worktree) = &workspace.worktree {
              members.entry(&worktree.key).or_default().push(index);
          }
-@@ -465,6 +501,9 @@ pub(crate) fn workspace_entries(
+@@ -485,6 +528,9 @@ pub(crate) fn workspace_entries(
      let mut emitted = HashSet::<&str>::new();
      let mut entries = Vec::new();
      for (index, workspace) in snapshot.workspaces.iter().enumerate() {
@@ -898,7 +919,7 @@ index 161aecd..09d89e3 100644
              .worktree
              .as_ref()
 diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
-index 901c5a2..46b6faa 100644
+index 5a732920..ffa8899a 100644
 --- a/src/client/shell/state.rs
 +++ b/src/client/shell/state.rs
 @@ -95,6 +95,10 @@ pub(super) struct ShellHitMap {
@@ -912,7 +933,7 @@ index 901c5a2..46b6faa 100644
      pub(super) agent_body: Rect,
      pub(super) agent_scrollbar: Rect,
      pub(super) agent_scroll_metrics: Option<crate::pane::ScrollMetrics>,
-@@ -859,6 +863,8 @@ pub(crate) struct ClientShellState {
+@@ -882,6 +886,8 @@ pub(crate) struct ClientShellState {
      pub(super) tab_press: Option<ClientTabPress>,
      pub(super) collapsed_groups: HashSet<String>,
      pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
@@ -920,8 +941,8 @@ index 901c5a2..46b6faa 100644
 +    pub(super) collapsed_space_agents: HashSet<(ClientEndpointId, String)>,
      pub(super) workspace_scroll: usize,
      pub(super) agent_scroll: usize,
-     pub(super) tab_scroll: usize,
-@@ -995,6 +1001,16 @@ impl ClientShellState {
+     pub(super) pending_agent_reveal: Option<(ClientEndpointId, String)>,
+@@ -1029,6 +1035,16 @@ impl ClientShellState {
                  .or_default()
                  .extend(saved.collapsed_groups);
          }
@@ -936,9 +957,9 @@ index 901c5a2..46b6faa 100644
 +            preferences.collapsed_groups.into_iter().collect()
 +        };
          Self {
+             machine_diagnostics: Default::default(),
              config,
-             snapshot: None,
-@@ -1019,8 +1035,9 @@ impl ClientShellState {
+@@ -1054,8 +1070,9 @@ impl ClientShellState {
              chrome_drag: None,
              workspace_press: None,
              tab_press: None,
@@ -948,8 +969,8 @@ index 901c5a2..46b6faa 100644
 +            collapsed_space_agents: HashSet::new(),
              workspace_scroll: 0,
              agent_scroll: 0,
-             tab_scroll: 0,
-@@ -1150,15 +1167,67 @@ impl ClientShellState {
+             pending_agent_reveal: None,
+@@ -1190,15 +1207,70 @@ impl ClientShellState {
          let empty_collapsed_groups = HashSet::new();
          if self.mobile_layout_active() {
              render::workspace_entries(snapshot, &empty_collapsed_groups)
@@ -969,10 +990,13 @@ index 901c5a2..46b6faa 100644
      }
  
 +    pub(super) fn tree_keep_visible(&self) -> Option<&str> {
-+        self.navigate_workspace_id.as_ref()
-+            .filter(|target| self.mode == ClientShellMode::Navigate
-+                && target.endpoint_id == self.active_endpoint_id
-+                && self.navigation_target_valid(target))
++        self.navigate_workspace_id
++            .as_ref()
++            .filter(|target| {
++                self.mode == ClientShellMode::Navigate
++                    && target.endpoint_id == self.active_endpoint_id
++                    && self.navigation_target_valid(target)
++            })
 +            .map(|target| target.workspace_id.as_str())
 +    }
 +
@@ -1018,7 +1042,7 @@ index 901c5a2..46b6faa 100644
      pub(super) fn reveal_workspace(&mut self, workspace_id: &str) {
          if self
              .hits
-@@ -1389,6 +1458,12 @@ impl ClientShellState {
+@@ -1430,6 +1502,12 @@ impl ClientShellState {
          {
              self.reveal_focused_workspace = true;
          }
@@ -1032,10 +1056,10 @@ index 901c5a2..46b6faa 100644
              || self
                  .snapshot
 diff --git a/src/client/shell/tests/keybindings_settings.rs b/src/client/shell/tests/keybindings_settings.rs
-index e1b43a0..549de04 100644
+index fd3301db..7a166770 100644
 --- a/src/client/shell/tests/keybindings_settings.rs
 +++ b/src/client/shell/tests/keybindings_settings.rs
-@@ -233,7 +233,25 @@ detach = "prefix+x"
+@@ -372,7 +372,25 @@ detach = "prefix+x"
          .collect::<Vec<_>>()
          .join("\n");
      assert!(text.contains("PREFIX"), "frame: {text:?}");
@@ -1063,20 +1087,20 @@ index e1b43a0..549de04 100644
      let detach = state.handle_input_bytes(b"x");
      assert!(detach.detach);
 diff --git a/src/client/shell/tests/mod.rs b/src/client/shell/tests/mod.rs
-index 787d8a7..7afa676 100644
+index 05bfc263..da7a2310 100644
 --- a/src/client/shell/tests/mod.rs
 +++ b/src/client/shell/tests/mod.rs
-@@ -258,3 +258,4 @@ mod mobile;
+@@ -262,3 +262,4 @@ mod mobile;
  mod mouse_selection;
  mod popup_focus_projection;
  mod startup_overlays;
 +mod tree;
 diff --git a/src/client/shell/tests/tree.rs b/src/client/shell/tests/tree.rs
 new file mode 100644
-index 0000000..a61c06c
+index 00000000..a302f064
 --- /dev/null
 +++ b/src/client/shell/tests/tree.rs
-@@ -0,0 +1,1318 @@
+@@ -0,0 +1,1331 @@
 +//! Inline Spaces tree (`ui.sidebar.spaces.inline_agents`): document shape,
 +//! `sidebar_hidden` filtering, disclosure, fixed footer and hit-testing.
 +use super::*;
@@ -1835,7 +1859,9 @@ index 0000000..a61c06c
 +    for collapsed in [false, true] {
 +        let (mut state, _) = two_machine_state();
 +        let mut local = fixture(1);
-+        local.workspaces[1].tokens.push((SIDEBAR_HIDDEN_TOKEN.into(), "hidden".into()));
++        local.workspaces[1]
++            .tokens
++            .push((SIDEBAR_HIDDEN_TOKEN.into(), "hidden".into()));
 +        state.set_snapshot(Box::new(local));
 +        state.set_pane_surface(surface());
 +        state.sidebar_collapsed = collapsed;
@@ -1859,9 +1885,20 @@ index 0000000..a61c06c
 +    state.navigate_workspace_id = state.focused_navigation_target();
 +    state.move_navigate_workspace(1);
 +    sidebar_rows(&mut state);
-+    assert_eq!(state.navigate_workspace_id.as_ref().unwrap().workspace_id, "ws_2");
++    assert_eq!(
++        state.navigate_workspace_id.as_ref().unwrap().workspace_id,
++        "ws_2"
++    );
 +    assert!(workspace_row(&state, "ws_2").is_some());
-+    assert_eq!(state.snapshot.as_ref().unwrap().focused_workspace_id.as_deref(), Some("ws_1"));
++    assert_eq!(
++        state
++            .snapshot
++            .as_ref()
++            .unwrap()
++            .focused_workspace_id
++            .as_deref(),
++        Some("ws_1")
++    );
 +}
 +
 +#[test]
@@ -1908,7 +1945,7 @@ index 0000000..a61c06c
 +        ))
 +    ));
 +    assert!(
-+        crate::input::keybind_help_groups(keybinds, shell.keybinds.prefix)
++        crate::input::keybind_help_groups(keybinds, &shell.keybinds.prefix)
 +            .iter()
 +            .flat_map(|(_, entries)| entries.iter())
 +            .any(|(_, description)| description == "next machine")
@@ -2283,7 +2320,7 @@ index 0000000..a61c06c
 +            "{code}"
 +        );
 +    }
-+    let help = crate::input::keybind_help_groups(keybinds, shell.keybinds.prefix);
++    let help = crate::input::keybind_help_groups(keybinds, &shell.keybinds.prefix);
 +    for description in ["move worktree up", "move worktree down"] {
 +        assert!(help
 +            .iter()
@@ -2397,10 +2434,10 @@ index 0000000..a61c06c
 +}
 diff --git a/src/client/shell/tree.rs b/src/client/shell/tree.rs
 new file mode 100644
-index 0000000..27509d0
+index 00000000..31d317f6
 --- /dev/null
 +++ b/src/client/shell/tree.rs
-@@ -0,0 +1,1350 @@
+@@ -0,0 +1,1358 @@
 +//! Inline Spaces tree (`ui.sidebar.spaces.inline_agents`).
 +//!
 +//! One row document shared by rendering, scrolling, disclosure and hit-testing:
@@ -2535,7 +2572,8 @@ index 0000000..27509d0
 +        if endpoint_id.is_local() {
 +            self.collapsed_groups.contains(key)
 +        } else {
-+            self.remote_collapsed_groups.get(endpoint_id)
++            self.remote_collapsed_groups
++                .get(endpoint_id)
 +                .is_some_and(|groups| groups.contains(key))
 +        }
 +    }
@@ -2981,7 +3019,7 @@ index 0000000..27509d0
 +                    .map(|worktree| worktree.key.as_str())
 +                    == key
 +        } else {
-+            &workspace.workspace_id == &snapshot.workspaces[index].workspace_id
++            workspace.workspace_id == snapshot.workspaces[index].workspace_id
 +        };
 +        if !member {
 +            continue;
@@ -3155,8 +3193,14 @@ index 0000000..27509d0
 +fn reveal_target(inputs: &TreeInputs<'_>, rows: &[TreeRow]) -> Option<usize> {
 +    let endpoint = active_endpoint_index(inputs)?;
 +    let snapshot = inputs.endpoints[endpoint].snapshot.as_deref()?;
-+    let focused_pane = inputs.keep_visible.is_none().then_some(snapshot.focused_pane_id.as_deref()).flatten();
-+    let focused_workspace = inputs.keep_visible.or(snapshot.focused_workspace_id.as_deref());
++    let focused_pane = inputs
++        .keep_visible
++        .is_none()
++        .then_some(snapshot.focused_pane_id.as_deref())
++        .flatten();
++    let focused_workspace = inputs
++        .keep_visible
++        .or(snapshot.focused_workspace_id.as_deref());
 +    rows.iter()
 +        .position(|row| {
 +            matches!(row, TreeRow::Agent { endpoint: row_endpoint, pane_id, .. }
@@ -3249,7 +3293,8 @@ index 0000000..27509d0
 +        remote_collapsed_groups: state.remote_collapsed_groups,
 +        collapsed_space_agents: state.collapsed_space_agents,
 +        active_endpoint_id: state.active_endpoint_id,
-+        keep_visible: state.selected_workspace_id
++        keep_visible: state
++            .selected_workspace_id
 +            .filter(|target| &target.endpoint_id == state.active_endpoint_id)
 +            .map(|target| target.workspace_id.as_str()),
 +        agent_panel_sort: config.agent_panel_sort,
@@ -3394,8 +3439,8 @@ index 0000000..27509d0
 +            } => {
 +                let workspace = &snapshot.workspaces[*index];
 +                let active = endpoint_active && workspace.focused;
-+                let selected = endpoint_active
-+                    && keep_visible == Some(workspace.workspace_id.as_str());
++                let selected =
++                    endpoint_active && keep_visible == Some(workspace.workspace_id.as_str());
 +                let dragged = endpoint_active
 +                    && state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
 +                if selected {
@@ -3752,16 +3797,17 @@ index 0000000..27509d0
 +    );
 +}
 diff --git a/src/client/shell/workspace_navigation.rs b/src/client/shell/workspace_navigation.rs
-index 6139fe0..fbf7028 100644
+index 19fa1a39..584975bc 100644
 --- a/src/client/shell/workspace_navigation.rs
 +++ b/src/client/shell/workspace_navigation.rs
-@@ -66,23 +66,21 @@ impl ClientShellState {
+@@ -102,23 +102,29 @@ impl ClientShellState {
          let empty_collapsed_groups = HashSet::new();
          let mut targets = Vec::new();
          for endpoint in &self.endpoints {
 -            if endpoint.status != ClientEndpointStatus::Online {
 +            if endpoint.status != ClientEndpointStatus::Online
-+                || (self.config.spaces.inline_agents && endpoint.endpoint_id != self.active_endpoint_id)
++                || (self.config.spaces.inline_agents
++                    && endpoint.endpoint_id != self.active_endpoint_id)
 +            {
                  continue;
              }
@@ -3779,21 +3825,28 @@ index 6139fe0..fbf7028 100644
 -                        last_child: false,
 -                    })
 -                    .collect()
-+            let entries = if self.config.spaces.inline_agents && !self.sidebar_collapsed && !mobile {
++            let entries = if self.config.spaces.inline_agents && !self.sidebar_collapsed && !mobile
++            {
 +                super::tree::navigation_entries(&self.tree_inputs())
 +            } else if self.sidebar_collapsed && !mobile && surface_available {
-+                sidebar::flat_workspace_entries_keeping(snapshot,
-+                    self.navigate_workspace_id.as_ref()
-+                        .filter(|target| target.endpoint_id == endpoint.endpoint_id && self.navigation_target_valid(target))
-+                        .map(|target| target.workspace_id.as_str()))
++                sidebar::flat_workspace_entries_keeping(
++                    snapshot,
++                    self.navigate_workspace_id
++                        .as_ref()
++                        .filter(|target| {
++                            target.endpoint_id == endpoint.endpoint_id
++                                && self.navigation_target_valid(target)
++                        })
++                        .map(|target| target.workspace_id.as_str()),
++                )
              } else {
                  let collapsed_groups = if mobile && surface_available {
                      &empty_collapsed_groups
 diff --git a/src/config/keybinds.rs b/src/config/keybinds.rs
-index bec1af6..369f450 100644
+index 276764a6..dca32635 100644
 --- a/src/config/keybinds.rs
 +++ b/src/config/keybinds.rs
-@@ -324,6 +324,8 @@ pub struct Keybinds {
+@@ -357,6 +357,8 @@ pub struct Keybinds {
      pub new_worktree: ActionKeybinds,
      pub open_worktree: ActionKeybinds,
      pub remove_worktree: ActionKeybinds,
@@ -3802,7 +3855,7 @@ index bec1af6..369f450 100644
      pub rename_workspace: ActionKeybinds,
      pub close_workspace: ActionKeybinds,
      pub workspace_picker: ActionKeybinds,
-@@ -335,6 +337,8 @@ pub struct Keybinds {
+@@ -368,6 +370,8 @@ pub struct Keybinds {
      pub next_workspace: ActionKeybinds,
      pub previous_agent: ActionKeybinds,
      pub next_agent: ActionKeybinds,
@@ -3811,7 +3864,7 @@ index bec1af6..369f450 100644
      pub focus_agent: Vec<IndexedKeybind>,
      pub new_tab: ActionKeybinds,
      pub rename_tab: ActionKeybinds,
-@@ -492,6 +496,8 @@ impl Config {
+@@ -540,6 +544,8 @@ impl Config {
              new_worktree: empty_action!(),
              open_worktree: empty_action!(),
              remove_worktree: empty_action!(),
@@ -3820,7 +3873,7 @@ index bec1af6..369f450 100644
              rename_workspace: empty_action!(),
              close_workspace: empty_action!(),
              workspace_picker: empty_action!(),
-@@ -503,6 +509,8 @@ impl Config {
+@@ -551,6 +557,8 @@ impl Config {
              next_workspace: empty_action!(),
              previous_agent: empty_action!(),
              next_agent: empty_action!(),
@@ -3829,7 +3882,7 @@ index bec1af6..369f450 100644
              focus_agent: Vec::new(),
              new_tab: empty_action!(),
              rename_tab: empty_action!(),
-@@ -620,6 +628,8 @@ impl Config {
+@@ -669,6 +677,8 @@ impl Config {
              apply_action!(keybinds.new_worktree, new_worktree, source);
              apply_action!(keybinds.open_worktree, open_worktree, source);
              apply_action!(keybinds.remove_worktree, remove_worktree, source);
@@ -3838,7 +3891,7 @@ index bec1af6..369f450 100644
              apply_action!(keybinds.rename_workspace, rename_workspace, source);
              apply_action!(keybinds.close_workspace, close_workspace, source);
              apply_action!(keybinds.workspace_picker, workspace_picker, source);
-@@ -635,6 +645,8 @@ impl Config {
+@@ -684,6 +694,8 @@ impl Config {
              apply_action!(keybinds.next_workspace, next_workspace, source);
              apply_action!(keybinds.previous_agent, previous_agent, source);
              apply_action!(keybinds.next_agent, next_agent, source);
@@ -3848,7 +3901,7 @@ index bec1af6..369f450 100644
                  keybinds.focus_agent,
                  focus_agent,
 diff --git a/src/config/model.rs b/src/config/model.rs
-index 6ef6274..689e1d6 100644
+index 29802fd9..aa990c79 100644
 --- a/src/config/model.rs
 +++ b/src/config/model.rs
 @@ -11,6 +11,20 @@ use super::{
@@ -3872,7 +3925,7 @@ index 6ef6274..689e1d6 100644
  #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
  #[serde(rename_all = "lowercase")]
  pub enum UpdateChannelConfig {
-@@ -345,6 +359,10 @@ pub struct KeysConfig {
+@@ -349,6 +363,10 @@ pub struct KeysConfig {
      pub open_worktree: BindingConfig,
      /// Delete the selected managed worktree checkout after confirmation. Unset by default.
      pub remove_worktree: BindingConfig,
@@ -3883,7 +3936,7 @@ index 6ef6274..689e1d6 100644
      /// Rename the selected workspace. Default: "prefix+shift+w"
      pub rename_workspace: BindingConfig,
      /// Close the selected workspace. Default: "prefix+shift+d"
-@@ -379,6 +397,10 @@ pub struct KeysConfig {
+@@ -383,6 +401,10 @@ pub struct KeysConfig {
      pub previous_agent: BindingConfig,
      /// Focus the next agent shown in the agent panel. Unset by default.
      pub next_agent: BindingConfig,
@@ -3894,7 +3947,7 @@ index 6ef6274..689e1d6 100644
      /// Focus an agent by index 1-9. Unset by default.
      pub focus_agent: BindingConfig,
      /// Local-client shortcut that sends a clipboard image to a remote Herdr session. Default: "ctrl+v".
-@@ -477,6 +499,10 @@ pub(crate) struct KeysConfigOverlay {
+@@ -487,6 +509,10 @@ pub(crate) struct KeysConfigOverlay {
      #[serde(skip_serializing_if = "Option::is_none")]
      remove_worktree: Option<BindingConfig>,
      #[serde(skip_serializing_if = "Option::is_none")]
@@ -3905,7 +3958,7 @@ index 6ef6274..689e1d6 100644
      rename_workspace: Option<BindingConfig>,
      #[serde(skip_serializing_if = "Option::is_none")]
      close_workspace: Option<BindingConfig>,
-@@ -511,6 +537,10 @@ pub(crate) struct KeysConfigOverlay {
+@@ -521,6 +547,10 @@ pub(crate) struct KeysConfigOverlay {
      #[serde(skip_serializing_if = "Option::is_none")]
      next_agent: Option<BindingConfig>,
      #[serde(skip_serializing_if = "Option::is_none")]
@@ -3916,7 +3969,7 @@ index 6ef6274..689e1d6 100644
      focus_agent: Option<BindingConfig>,
      #[serde(skip_serializing_if = "Option::is_none")]
      remote_image_paste: Option<String>,
-@@ -616,6 +646,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
+@@ -650,6 +680,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
          apply_field!(new_worktree);
          apply_field!(open_worktree);
          apply_field!(remove_worktree);
@@ -3925,7 +3978,7 @@ index 6ef6274..689e1d6 100644
          apply_field!(rename_workspace);
          apply_field!(close_workspace);
          apply_field!(workspace_picker);
-@@ -633,6 +665,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
+@@ -667,6 +699,8 @@ impl<'de> Deserialize<'de> for KeysConfig {
          apply_field!(next_workspace);
          apply_field!(previous_agent);
          apply_field!(next_agent);
@@ -3934,7 +3987,7 @@ index 6ef6274..689e1d6 100644
          apply_field!(focus_agent);
          apply_field!(remote_image_paste);
          apply_field!(new_tab);
-@@ -720,6 +754,8 @@ impl KeysConfig {
+@@ -755,6 +789,8 @@ impl KeysConfig {
          copy_effective_action_field!(new_worktree, keybinds.new_worktree);
          copy_effective_action_field!(open_worktree, keybinds.open_worktree);
          copy_effective_action_field!(remove_worktree, keybinds.remove_worktree);
@@ -3943,7 +3996,7 @@ index 6ef6274..689e1d6 100644
          copy_effective_action_field!(rename_workspace, keybinds.rename_workspace);
          copy_effective_action_field!(close_workspace, keybinds.close_workspace);
          copy_effective_action_field!(workspace_picker, keybinds.workspace_picker);
-@@ -737,6 +773,8 @@ impl KeysConfig {
+@@ -772,6 +808,8 @@ impl KeysConfig {
          copy_effective_action_field!(next_workspace, keybinds.next_workspace);
          copy_effective_action_field!(previous_agent, keybinds.previous_agent);
          copy_effective_action_field!(next_agent, keybinds.next_agent);
@@ -3952,7 +4005,7 @@ index 6ef6274..689e1d6 100644
          copy_effective_indexed_field!(focus_agent, keybinds.focus_agent);
          copy_user_field!(remote_image_paste);
          copy_effective_action_field!(new_tab, keybinds.new_tab);
-@@ -938,12 +976,19 @@ pub struct UiConfig {
+@@ -974,12 +1012,19 @@ pub struct UiConfig {
      pub pane_borders: PaneBordersConfig,
      /// Draw borders along the outside edge of the pane area. Default: true.
      pub pane_outer_borders: bool,
@@ -3972,7 +4025,7 @@ index 6ef6274..689e1d6 100644
      /// Hide the tab row when the workspace has one tab. Default: false.
      pub hide_tab_bar_when_single_tab: bool,
      /// Desktop tab row placement. Default: top.
-@@ -1088,6 +1133,8 @@ impl Default for KeysConfig {
+@@ -1127,6 +1172,8 @@ impl Default for KeysConfig {
              new_worktree: BindingConfig::one("prefix+shift+g"),
              open_worktree: BindingConfig::empty(),
              remove_worktree: BindingConfig::empty(),
@@ -3981,7 +4034,7 @@ index 6ef6274..689e1d6 100644
              rename_workspace: BindingConfig::one("prefix+shift+w"),
              close_workspace: BindingConfig::one("prefix+shift+d"),
              workspace_picker: BindingConfig::one("prefix+w"),
-@@ -1105,6 +1152,8 @@ impl Default for KeysConfig {
+@@ -1144,6 +1191,8 @@ impl Default for KeysConfig {
              next_workspace: BindingConfig::empty(),
              previous_agent: BindingConfig::empty(),
              next_agent: BindingConfig::empty(),
@@ -3990,7 +4043,7 @@ index 6ef6274..689e1d6 100644
              focus_agent: BindingConfig::empty(),
              remote_image_paste: "ctrl+v".into(),
              new_tab: BindingConfig::one("prefix+c"),
-@@ -1175,9 +1224,12 @@ impl Default for UiConfig {
+@@ -1215,9 +1264,12 @@ impl Default for UiConfig {
              prompt_new_workspace_name: false,
              pane_borders: PaneBordersConfig::Auto,
              pane_outer_borders: true,
@@ -4003,7 +4056,7 @@ index 6ef6274..689e1d6 100644
              hide_tab_bar_when_single_tab: false,
              tab_bar_position: TabBarPositionConfig::Top,
              tab_bar_right: Vec::new(),
-@@ -1477,9 +1529,12 @@ status_indicators = "symbols"
+@@ -1522,9 +1574,12 @@ status_indicators = "symbols"
          let default_config = Config::default();
          assert_eq!(default_config.ui.pane_borders, PaneBordersConfig::Auto);
          assert!(default_config.ui.pane_outer_borders);
@@ -4016,7 +4069,7 @@ index 6ef6274..689e1d6 100644
          assert!(!default_config.ui.hide_tab_bar_when_single_tab);
          assert_eq!(
              default_config.ui.tab_bar_position,
-@@ -1492,9 +1547,12 @@ status_indicators = "symbols"
+@@ -1537,9 +1592,12 @@ status_indicators = "symbols"
  [ui]
  pane_borders = "always"
  pane_outer_borders = false
@@ -4029,7 +4082,7 @@ index 6ef6274..689e1d6 100644
  hide_tab_bar_when_single_tab = true
  tab_bar_position = "bottom"
  tab_bar_right = [
-@@ -1509,9 +1567,12 @@ tab_bar_right_separator = " · "
+@@ -1554,9 +1612,12 @@ tab_bar_right_separator = " · "
          let config: Config = toml::from_str(toml).unwrap();
          assert_eq!(config.ui.pane_borders, PaneBordersConfig::Always);
          assert!(!config.ui.pane_outer_borders);
@@ -4042,7 +4095,7 @@ index 6ef6274..689e1d6 100644
          assert!(config.ui.hide_tab_bar_when_single_tab);
          assert_eq!(config.ui.tab_bar_position, TabBarPositionConfig::Bottom);
          assert_eq!(config.ui.tab_bar_right.len(), 5);
-@@ -1522,6 +1583,18 @@ tab_bar_right_separator = " · "
+@@ -1567,6 +1628,18 @@ tab_bar_right_separator = " · "
          assert_eq!(config.ui.tab_bar_right_separator, " · ");
      }
  
@@ -4062,7 +4115,7 @@ index 6ef6274..689e1d6 100644
      fn worktrees_directory_defaults_and_parses() {
          let default_config = Config::default();
 diff --git a/src/config/sidebar.rs b/src/config/sidebar.rs
-index 9a4cb5e..f27445f 100644
+index 9a4cb5e0..f27445f7 100644
 --- a/src/config/sidebar.rs
 +++ b/src/config/sidebar.rs
 @@ -458,6 +458,9 @@ impl Default for AgentsSidebarConfig {
@@ -4084,10 +4137,10 @@ index 9a4cb5e..f27445f 100644
                  vec![SpaceSidebarToken::StateIcon, SpaceSidebarToken::Workspace],
                  vec![SpaceSidebarToken::Branch, SpaceSidebarToken::GitStatus],
 diff --git a/src/input/keybind_help.rs b/src/input/keybind_help.rs
-index e9462b9..e4c5846 100644
+index 80079488..6dd4cf7d 100644
 --- a/src/input/keybind_help.rs
 +++ b/src/input/keybind_help.rs
-@@ -122,6 +122,14 @@ pub(crate) fn keybind_help_groups(
+@@ -133,6 +133,14 @@ pub(crate) fn keybind_help_groups(
                      binding_label(&keybinds.remove_worktree),
                      "delete worktree checkout",
                  ),
@@ -4102,7 +4155,7 @@ index e9462b9..e4c5846 100644
                  entry(
                      binding_label(&keybinds.rename_workspace),
                      "rename workspace",
-@@ -138,6 +146,11 @@ pub(crate) fn keybind_help_groups(
+@@ -149,6 +157,11 @@ pub(crate) fn keybind_help_groups(
                  ),
                  entry(binding_label(&keybinds.previous_agent), "previous agent"),
                  entry(binding_label(&keybinds.next_agent), "next agent"),
@@ -4115,7 +4168,7 @@ index e9462b9..e4c5846 100644
                  entry(binding_label(&keybinds.new_tab), "new tab"),
                  entry(binding_label(&keybinds.rename_tab), "rename tab"),
 diff --git a/src/input/keybindings.rs b/src/input/keybindings.rs
-index d56de80..b014086 100644
+index 9ffce2ee..c1ef6a8c 100644
 --- a/src/input/keybindings.rs
 +++ b/src/input/keybindings.rs
 @@ -22,6 +22,8 @@ pub(crate) enum KeybindAction {
@@ -4136,7 +4189,7 @@ index d56de80..b014086 100644
      NewTab,
      RenameTab,
      PreviousTab,
-@@ -102,6 +106,11 @@ pub(crate) fn resolve_non_indexed_action(
+@@ -103,6 +107,11 @@ pub(crate) fn resolve_non_indexed_action(
          (&keybinds.new_worktree, KeybindAction::NewWorktree),
          (&keybinds.open_worktree, KeybindAction::OpenWorktree),
          (&keybinds.remove_worktree, KeybindAction::RemoveWorktree),
@@ -4148,7 +4201,7 @@ index d56de80..b014086 100644
          (&keybinds.rename_workspace, KeybindAction::RenameWorkspace),
          (&keybinds.close_workspace, KeybindAction::CloseWorkspace),
          (
-@@ -111,6 +120,8 @@ pub(crate) fn resolve_non_indexed_action(
+@@ -112,6 +121,8 @@ pub(crate) fn resolve_non_indexed_action(
          (&keybinds.next_workspace, KeybindAction::NextWorkspace),
          (&keybinds.previous_agent, KeybindAction::PreviousAgent),
          (&keybinds.next_agent, KeybindAction::NextAgent),
@@ -4158,7 +4211,7 @@ index d56de80..b014086 100644
          (&keybinds.rename_tab, KeybindAction::RenameTab),
          (&keybinds.previous_tab, KeybindAction::PreviousTab),
 diff --git a/src/layout.rs b/src/layout.rs
-index c46a075..400c0b3 100644
+index aaa207ae..b4c6b076 100644
 --- a/src/layout.rs
 +++ b/src/layout.rs
 @@ -7,6 +7,15 @@ use ratatui::{
@@ -4177,8 +4230,8 @@ index c46a075..400c0b3 100644
  #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
  pub struct PaneId(u32);
  
-@@ -129,6 +138,28 @@ impl TileLayout {
-         result
+@@ -152,6 +161,28 @@ impl TileLayout {
+         Some((panes, index + 1))
      }
  
 +    /// Return whether splitting `target` would leave both new panes readable.
@@ -4206,7 +4259,7 @@ index c46a075..400c0b3 100644
      /// Collect all split boundaries for mouse drag resize.
      pub fn splits(&self, area: Rect) -> Vec<SplitBorder> {
          let mut result = Vec::new();
-@@ -1138,6 +1169,30 @@ mod tests {
+@@ -1319,6 +1350,30 @@ mod tests {
          assert_eq!(layout.pane_ids(), ids);
      }
  
@@ -4238,10 +4291,10 @@ index c46a075..400c0b3 100644
      fn insert_pane_near_unfocused_keeps_focus_and_history() {
          let mut layout = sample_layout();
 diff --git a/src/main.rs b/src/main.rs
-index 8cfe9b0..a8b2219 100644
+index f97e7e2b..73c3f026 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -153,12 +153,18 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -155,12 +155,18 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # new_worktree = "prefix+shift+g"
  # open_worktree = ""    # optional, unset by default
  # remove_worktree = ""  # optional, unset by default; opens confirmation
@@ -4260,7 +4313,7 @@ index 8cfe9b0..a8b2219 100644
  # focus_agent = ""        # optional indexed binding, e.g. "prefix+alt+1..9"
  # remote_image_paste = "ctrl+v" # only active in herdr --remote; empty disables raw-key image paste
  # new_tab = "prefix+c"
-@@ -295,6 +301,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -301,6 +307,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # Disable for tmux-style internal splitters without an outside frame.
  # pane_outer_borders = true
  
@@ -4270,7 +4323,7 @@ index 8cfe9b0..a8b2219 100644
  # Draw interactive scrollbars beside terminal panes.
  # Set false to reclaim the scrollbar column and keep it out of terminal-native selections.
  # pane_scrollbars = true
-@@ -305,6 +314,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -311,6 +320,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # Show detected/reported agent labels in split pane borders when no manual pane name is set.
  # show_agent_labels_on_pane_borders = false
  
@@ -4283,7 +4336,7 @@ index 8cfe9b0..a8b2219 100644
  # New tabs can still be created with the configured keybinding.
  # hide_tab_bar_when_single_tab = false
 diff --git a/src/metadata_tokens.rs b/src/metadata_tokens.rs
-index f79e8ae..9af6285 100644
+index f79e8ae2..9af6285a 100644
 --- a/src/metadata_tokens.rs
 +++ b/src/metadata_tokens.rs
 @@ -88,6 +88,10 @@ impl MetadataTokens {
@@ -4298,10 +4351,10 @@ index f79e8ae..9af6285 100644
          self.entries
              .values()
 diff --git a/src/protocol/wire.rs b/src/protocol/wire.rs
-index aba166d..64f29e5 100644
+index ead2ddd7..d5daed64 100644
 --- a/src/protocol/wire.rs
 +++ b/src/protocol/wire.rs
-@@ -1500,7 +1500,7 @@ pub(crate) fn color_to_u32(color: ratatui::style::Color) -> u32 {
+@@ -1540,7 +1540,7 @@ pub(crate) fn color_to_u32(color: ratatui::style::Color) -> u32 {
  }
  
  /// Converts a packed u32 back to a ratatui `Color`.
@@ -4311,10 +4364,10 @@ index aba166d..64f29e5 100644
          0x00 => match val & 0xFF {
              0x00 => ratatui::style::Color::Reset,
 diff --git a/src/server/headless/retained_surface.rs b/src/server/headless/retained_surface.rs
-index 2a637ea..237746b 100644
+index 2a98536f..af496f68 100644
 --- a/src/server/headless/retained_surface.rs
 +++ b/src/server/headless/retained_surface.rs
-@@ -323,7 +323,7 @@ impl HeadlessServer {
+@@ -341,7 +341,7 @@ impl HeadlessServer {
              let Some(snapshot) = runtime.collect_dirty_patch_snapshot(width, height) else {
                  fallback!("terminal_snapshot");
              };
@@ -4323,7 +4376,7 @@ index 2a637ea..237746b 100644
                  crate::pane::TerminalDirtyPatchOutcome::Clean => {
                      crate::render_prof::event("retained_surface.pane_clean");
                      crate::pane::TerminalDirtyPatch { rows: Vec::new() }
-@@ -333,6 +333,32 @@ impl HeadlessServer {
+@@ -351,6 +351,32 @@ impl HeadlessServer {
                      fallback!("terminal_patch");
                  }
              };
@@ -4357,10 +4410,10 @@ index 2a637ea..237746b 100644
                  pane_id: public_pane_id,
                  patch,
 diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
-index 60f89d6..88b43e4 100644
+index 3ab7ec0f..f40e4c2a 100644
 --- a/src/server/headless/tests/mod.rs
 +++ b/src/server/headless/tests/mod.rs
-@@ -1811,6 +1811,144 @@ async fn deferred_worktree_response_moves_only_its_source_client() {
+@@ -2067,6 +2067,147 @@ async fn deferred_worktree_response_moves_only_its_source_client() {
      shutdown_test_runtimes(&mut server);
  }
  
@@ -4433,7 +4486,6 @@ index 60f89d6..88b43e4 100644
 +                    },
 +                    respond_to,
 +                    response_write_complete: None,
-+                    stream_active: None,
 +                },
 +            );
 +            let _ = response_rx.recv().unwrap();
@@ -4451,7 +4503,11 @@ index 60f89d6..88b43e4 100644
 +            }),
 +        };
 +        request(&mut server, 61, method);
-+        assert_eq!(&focused()[baseline..], &[target_id.clone()], "{route}");
++        assert_eq!(
++            &focused()[baseline..],
++            std::slice::from_ref(&target_id),
++            "{route}"
++        );
 +        if target_ws != 0 || target_tab != 0 {
 +            assert_eq!(
 +                server.shell_tab_id_for_client(62).as_deref(),
@@ -4483,7 +4539,7 @@ index 60f89d6..88b43e4 100644
 +        );
 +        assert_eq!(
 +            &focused()[baseline..],
-+            &[target_id.clone()],
++            std::slice::from_ref(&target_id),
 +            "no-op/failed {route}"
 +        );
 +        request(
@@ -4505,7 +4561,7 @@ index 60f89d6..88b43e4 100644
  #[tokio::test]
  async fn client_local_navigation_does_not_emit_global_focus_transitions() {
      let mut server = test_headless_server();
-@@ -6911,3 +7049,139 @@ fn no_handle_internal_event_bypass_in_module() {
+@@ -8333,3 +8474,139 @@ fn no_handle_internal_event_bypass_in_module() {
          bypass_lines.join("\n  ")
      );
  }
@@ -4646,7 +4702,7 @@ index 60f89d6..88b43e4 100644
 +    shutdown_test_runtimes(&mut server);
 +}
 diff --git a/src/terminal/title.rs b/src/terminal/title.rs
-index 89b4fed..472ac6c 100644
+index 89b4fed2..472ac6c2 100644
 --- a/src/terminal/title.rs
 +++ b/src/terminal/title.rs
 @@ -2,6 +2,9 @@ const CLAUDE_ACTIVITY_GLYPHS: &str = "·✢✳✶✻✽◐◓◑◒";
@@ -4675,24 +4731,42 @@ index 89b4fed..472ac6c 100644
      fn preserves_unrecognized_or_unbounded_symbols() {
          for (title, expected) in [
 diff --git a/src/ui.rs b/src/ui.rs
-index 141e09d..518412b 100644
+index 4ec80dba..c062d57b 100644
 --- a/src/ui.rs
 +++ b/src/ui.rs
-@@ -19,7 +19,8 @@ pub(crate) use self::onboarding::{
+@@ -19,8 +19,9 @@ pub(crate) use self::onboarding::{
  pub(crate) use self::panes::popup_pane_rects;
  use self::panes::resize_popup_pane;
  pub(crate) use self::panes::{
--    apply_pane_chrome, pane_inner_rect, pane_is_scrolled_back, render_selection_highlight,
-+    apply_pane_chrome, fade_unfocused_cell_data, pane_inner_rect, pane_is_scrolled_back,
-+    pane_unfocused_opacity, render_selection_highlight,
+-    apply_pane_chrome, new_layout_terminal_sizes, new_pane_terminal_size, pane_inner_rect,
+-    pane_is_scrolled_back, render_selection_highlight, NewPanePlacement,
++    apply_pane_chrome, fade_unfocused_cell_data, new_layout_terminal_sizes, new_pane_terminal_size,
++    pane_inner_rect, pane_is_scrolled_back, pane_unfocused_opacity, render_selection_highlight,
++    NewPanePlacement,
  };
  pub(crate) use self::release_notes::{
      product_announcement_display_lines, product_announcement_scroll_metrics,
 diff --git a/src/ui/panes.rs b/src/ui/panes.rs
-index ab3e352..9ef44ab 100644
+index 6a91f18a..43e107b8 100644
 --- a/src/ui/panes.rs
 +++ b/src/ui/panes.rs
-@@ -81,19 +81,32 @@ fn pane_below<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo
+@@ -89,6 +89,7 @@ pub(crate) fn new_pane_terminal_size(
+             app.pane_borders,
+             app.pane_gaps,
+             app.pane_outer_borders,
++            app.host_cell_size,
+         );
+         pane_inner_rect(infos[index].rect, infos[index].borders)
+     };
+@@ -137,6 +138,7 @@ pub(crate) fn new_layout_terminal_sizes(
+         app.pane_borders,
+         app.pane_gaps,
+         app.pane_outer_borders,
++        app.host_cell_size,
+     )
+     .into_iter()
+     .map(|info| new_terminal_size(app, pane_inner_rect(info.rect, info.borders)))
+@@ -187,19 +189,32 @@ fn pane_below<'a>(info: &PaneInfo, panes: &'a [PaneInfo]) -> Option<&'a PaneInfo
      })
  }
  
@@ -4728,7 +4802,7 @@ index ab3e352..9ef44ab 100644
  ) -> Vec<PaneInfo> {
      let multi_pane = panes.len() > 1;
      let bordered = pane_borders.shows_borders(multi_pane);
-@@ -116,12 +129,19 @@ pub(crate) fn apply_pane_chrome(
+@@ -222,12 +237,19 @@ pub(crate) fn apply_pane_chrome(
              let right_neighbor = multi_pane.then(|| pane_to_right(&info, &panes)).flatten();
              let below_neighbor = multi_pane.then(|| pane_below(&info, &panes)).flatten();
  
@@ -4751,7 +4825,7 @@ index ab3e352..9ef44ab 100644
                  }
              }
  
-@@ -244,6 +264,7 @@ pub(super) fn resize_tab_panes(
+@@ -345,6 +367,7 @@ pub(super) fn resize_tab_panes(
          app.pane_borders,
          app.pane_gaps,
          app.pane_outer_borders,
@@ -4759,7 +4833,7 @@ index ab3e352..9ef44ab 100644
      ) {
          let pane_inner = pane_inner_rect(info.rect, info.borders);
  
-@@ -324,6 +345,7 @@ pub(super) fn compute_pane_infos_for_tab(
+@@ -421,6 +444,7 @@ pub(super) fn compute_pane_infos_for_tab(
          app.pane_borders,
          app.pane_gaps,
          app.pane_outer_borders,
@@ -4767,7 +4841,7 @@ index ab3e352..9ef44ab 100644
      );
  
      for info in &mut pane_infos {
-@@ -384,6 +406,203 @@ fn compute_pane_infos(
+@@ -481,6 +505,203 @@ fn compute_pane_infos(
      )
  }
  
@@ -4971,7 +5045,7 @@ index ab3e352..9ef44ab 100644
  pub(super) fn render_panes(
      app: &AppState,
      terminal_runtimes: &TerminalRuntimeRegistry,
-@@ -406,6 +625,15 @@ pub(super) fn render_panes(
+@@ -504,6 +725,15 @@ pub(super) fn render_panes(
                  && app.pane_exposes_host_cursor(ws_idx, info.id);
              rt.render(frame, info.inner_rect, show_cursor);
              render_pane_scrollbar(app, frame, info, rt);
@@ -4984,10 +5058,10 @@ index ab3e352..9ef44ab 100644
 +                    pane_unfocused_opacity(app, ws_idx, info.id),
 +                );
 +            }
-         }
-     }
- 
-@@ -467,6 +695,10 @@ fn render_pane_borders(
+         } else if let Some(reason) = ws
+             .tabs
+             .get(target.tab_index)
+@@ -576,6 +806,10 @@ fn render_pane_borders(
          add_pane_border_cells(&mut cells, info);
      }
      add_split_border_cells(app.pane_gaps, split_borders, &mut cells);
@@ -4998,7 +5072,7 @@ index ab3e352..9ef44ab 100644
  
      let buf = frame.buffer_mut();
      let area = buf.area;
-@@ -481,14 +713,21 @@ fn render_pane_borders(
+@@ -590,14 +824,21 @@ fn render_pane_borders(
          let focused = pane_infos
              .iter()
              .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
@@ -5021,7 +5095,7 @@ index ab3e352..9ef44ab 100644
          } else {
              app.palette.overlay0
          };
-@@ -656,6 +895,8 @@ fn render_pane_border_titles(
+@@ -765,6 +1006,8 @@ fn render_pane_border_titles(
          }
          let color = if info.is_focused {
              app.palette.accent
@@ -5030,7 +5104,7 @@ index ab3e352..9ef44ab 100644
          } else {
              app.palette.overlay0
          };
-@@ -673,23 +914,38 @@ fn render_pane_border_titles(
+@@ -782,23 +1025,38 @@ fn render_pane_border_titles(
      }
  }
  
@@ -5086,7 +5160,7 @@ index ab3e352..9ef44ab 100644
          _ => "",
      }
  }
-@@ -909,6 +1165,36 @@ mod tests {
+@@ -1048,6 +1306,36 @@ mod tests {
          assert_eq!(buffer[(6, 0)].symbol(), "块");
      }
  
@@ -5123,7 +5197,7 @@ index ab3e352..9ef44ab 100644
      #[test]
      fn default_horizontal_split_uses_one_shared_divider_column() {
          let mut workspace = Workspace::test_new("test");
-@@ -921,6 +1207,7 @@ mod tests {
+@@ -1060,6 +1348,7 @@ mod tests {
              PaneBordersConfig::Auto,
              false,
              true,
@@ -5131,7 +5205,7 @@ index ab3e352..9ef44ab 100644
          );
          let left = infos.iter().find(|info| info.id == root).unwrap();
          let right = infos.iter().find(|info| info.id == right).unwrap();
-@@ -942,6 +1229,7 @@ mod tests {
+@@ -1081,6 +1370,7 @@ mod tests {
              PaneBordersConfig::Auto,
              false,
              true,
@@ -5139,7 +5213,7 @@ index ab3e352..9ef44ab 100644
          );
          let top = infos.iter().find(|info| info.id == root).unwrap();
          let bottom = infos.iter().find(|info| info.id == bottom).unwrap();
-@@ -963,6 +1251,7 @@ mod tests {
+@@ -1102,6 +1392,7 @@ mod tests {
              PaneBordersConfig::Auto,
              false,
              false,
@@ -5147,7 +5221,7 @@ index ab3e352..9ef44ab 100644
          );
          let left = infos.iter().find(|info| info.id == root).unwrap();
          let right = infos.iter().find(|info| info.id == right).unwrap();
-@@ -972,28 +1261,60 @@ mod tests {
+@@ -1111,28 +1402,60 @@ mod tests {
      }
  
      #[test]
@@ -5219,7 +5293,7 @@ index ab3e352..9ef44ab 100644
          let mut workspace = Workspace::test_new("test");
          let root = workspace.tabs[0].root_pane;
          let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
-@@ -1004,11 +1325,12 @@ mod tests {
+@@ -1143,11 +1466,12 @@ mod tests {
              PaneBordersConfig::Off,
              true,
              true,
@@ -5233,7 +5307,7 @@ index ab3e352..9ef44ab 100644
          assert_eq!(right.rect, Rect::new(50, 0, 50, 20));
          assert!(left.borders.is_empty());
          assert!(right.borders.is_empty());
-@@ -1024,6 +1346,7 @@ mod tests {
+@@ -1163,6 +1487,7 @@ mod tests {
              PaneBordersConfig::Off,
              false,
              true,
@@ -5241,7 +5315,7 @@ index ab3e352..9ef44ab 100644
          );
  
          for info in infos {
-@@ -1042,6 +1365,7 @@ mod tests {
+@@ -1181,6 +1506,7 @@ mod tests {
              PaneBordersConfig::Auto,
              false,
              true,
@@ -5249,7 +5323,7 @@ index ab3e352..9ef44ab 100644
          );
          assert_eq!(default_infos[0].borders, Borders::NONE);
  
-@@ -1050,6 +1374,7 @@ mod tests {
+@@ -1189,6 +1515,7 @@ mod tests {
              PaneBordersConfig::Always,
              false,
              true,
@@ -5257,7 +5331,7 @@ index ab3e352..9ef44ab 100644
          );
          assert_eq!(framed_infos[0].borders, Borders::ALL);
  
-@@ -1058,13 +1383,15 @@ mod tests {
+@@ -1197,13 +1524,15 @@ mod tests {
              PaneBordersConfig::Always,
              false,
              false,
@@ -5274,7 +5348,7 @@ index ab3e352..9ef44ab 100644
          app.view.terminal_area = Rect::new(0, 0, 4, 4);
          app.view.pane_infos = vec![
              PaneInfo {
-@@ -1125,12 +1452,112 @@ mod tests {
+@@ -1264,12 +1593,112 @@ mod tests {
              .unwrap();
  
          let buffer = terminal.backend().buffer();
@@ -5390,7 +5464,7 @@ index ab3e352..9ef44ab 100644
      fn gapped_pane_focus_does_not_color_neighbor_border() {
          let mut app = AppState::test_new();
 diff --git a/src/ui/sidebar.rs b/src/ui/sidebar.rs
-index cbf6f1a..825f65b 100644
+index cbf6f1a9..825f65b4 100644
 --- a/src/ui/sidebar.rs
 +++ b/src/ui/sidebar.rs
 @@ -31,6 +31,10 @@ fn sidebar_section_heights(total_height: u16, split_ratio: f32) -> (u16, u16) {
@@ -5414,10 +5488,10 @@ index cbf6f1a..825f65b 100644
      }
  
 diff --git a/src/update.rs b/src/update.rs
-index 4c128c5..6ba1afb 100644
+index 854bacdc..52bb5112 100644
 --- a/src/update.rs
 +++ b/src/update.rs
-@@ -2110,6 +2110,11 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
+@@ -2107,6 +2107,11 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
  
  /// Manual self-update command (`herdr update`).
  pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
@@ -5429,7 +5503,7 @@ index 4c128c5..6ba1afb 100644
      let channel = UpdateChannel::configured();
  
      if is_homebrew_managed_install() {
-@@ -2797,6 +2802,16 @@ mod tests {
+@@ -2998,6 +3003,16 @@ mod tests {
          assert!(!running_inside_herdr_env(Some("0")));
      }
  

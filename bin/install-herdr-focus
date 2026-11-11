@@ -2,14 +2,14 @@
 set -eu
 
 SOURCE_URL=https://github.com/herdrdev/herdr.git
-SOURCE_COMMIT=065ef9d6a531c49fb8bee7e818ef837065b21ee9 # upstream v0.9.1
+SOURCE_COMMIT=2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01 # upstream v0.9.5
 RUST_TOOLCHAIN=1.96.1
 
 usage() {
   cat <<'EOF'
 Usage: install-herdr-focus [--build-only OUTPUT]
 
-Build the pinned Herdr 0.9.1 pane-chrome, Spaces-tree, machine-toggle and
+Build the pinned Herdr 0.9.5 pane-chrome, Spaces-tree, machine-toggle and
 compact-prefix patch and run the patch's focused tests. By default the
 resulting binary is atomically installed at ~/.local/bin/herdr. --build-only
 copies it to OUTPUT without touching the installed binary or any running
@@ -41,7 +41,7 @@ print(Path(sys.argv[1]).resolve())
 PY
 )
 repo_root=$(cd "$(dirname "$script_path")/.." && pwd -P)
-patch_file=$repo_root/herdr/patches/herdr-0.9.1-focused-pane.patch
+patch_file=$repo_root/herdr/patches/herdr-0.9.5-focused-pane.patch
 [ -f "$patch_file" ] || { echo "missing patch: $patch_file" >&2; exit 1; }
 
 rustup_bin=$(command -v rustup 2>/dev/null || true)
