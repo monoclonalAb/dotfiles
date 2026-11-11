@@ -107,6 +107,21 @@ test("native read/edit tool rows recolour in place, with subdued dark panels and
   }
 });
 
+test("thinking, quote rails and code fences stay legible on base and distinct from body text", () => {
+  for (const flavour of flavours) {
+    const theme = catppuccinTheme(flavour, "truecolor");
+    const base = luminance(theme.getBgAnsi("toolPendingBg"));
+    for (const token of ["thinkingText", "mdQuote"] as const) {
+      const fg = luminance(theme.getFgAnsi(token));
+      expect((Math.max(base, fg) + 0.05) / (Math.min(base, fg) + 0.05)).toBeGreaterThan(4.5);
+      expect(theme.getFgAnsi(token)).not.toBe(theme.getFgAnsi("text"));
+      expect(theme.getFgAnsi(token)).not.toBe(theme.getFgAnsi("muted"));
+    }
+    expect(theme.getFgAnsi("mdQuoteBorder")).not.toBe(theme.getFgAnsi("dim"));
+    expect(theme.getFgAnsi("mdCodeBlockBorder")).toBe(theme.getFgAnsi("border"));
+  }
+});
+
 test("startup and file changes follow every flavour; duplicate/partial/missing state never flashes light", async () => {
   const f = fixture();
   try {

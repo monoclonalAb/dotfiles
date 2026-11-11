@@ -4,8 +4,9 @@ Pi follows the flavour selected by [`theme`](../../../bin/theme),
 including **Ctrl+Shift+T** in Alacritty. Read/edit/bash and other native tool panels
 use the matching Catppuccin backgrounds: base while pending, mantle on success,
 and a subtle red tint on error. Dark-flavour output uses subdued subtext rather
-than bright white; Latte uses darker text for legibility. Markdown, syntax,
-diffs, messages and editor borders use the same palette.
+than bright white; Latte uses darker text for legibility. Thinking/quote prose
+uses higher-contrast `subtext1` inside lavender quote rails and blue code fences
+so reasoning and code blocks stand out from body prose without matching it.
 
 ## Behaviour
 
