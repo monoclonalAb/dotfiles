@@ -96,7 +96,7 @@ case $model in
     gpt) model=openai-codex/gpt-6.1-sol ;;
     fast) model=openai-codex/gpt-6-luna ;;
     opus) model=anthropic/claude-opus-5-5 ;;
-    fable) model=anthropic/claude-fable-5-1 ;;
+    fable) model=anthropic/claude-fable-5-2 ;;
     sonnet) model=openai-codex/gpt-6.1-sol ;;
     haiku) model=openai-codex/gpt-6-luna ;;
     inherit-parent|auto) model=$parent_model ;;

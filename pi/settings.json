@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "1.5.0",
+  "lastChangelogVersion": "1.5.2",
   "theme": "light",
   "defaultProvider": "anthropic",
   "defaultModel": "claude-opus-5-5",
@@ -11,8 +11,8 @@
   },
   "enabledModels": [
     "anthropic/claude-opus-5-5",
-    "openai-codex/gpt-6-astra",
-    "anthropic/claude-fable-5-1",
+    "google-vertex/gemini-4-carbon",
+    "anthropic/claude-fable-5-2",
     "openai-codex/gpt-6-luna",
     "openai-codex/gpt-6.1-sol"
   ],
@@ -29,7 +29,8 @@
     "lithosai/deepseek-ai/DeepSeek-V4.1-Flash": "max",
     "openai-codex/gpt-5.6-luna": "max",
     "openai-codex/gpt-6-astra": "xhigh",
-    "anthropic/claude-fable-5-1": "xhigh",
+    "google-vertex/gemini-4-carbon": "medium",
+    "anthropic/claude-fable-5-2": "xhigh",
     "openai-codex/gpt-5.6-sol": "xhigh"
   }
 }

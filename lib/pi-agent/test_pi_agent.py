@@ -93,7 +93,7 @@ class PiAgentTest(unittest.TestCase):
             "gpt": "openai-codex/gpt-6.1-sol",
             "fast": "openai-codex/gpt-6-luna",
             "opus": "anthropic/claude-opus-5-5",
-            "fable": "anthropic/claude-fable-5-1",
+            "fable": "anthropic/claude-fable-5-2",
             "sonnet": "openai-codex/gpt-6.1-sol",
             "haiku": "openai-codex/gpt-6-luna",
             "openai-codex/gpt-6-astra": "openai-codex/gpt-6-astra",
