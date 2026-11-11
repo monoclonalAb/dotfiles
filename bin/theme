@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # theme — cycle the Catppuccin flavour and the background opacity across
-# Alacritty, Herdr, tmux and Neovim at once (bound to Ctrl+Shift+T / Ctrl+Shift+B in
-# alacritty.toml).
+# Alacritty, Herdr, the Herdr app, tmux and Neovim at once (bound to Ctrl+Shift+T /
+# Ctrl+Shift+B in alacritty.toml).
 #
 # Why a script instead of per-app config: the flavour used to be hardcoded in
 # three unrelated places (alacritty's `import`, tmux's @catppuccin_flavor, nvim's
@@ -17,6 +17,7 @@
 #   ~/.local/state/theme/alacritty.toml generated overlay, imported by alacritty.toml
 #   ~/.local/state/theme/tmux.conf      generated, sourced by tmux.conf
 #   ~/.config/herdr/config.toml         generated from ~/.config/herdr/config.base.toml
+#   ~/.config/herdr-app/settings.json   its "theme" and "appearance" keys (the app owns the rest)
 # The path is hardcoded rather than honouring $XDG_STATE_HOME because Alacritty's
 # TOML `import` cannot expand environment variables — all four consumers have to
 # agree on one literal path.
@@ -45,6 +46,8 @@ ALACRITTY_DIR="$HOME/.config/alacritty"
 TMUX_CONF="$HOME/.config/tmux/tmux.conf"
 HERDR_BASE="$HOME/.config/herdr/config.base.toml"
 HERDR_CONFIG="$HOME/.config/herdr/config.toml"
+HERDR_APP_HOME="$HOME/.config/herdr-app"
+HERDR_APP_SETTINGS="$HERDR_APP_HOME/settings.json"
 
 usage() {
   cat <<'EOF'
@@ -62,12 +65,13 @@ Commands:
   -h, --help         show this help
 
 Applies to Alacritty (live config reload), Herdr (generated config.toml + `herdr server reload-config`),
+the Herdr app (settings.json, applied live; opacity does not apply there),
 tmux (source-file) and every running Neovim (RPC). New windows pick up the current
 theme on startup.
 
 The pushes are best-effort and never block, so cycle/opacity/set/apply also
 print what they reached to stderr — discarded under the hotkey, visible when run
-by hand. `theme status` probes the same four without changing anything.
+by hand. `theme status` probes the same five without changing anything.
 EOF
 }
 
@@ -114,12 +118,14 @@ read_state() {
 # that succeeded. These record what actually happened, so it can be printed.
 R_ALACRITTY=
 R_HERDR=
+R_HERDR_APP=
 R_TMUX=
 R_NVIM=
 
 report() {
-  printf 'alacritty  %s\nherdr      %s\ntmux       %s\nneovim     %s\n' \
-    "${R_ALACRITTY:-unknown}" "${R_HERDR:-unknown}" "${R_TMUX:-unknown}" "${R_NVIM:-unknown}"
+  printf 'alacritty  %s\nherdr      %s\nherdr-app  %s\ntmux       %s\nneovim     %s\n' \
+    "${R_ALACRITTY:-unknown}" "${R_HERDR:-unknown}" "${R_HERDR_APP:-unknown}" \
+    "${R_TMUX:-unknown}" "${R_NVIM:-unknown}"
 }
 
 # nvim_summary <verb> <live> <stale>
@@ -322,6 +328,17 @@ probe() {
     R_HERDR='no server running'
   fi
 
+  local app_theme
+  if [ ! -r "$HERDR_APP_SETTINGS" ]; then
+    R_HERDR_APP='no settings.json (open the app once)'
+  elif ! app_theme=$(jq -r '.theme // empty' "$HERDR_APP_SETTINGS" 2>/dev/null); then
+    R_HERDR_APP='settings.json is not valid JSON'
+  elif [ "$app_theme" = "catppuccin-$FLAVOUR" ]; then
+    R_HERDR_APP="theme $app_theme"
+  else
+    R_HERDR_APP="theme ${app_theme:-unset}, not catppuccin-$FLAVOUR (run \`theme apply\`)"
+  fi
+
   if ! command -v tmux >/dev/null 2>&1; then
     R_TMUX='UNREACHABLE (tmux not on PATH)'
   elif ! tmux has-session >/dev/null 2>&1; then
@@ -401,6 +418,32 @@ apply() {
     else
       R_HERDR='written, reload not applied (no server?)'
     fi
+  fi
+
+  # --- Herdr app -------------------------------------------------------------
+  # The app writes settings.json itself (zoom, sounds), so it stays a real file
+  # and only its theme and appearance keys change here. The theme files are
+  # herdr-app/themes/catppuccin-*.json, linked by dotfiles-link. The app applies
+  # settings.json edits live; a layout's own theme or a theme picked in the app's
+  # picker still wins. Opacity has no equivalent: the app window is opaque.
+  local appearance=dark
+  if [ "$FLAVOUR" = latte ]; then appearance=light; fi
+  if [ ! -d "$HERDR_APP_HOME" ]; then
+    R_HERDR_APP='SKIPPED (no ~/.config/herdr-app; open the app once)'
+  elif [ ! -r "$HERDR_APP_HOME/themes/catppuccin-$FLAVOUR.json" ]; then
+    R_HERDR_APP='SKIPPED (no Catppuccin theme files; run `dotfiles-link apply`)'
+  elif [ -L "$HERDR_APP_SETTINGS" ]; then
+    R_HERDR_APP='SKIPPED (settings.json is a symlink; the app must own it)'
+  elif ! command -v jq >/dev/null 2>&1; then
+    R_HERDR_APP='SKIPPED (jq not on PATH)'
+  elif { if [ -s "$HERDR_APP_SETTINGS" ]; then cat "$HERDR_APP_SETTINGS"; else printf '{}'; fi; } |
+    jq --arg theme "catppuccin-$FLAVOUR" --arg appearance "$appearance" \
+      '.theme = $theme | .appearance = $appearance' >"$HERDR_APP_SETTINGS.tmp" 2>/dev/null; then
+    mv -f "$HERDR_APP_SETTINGS.tmp" "$HERDR_APP_SETTINGS"
+    R_HERDR_APP='settings written'
+  else
+    rm -f "$HERDR_APP_SETTINGS.tmp"
+    R_HERDR_APP='SKIPPED (settings.json is not valid JSON)'
   fi
   # --- tmux ----------------------------------------------------------------
   {

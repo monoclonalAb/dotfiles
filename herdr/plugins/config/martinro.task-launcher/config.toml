@@ -1,0 +1,4 @@
+# Model that names new tasks (branch, Space and Pi session name). A fast model
+# without forced thinking: Gemini 4 Carbon took 6-15 s and stalls on long tasks.
+# If it fails, the launcher falls back to Pi's other models; see the plugin README.
+naming_model = "openai-codex/gpt-6-luna"

@@ -53,6 +53,7 @@ brew "can1357/tap/omp"       # OMP harness; Pi's omp-anthropic-route blocks Clau
 cask "gcloud-cli"
 
 cask "alacritty"
+cask "herdr-app"              # Herdr desktop app (docs/HERDR-APP.md); updates itself. If installed by hand: brew install --cask --adopt herdr-app
 cask "wezterm"
 cask "aerospace"
 cask "tailscale-app"          # tailnet access; needs a Privacy & Security approval

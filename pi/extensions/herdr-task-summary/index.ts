@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerConversationBrief } from "./brief.ts";
 import {
   EMPTY_SESSION_SUMMARY,
   failureNote,
@@ -7,6 +8,8 @@ import {
   recentRequests,
   reportTaskSummary,
   substantiveRequest,
+  summaryModels,
+  summaryTarget,
   type HerdrEnvironment,
 } from "./summary.ts";
 
@@ -15,8 +18,10 @@ export function registerHerdrTaskSummary(
   environment: HerdrEnvironment = process.env as HerdrEnvironment,
   { debounceMs = 500, timeoutMs = 30_000, animationMs = 160 } = {},
 ) {
-  // No model requests, timers, or session inspection outside a Herdr pane.
-  if (environment.HERDR_ENV !== "1" || !environment.HERDR_PANE_ID?.trim()) return;
+  // No model requests, timers, or session inspection outside a Herdr pane or
+  // Herdr app terminal.
+  const target = summaryTarget(environment);
+  if (!target) return;
 
   let started = false;
   let generation = 0;
@@ -39,17 +44,23 @@ export function registerHerdrTaskSummary(
 
   // `failure`: a note sets the pane's task_summary_error token, null clears it,
   // undefined (animation frames) leaves it alone.
-  function publish(summary: string, version: number, current = () => started, failure?: string | null) {
+  function publish(summary: string, version: number, current = () => started, failure?: string | null, pending = false) {
     // Serialize IPC so a slow older publication cannot overtake a newer title.
     reports = reports.then(async () => {
       if (!current() || version !== generation) return;
       await reportTaskSummary(summary, environment,
-        (command, args) => pi.exec(command, args, { timeout: 2000 }), failure);
+        (command, args) => pi.exec(command, args, { timeout: 2000 }), failure, pending);
     });
     return reports;
   }
 
   function animate(summary: string, version: number) {
+    // The Herdr app redraws its whole window on every label change, so it gets
+    // one "pending" mark instead of frames; the final publish clears it.
+    if (target === "hc") {
+      void publish(summary, version, () => started && version === generation, undefined, true);
+      return () => {};
+    }
     let frame = 0;
     let stopped = false;
     let frameTimer: ReturnType<typeof setTimeout> | undefined;
@@ -74,15 +85,17 @@ export function registerHerdrTaskSummary(
   }
 
   function schedule(requests: string[], ctx: ExtensionContext) {
-    const model = ctx.model;
-    const key = JSON.stringify([model?.provider, model?.id, requests]);
+    // Keyed by the model that names first: while that is gpt-6-luna, switching
+    // the conversation's model asks for nothing new.
+    const namer = summaryModels(ctx)[0];
+    const key = JSON.stringify([namer?.provider, namer?.id, requests]);
     if (key === lastKey) return;
     cancel();
     lastKey = key;
     const version = generation;
     const cached = cache.get(key);
     if (cached) lastSummary = cached;
-    if (cached || !model || !requests.length) {
+    if (cached || !namer || !requests.length) {
       void publish(lastSummary, version, undefined,
         !cached && requests.length ? failureNote("no model selected") : null);
       return;
@@ -90,7 +103,7 @@ export function registerHerdrTaskSummary(
     const stopLoading = animate(lastSummary, version);
 
     // Snapshot the selection: a later model/session switch must not redirect this request.
-    const namingContext = { model, modelRegistry: ctx.modelRegistry };
+    const namingContext = { model: ctx.model, modelRegistry: ctx.modelRegistry };
     const abort = new AbortController();
     controller = abort;
     timer = setTimeout(() => {
@@ -178,4 +191,8 @@ export function registerHerdrTaskSummary(
   });
 }
 
-export default registerHerdrTaskSummary;
+// Titles everywhere Herdr runs; the conversation brief in the Herdr app only.
+export default function registerHerdrSummaries(pi: ExtensionAPI) {
+  registerHerdrTaskSummary(pi);
+  registerConversationBrief(pi);
+}

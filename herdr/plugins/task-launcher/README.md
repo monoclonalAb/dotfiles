@@ -88,9 +88,18 @@ provider's default. The top right of the form shows which model will do it:
 Models that must go through the `omp-anthropic-route` Pi extension (direct Anthropic
 with a Claude subscription login) are skipped. This launcher loads no Pi
 extensions, so it never sends that traffic. A `/template` task is named after the
-template's description. If naming fails or takes over 15 s, the task still starts
-as `task/untitled-task-<id>` and the popup says why. Set a branch under **more** to
-skip naming.
+template's description. Set a branch under **more** to skip naming.
+
+Naming is built not to fail on one bad reply:
+
+1. A reply that holds a name is tidied, not rejected: a `Title:` label, markdown,
+   a preamble line, punctuation, a slug, or a name over 48 characters (cut at a
+   word). Only a reply with no name in it, or a sentence of prose (the model
+   answered the task), counts as a failure.
+2. If a model fails that way, errors, or takes over 15 s, the next model in the
+   list above tries. A lone naming model tries twice. All tries share 30 s.
+3. Only if every try fails does the task start as `task/untitled-task-<id>`. The
+   popup then says why, including what each model replied.
 
 ## Pi in the task tab
 
@@ -108,7 +117,7 @@ skip naming.
 
 ## Setup
 
-Requires the patched Herdr 0.9.1, npm Pi (tested with 1.2.0) on Node 22.19+, and
+Requires the patched Herdr 0.9.5, npm Pi (tested with 1.2.0) on Node 22.19+, and
 the `pi` wrapper from `bin/`, which adds `--no-skills` and fullscreen mode. The
 launcher sets a minimal `PATH` and uses the nvm default Node; it never sources shell
 configuration. It reads Pi's cached model catalogue without loading extensions, so
@@ -128,6 +137,28 @@ sh ~/.config/herdr/plugins/task-launcher/launch.sh --check   # dependency check 
 ```
 
 Edits to the linked plugin files apply the next time the popup opens.
+
+## In the Herdr app
+
+The Herdr desktop app has no plugins, so its `popups` mod
+([`herdr-app/mods/popups`](../../../herdr-app/mods/popups/main.js), see
+[HERDR-APP.md](../../../docs/HERDR-APP.md#popups)) opens the same form for `C-a t`:
+`launch.sh form` in an app dialog, with `HERDR_TASK_BACKEND=app` and the focused
+pane's folder in `HERDR_TASK_SOURCE`. The form, naming, drafts, history,
+preferences and Pi tab are the same; only the five Herdr socket calls change.
+[`app-rpc.mjs`](app-rpc.mjs) does them with git and `herdr-app do`:
+
+1. The worktree goes to `~/.herdr/worktrees/<repo>/<branch, slashes as dashes>`,
+   where the app's own worktree dialog puts them, so the Spaces tree nests it
+   under its repository.
+2. A Space named after the task opens there, then a tab running `launch.sh run`.
+3. The Space's first shell tab is closed, leaving Pi as its only tab.
+4. Notices that terminal Herdr shows as a toast (`.worktreeinclude` failures) are
+   printed in the Pi tab.
+
+The form's colours come from the app's Catppuccin theme file for the current
+flavour instead of Herdr's generated config. State is shared with terminal Herdr
+(the directory below), so a draft started in one shows up in the other.
 
 ## State and recovery
 
@@ -166,7 +197,8 @@ node --test herdr/plugins/task-launcher/*.test.mjs
 PYTHONDONTWRITEBYTECODE=1 python3 herdr/plugins/task-launcher/pty-smoke.py
 ```
 
-Both use temporary Git repositories, fake Herdr/Pi and a loopback naming provider.
+Both use temporary Git repositories, fake Herdr/Pi and a loopback naming provider;
+`app-rpc.test.mjs` runs a whole launch against a fake `herdr-app`.
 Neither reads or writes the real clipboard or contacts a provider. The PTY check
 also closes a running Pi tab's terminal to prove its files are removed. For a
 native UI check, use a separate Herdr instance with its own socket and state, keep

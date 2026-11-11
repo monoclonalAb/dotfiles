@@ -33,7 +33,7 @@ credential-bearing `hosts.yml` is local.
 | Bootstrap and deployment policy | [`Brewfile`](../Brewfile), [`links`](../links), [`bin/dotfiles-link`](../bin/dotfiles-link), [`.gitignore`](../.gitignore) | Install prerequisites, define where each folder links and how, and exclude known runtime outputs |
 | Shell and editor | [`zsh/`](../zsh/), [`nvim/`](../nvim/) | Interactive environment, language tooling, editor plugins, and theme consumer |
 | Terminal and window environment | [`alacritty/`](../alacritty/), [`ghostty/`](../ghostty/), [`aerospace/`](../aerospace/) | Terminal defaults, key handling, and macOS workspace routing |
-| Terminal workspaces | [`herdr/`](../herdr/), [`tmux/`](../tmux/) | Primary and fallback multiplexing, navigation, persistence, and attention state |
+| Terminal workspaces | [`herdr/`](../herdr/), [`herdr-app/`](../herdr-app/), [`tmux/`](../tmux/) | Primary and fallback multiplexing, navigation, persistence, and attention state |
 | User commands and automation | [`bin/`](../bin/), [`lib/`](../lib/) (helpers and tests, linked to `~/.local/lib/`) | Cross-application orchestration and audited builds. Machine-local scheduled jobs (LaunchAgents and their scripts) stay in `$HOME`, outside this repository: the repo carries portable per-tool configuration for a new Mac, not single-machine workflows |
 | Git clients | [`git/`](../git/), [`gh/`](../gh/), [`tuicr/`](../tuicr/), [`worktrunk/`](../worktrunk/) | Global identity and ignore behaviour, non-secret GitHub CLI preferences, tuicr review-view defaults, and Worktrunk's worktree layout and `.worktreeinclude` copy |
 | Agent harnesses | [`pi/`](../pi/), [`omp/`](../omp/), [`.omp/`](../.omp/) | Pi configuration, extensions and the skills both harnesses share; OMP-only configuration; this repository's project-scoped tools |
@@ -61,6 +61,9 @@ consumer; do not fix generated output or add a second writer.
 | Herdr rendering or binary behaviour | `herdr/patches/` | `bin/install-herdr-focus` → built binary → next client attach / server start |
 | Start a Pi task from Herdr | `herdr/plugins/task-launcher/README.md` | `prefix+t` → plugin popup → Herdr worktree API → Pi tab; Node suite and PTY smoke test |
 | Review an agent's changes | `bin/herdr-review` | `prefix+v` / `prefix+V` (`--branch`) popups → tuicr in the agent's cwd → `herdr agent prompt`; unittest suite, then `--check` |
+| Herdr app look, sidebar or status bar | `herdr-app/layouts/eric.json`, `herdr-app/mods/<name>/main.js` | `herdr-app check` per mod → `touch -h` the link → `herdr-app status` errors → `herdr-app shot`; rules in `lib/herdr-app-mods/` |
+| Herdr app keys | `herdr-app/keys.json` (`layout:eric` for mod commands) | `touch -h ~/.config/herdr-app/keys.json` → no `keys.error` → `herdr-app do <command>` |
+| Move terminal Herdr workspaces to the app | `bin/herdr-import` | `--dry-run`, then `--workspace <id> --shells-only`; `lib/herdr-import/` with fake app and server |
 | Open a worktree as a Tern session | `tw` in `zsh/zshrc`, `worktrunk/config.toml` | `wt switch --create` → pre-start `.worktreeinclude` copy → `tern new session` → `omp` typed into its shell; isolated-daemon smoke in `docs/VERIFICATION.md` |
 | Pi extension command, UI, or display metadata | `pi/extensions/README.md`, then owning extension | `bin/pi` and installed Pi API → focused suite → safe fresh-session check |
 | Pi/OMP prompt template | `pi/prompts/*.md` (also linked to `~/.omp/agent/prompts/`) | Global prompt discovery in both harnesses → explicit `/name` invocation; only `$ARGUMENTS`/`$@`/`$N` placeholders. Both load only direct children, so `pi/prompts/rho/` holds checklists `/rho` reads by path, not commands |
@@ -68,6 +71,7 @@ consumer; do not fix generated output or add a second writer.
 | Add an MCP server | `pi/mcp.json`, and `omp/mcp.json` to keep OMP in step | Pi's built-in MCP support; `pi mcp list` connects it, then `/reload` and `/mcp`; OMP `/mcp reload` and `/mcp reauth <name>` |
 | Global or scoped skills | `pi/skills/`, `pi/scoped-skills/` | `/skill` in Pi; OMP via `skills.customDirectories` in `omp/config.yml`; scoped skills only where a project links them |
 | OMP defaults, tools | `omp/` | Global deployment versus project `.omp/`; consuming task and installed harness, not the model name |
+| Where agents keep HTML pages | `bin/artifact`, the `HTML artifacts` section of `pi/AGENTS.md` | Store in `~/Desktop/artifacts/` (outside the repository) → `artifact list`; `lib/artifact/` with a temporary store |
 | Workspace repository index for agents | `lib/workspace-context-mcp/README.md` | Launcher → stdio MCP; Node suite, then `workspace-context-mcp doctor` |
 | Shell or editor startup | `zsh/zshenv`, `zsh/zshrc`, `nvim/init.lua` | Startup sources → command/plugin consumer; distinguish syntax from startup side effects |
 
@@ -115,6 +119,10 @@ vendored Alacritty palettes + tracked Herdr base config
      live reload       Herdr reload      source-file
 ```
 
+The Herdr app is a fifth consumer: `theme` sets `theme` and `appearance` in its
+app-owned `settings.json` (a real file, edited with `jq` and a rename) and the app
+applies it live; its palettes are the tracked `herdr-app/themes/` files.
+
 Generated theme state belongs in `~/.local/state/theme/`. Herdr is the exception
 in location but not ownership: because it lacks an include mechanism,
 `~/.config/herdr/config.toml` is generated from the tracked
@@ -160,6 +168,23 @@ There are six distinct owners:
 
 The installed binary, generated Herdr config, plugin runtime ledger, and server
 process are deployment/runtime outputs and do not belong in Git.
+
+**The Herdr desktop app** ([operator guide](HERDR-APP.md)) is taking over as the
+main setup; this stack stays as a backup. The app reads only `~/.config/herdr-app/`. [`herdr-app/`](../herdr-app/) owns its keys,
+the `eric` layout, the Catppuccin theme files and its mods. The four plugins'
+rules are ported into mods rather than shared: `next-agent` and `spaces-env`
+keep their state in the app's shared state, `spaces-tree` replaces both the
+patched Spaces tree and pr-status, and `popups` reuses the task launcher
+(through [`app-rpc.mjs`](../herdr/plugins/task-launcher/app-rpc.mjs)) and
+`herdr-review` (through `hc`); `pi-resume` and the
+[`herdr-app-resume`](../pi/extensions/herdr-app-resume/index.ts) Pi extension
+replace `session.resume_agents_on_restore` through `hc` terminal labels. Shipped mods and layouts are Herdr's and are
+replaced on every app start, so the repository holds edited copies, never
+edits. The app's `settings.json`, `shared.json`, `data/` and `layouts/.state/`
+are its runtime state; `bin/theme` writes only two keys of `settings.json`.
+[`bin/herdr-import`](../bin/herdr-import) reads terminal Herdr's
+`session.json` once per workspace to rebuild it in the app; its record of what it
+imported is runtime state under `~/.local/state/herdr-app/`.
 
 ### 4. Agent configuration
 

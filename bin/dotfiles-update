@@ -56,6 +56,14 @@ if touched '^bin/theme$\|^herdr/config\.base\.toml$\|^alacritty/'; then
     theme apply || echo 'warning: theme apply failed; run it by hand' >&2
 fi
 
+# The Herdr app reloads a file when its own folder changes, not when the target
+# of one of its links does: touch each pulled file's link so it notices.
+printf '%s\n' "$changed" | sed -n 's|^herdr-app/||p' | while IFS= read -r path; do
+    if [ -L "$HOME/.config/herdr-app/$path" ]; then
+        touch -h "$HOME/.config/herdr-app/$path"
+    fi
+done
+
 if touched '^tmux/' && tmux has-session 2>/dev/null; then
     echo 'tmux config changed -> tmux source-file'
     tmux source-file ~/.config/tmux/tmux.conf

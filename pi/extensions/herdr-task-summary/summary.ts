@@ -3,6 +3,8 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const HERDR_SUMMARY_TOKEN = "task_summary";
 export const HERDR_SUMMARY_ERROR_TOKEN = "task_summary_error";
+/** Herdr app only: "1" while a title is being generated (the app draws no frames). */
+export const HERDR_SUMMARY_PENDING_TOKEN = "task_summary_pending";
 export const HERDR_SUMMARY_SOURCE = "pi-task-summary";
 export const EMPTY_SESSION_SUMMARY = "New conversation";
 export const MAX_SUMMARY_LENGTH = 72;
@@ -16,6 +18,20 @@ export interface HerdrEnvironment {
   HERDR_ENV?: string;
   HERDR_PANE_ID?: string;
   HERDR_BIN_PATH?: string;
+  /** Set by herdr-core in every Herdr desktop app terminal. */
+  HC_TERMINAL_ID?: string;
+  HC_BIN_PATH?: string;
+}
+
+/**
+ * Where titles go: a terminal Herdr pane (pane metadata tokens), else a Herdr
+ * desktop app terminal (herdr-core labels, read by herdr-app/mods/spaces-tree
+ * and attention-pane), else nowhere.
+ */
+export function summaryTarget(environment: HerdrEnvironment): "herdr" | "hc" | undefined {
+  if (environment.HERDR_ENV === "1" && environment.HERDR_PANE_ID?.trim()) return "herdr";
+  if (environment.HC_TERMINAL_ID?.trim()) return "hc";
+  return undefined;
 }
 
 export type CommandRunner = (
@@ -130,15 +146,92 @@ export function failureNote(reason: string, now = new Date()): string {
     : characters.slice(0, MAX_FAILURE_LENGTH - 1).join("") + "…";
 }
 
+/**
+ * Writes titles and briefs whatever model the conversation uses: quick, cheap,
+ * and still working while that model's provider is down or its login expired.
+ */
+export const SUMMARY_MODEL = { provider: "openai-codex", id: "gpt-6-luna" } as const;
+/** The most one model gets before the next one tries. */
+export const SUMMARY_ATTEMPT_MS = 15_000;
+
+type SummaryContext = Pick<ExtensionContext, "model" | "modelRegistry">;
+type SummaryModel = NonNullable<ExtensionContext["model"]>;
+type SideRequest = Parameters<ExtensionContext["modelRegistry"]["complete"]>[1];
+
+/** SUMMARY_MODEL when Pi has it with a login, then the conversation's model. */
+export function summaryModels(ctx: SummaryContext): SummaryModel[] {
+  const quick = ctx.modelRegistry.find(SUMMARY_MODEL.provider, SUMMARY_MODEL.id);
+  const models = [quick && ctx.modelRegistry.hasConfiguredAuth(quick) ? quick : undefined, ctx.model];
+  return models.filter((model, index): model is SummaryModel => !!model
+    && models.findIndex((other) => other?.provider === model.provider && other?.id === model.id) === index);
+}
+
+const whenAborted = (signal: AbortSignal) => new Promise<undefined>((resolve) => {
+  if (signal.aborted) resolve(undefined);
+  else signal.addEventListener("abort", () => resolve(undefined), { once: true });
+});
+
+/**
+ * One tool-free side request per model in `summaryModels` order, until `accept`
+ * turns a reply into a result. When none does, `onRejected` gets each model's
+ * reason and the result is undefined. Example: luna's login has expired, so its
+ * request fails at once and the conversation's own model writes the title.
+ */
+export async function completeSideRequest<T>(
+  ctx: SummaryContext,
+  request: SideRequest,
+  signal: AbortSignal,
+  accept: (text: string) => { value: T } | { problem: string },
+  onRejected: (reason: string) => void,
+  attemptMs = SUMMARY_ATTEMPT_MS,
+): Promise<T | undefined> {
+  const models = summaryModels(ctx);
+  const reasons: string[] = [];
+  for (const model of models) {
+    if (signal.aborted) return undefined;
+    const attempt = AbortSignal.any([signal, AbortSignal.timeout(attemptMs)]);
+    let reason: string;
+    try {
+      // Bound the wait even if a provider ignores cancellation.
+      const response = await Promise.race([ctx.modelRegistry.complete(model, request, {
+        signal: attempt,
+        maxTokens: 2048,
+        transport: "sse",
+        cacheRetention: "none",
+        // Never share the main agent's provider-side conversation/connection identity.
+        sessionId: randomUUID(),
+      }), whenAborted(attempt)]);
+      if (signal.aborted) return undefined;
+      if (!response || attempt.aborted) reason = `no reply within ${attemptMs / 1000}s`;
+      else if (response.stopReason !== "stop") {
+        const detail = (response as { errorMessage?: unknown }).errorMessage;
+        reason = `model stopped with "${response.stopReason}"${typeof detail === "string" && detail ? `: ${detail}` : ""}`;
+      } else if (response.content.some((block) => block.type === "toolCall")) reason = "reply was a tool call";
+      else {
+        const text = response.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+        const result = accept(text);
+        if ("value" in result) return result.value;
+        reason = `rejected "${text.trim().slice(0, 80)}": ${result.problem}`;
+      }
+    } catch (error) {
+      if (signal.aborted) return undefined;
+      reason = `request failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    reasons.push(models.length > 1 ? `${model.id}: ${reason}` : reason);
+  }
+  if (reasons.length) onRejected(reasons.join("; "));
+  return undefined;
+}
+
 export async function generateTaskSummary(
   requests: readonly string[],
-  ctx: Pick<ExtensionContext, "model" | "modelRegistry">,
+  ctx: SummaryContext,
   signal: AbortSignal,
-  /** Called with the reason whenever a completed reply yields no title. */
+  /** Called with every model's reason when none yields a title. */
   onRejected: (reason: string) => void = () => {},
 ): Promise<string | undefined> {
-  if (!requests.length || !ctx.model || signal.aborted) return undefined;
-  const response = await ctx.modelRegistry.complete(ctx.model, {
+  if (!requests.length || signal.aborted) return undefined;
+  return completeSideRequest(ctx, {
     systemPrompt: "Write a sidebar title that semantically summarizes the user's current task or question. "
       + "Infer the intended outcome, not the opening words of their prompt. "
       + "The supplied recent user requests are ordered oldest to newest. Focus on the newest task; "
@@ -150,30 +243,10 @@ export async function generateTaskSummary(
       + "=> 'Generate semantic agent titles'.",
     messages: [{ role: "user", content: JSON.stringify({ recentUserRequests: requests }), timestamp: Date.now() }],
     tools: [],
-  }, {
-    signal,
-    maxTokens: 2048,
-    transport: "sse",
-    cacheRetention: "none",
-    // Never share the main agent's provider-side conversation/connection identity.
-    sessionId: randomUUID(),
-  });
-  if (signal.aborted) return undefined;
-  if (response.stopReason !== "stop") {
-    const detail = (response as { errorMessage?: unknown }).errorMessage;
-    onRejected(`model stopped with "${response.stopReason}"${typeof detail === "string" && detail ? `: ${detail}` : ""}`);
-    return undefined;
-  }
-  if (response.content.some((block) => block.type === "toolCall")) {
-    onRejected("reply was a tool call");
-    return undefined;
-  }
-  const text = response.content.filter((block) => block.type === "text")
-    .map((block) => block.text).join("\n");
-  const result = checkSummary(text);
-  if ("title" in result) return result.title;
-  onRejected(`rejected "${text.trim().slice(0, 80)}": ${result.problem}`);
-  return undefined;
+  }, signal, (text) => {
+    const result = checkSummary(text);
+    return "title" in result ? { value: result.title } : result;
+  }, onRejected);
 }
 
 /** Best-effort display metadata reporting; no session or main-model context is touched. */
@@ -183,9 +256,28 @@ export async function reportTaskSummary(
   run: CommandRunner,
   /** A failure note sets `task_summary_error`, null clears it, undefined leaves it alone. */
   failure?: string | null,
+  /** Herdr app: mark the title as being generated (terminal Herdr animates frames instead). */
+  pending = false,
 ): Promise<boolean> {
-  const paneId = environment.HERDR_PANE_ID?.trim();
-  if (environment.HERDR_ENV !== "1" || !paneId) return false;
+  const target = summaryTarget(environment);
+  if (!target) return false;
+  if (target === "hc") {
+    // `hc label <t> key=value`; an empty value removes the label. Title last.
+    const args = [
+      "label",
+      environment.HC_TERMINAL_ID!.trim(),
+      ...(failure === undefined ? [] : [`${HERDR_SUMMARY_ERROR_TOKEN}=${failure ?? ""}`]),
+      `${HERDR_SUMMARY_PENDING_TOKEN}=${pending ? "1" : ""}`,
+      `${HERDR_SUMMARY_TOKEN}=${summary ?? ""}`,
+    ];
+    try {
+      const result = await run(environment.HC_BIN_PATH?.trim() || "hc", args);
+      return result.code === 0;
+    } catch {
+      return false;
+    }
+  }
+  const paneId = environment.HERDR_PANE_ID!.trim();
 
   const command = environment.HERDR_BIN_PATH?.trim() || "herdr";
   const args = [

@@ -64,6 +64,31 @@ sys.stdout.write(state.get("export", ""))
 sys.exit(state.get("tuicr_status", 0))
 '''
 
+FAKE_HC = r'''#!/usr/bin/python3
+import json, os, sys
+state = json.load(open(os.environ["FAKE_STATE"]))
+args = [a for a in sys.argv[1:] if a != "--json"]
+with open(os.environ["FAKE_LOG"], "a") as log:
+    log.write(json.dumps(["hc", args, os.environ.get("HC_TERMINAL_ID")]) + "\n")
+terminals = {t["address"]: t for t in state["terminals"]}
+def fail(code, message):
+    sys.stdout.write(json.dumps({"error": {"kind": code, "message": message}}))
+    sys.exit(9)
+if args[0] == "get":
+    if args[1] not in terminals:
+        fail("not_found", "%s not found" % args[1])
+    print(json.dumps(terminals[args[1]]))
+elif args[0] == "ls":
+    print(json.dumps({"terminals": [{"address": t["address"], "state": "live",
+        "status": (t.get("status") or {}).get("state")} for t in state["terminals"]]}))
+elif args[0] == "send":
+    if state.get("send_error"):
+        fail("blocked", state["send_error"])
+    print(json.dumps({"ok": True}))
+else:
+    fail("unknown", "unexpected command")
+'''
+
 EXPORT = "## Session: repo\n\nI reviewed your code.\n\n1. `a.py:2` - Use a named constant\n"
 
 
@@ -253,6 +278,81 @@ class HerdrReviewTests(unittest.TestCase):
         status, output = self.run_review("--check", "--branch")
         self.assertEqual(status, 1)
         self.assertIn("not a Git checkout", output)
+
+
+class AppReviewTests(HerdrReviewTests):
+    """The same flow in the Herdr desktop app: herdr-core terminals, hc send."""
+
+    def setUp(self):
+        super().setUp()
+        self.hc = self.write_executable("hc", FAKE_HC)
+        labels = lambda tab: {"herdr.space": "sp1", "herdr.tab": tab}
+        self.state["terminals"] = [
+            {"address": "t7", "labels": labels("tb1"), "cwd": str(self.other),
+             "foreground": {"cwd": str(self.repo)}, "status": {"app": "pi", "state": "idle"}},
+            {"address": "t2", "labels": labels("tb1"), "cwd": str(self.other), "status": None},
+            {"address": "t9", "labels": labels("tb2"), "cwd": str(self.other), "status": {"app": "omp", "state": "idle"}},
+        ]
+        for key in ("HERDR_ACTIVE_PANE_ID", "HERDR_ACTIVE_TAB_ID", "HERDR_BIN_PATH"):
+            del self.env[key]
+        self.env.update(HERDR_REVIEW_HC=str(self.hc), HERDR_REVIEW_TERMINAL="t7")
+
+    def sends(self):
+        return [args for tool, args, *_ in self.calls() if tool == "hc" and args[:1] == ["send"]]
+
+    def test_named_terminal_gets_comments_through_hc(self):
+        status, _ = self.run_review()
+        self.assertEqual(status, 0)
+        [run] = self.tuicr_runs()
+        self.assertEqual(os.path.realpath(run[2]), os.path.realpath(self.repo), "tuicr runs in the agent's foreground cwd")
+        self.assertEqual(self.sends(), [["send", "t7", EXPORT.strip()]])
+        self.assertEqual(len(self.clears()), 1)
+        self.assertEqual([c for c in self.calls() if c[0] == "herdr"], [], "terminal Herdr is never asked")
+
+    def test_shell_pane_in_the_app_uses_the_only_agent_in_its_tab(self):
+        del self.env["HERDR_REVIEW_TERMINAL"]
+        self.env["HC_TERMINAL_ID"] = "t2"
+        self.assertEqual(self.run_review()[0], 0)
+        self.assertEqual(self.sends()[0][1], "t7")
+        [send] = [call for call in self.calls() if call[0] == "hc" and call[1][0] == "send"]
+        self.assertIsNone(send[2], "sent as the person's prompt, without hc's <hc from=...> tag")
+
+    def test_a_named_terminal_that_is_no_agent_opens_nothing(self):
+        self.env["HERDR_REVIEW_TERMINAL"] = "t2"
+        self.assertEqual(self.run_review()[0], 1)
+        self.assertIn("t2 is not an agent", self.pause.call_args[0][0])
+        self.assertEqual(self.tuicr_runs(), [])
+
+    def test_blocked_agent_keeps_comments_and_copies_them(self):
+        self.state["send_error"] = "t7 is blocked: it may answer its dialog (--force types anyway)"
+        self.assertEqual(self.run_review()[0], 1)
+        self.clipboard.assert_called_once_with(EXPORT.strip())
+        self.assertIn("is blocked", self.pause.call_args[0][0])
+        self.assertEqual(self.clears(), [], "unsent comments stay in tuicr")
+
+    def test_check_names_hc_and_the_agent(self):
+        status, output = self.run_review("--check")
+        self.assertEqual(status, 0)
+        self.assertIn("hc     ", output)
+        self.assertIn("agent  t7 (pi, idle)", output)
+
+    def test_terminal_herdr_wins_inside_a_terminal_herdr_pane(self):
+        del self.env["HERDR_REVIEW_TERMINAL"]
+        self.env.update(HC_TERMINAL_ID="t2", HERDR_PANE_ID="w1:p2", HERDR_TAB_ID="w1:t1", HERDR_BIN_PATH=str(self.herdr))
+        self.assertEqual(self.run_review()[0], 0)
+        self.assertEqual(self.prompts()[0][2], "w1:p1")
+        self.assertEqual(self.sends(), [])
+
+    # The terminal-Herdr-only cases do not apply here.
+    test_focused_agent_gets_exported_comments_and_they_are_cleared = None
+    test_non_agent_focus_falls_back_to_the_only_agent_in_that_tab = None
+    test_ambiguous_or_missing_tab_agent_opens_nothing = None
+    test_shell_pane_in_the_agent_tab_uses_its_own_ids = None
+    test_requires_herdr_context = None
+    test_rejected_prompt_keeps_comments_and_copies_them = None
+    test_clear_failure_warns_about_repeat = None
+    test_check_reports_without_running_tuicr_or_sending = None
+    test_branch_reviews_commits_since_the_fork_plus_working_tree = None  # backend-independent
 
 
 class GitRepo:

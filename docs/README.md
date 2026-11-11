@@ -25,8 +25,9 @@ repository evidence or checks.
 | [`plans/README.md`](plans/README.md) | Versioned execution-plan lifecycle and template | Normative | New substantial plans must follow the documented lifecycle |
 | [`SETUP.md`](SETUP.md) | Manual new-Mac steps, personal paths, optional extras, update special cases, troubleshooting | Operator guide | Steps mirror `bin/dotfiles-bootstrap`; commands change the Mac |
 | [`HERDR.md`](HERDR.md) | Patched Herdr install, keys, plugins, attention states, troubleshooting | Operator guide | `herdr/config.base.toml`, `herdr/patches/`, `herdr/plugins/`, `bin/install-herdr-focus` |
+| [`HERDR-APP.md`](HERDR-APP.md) | Herdr desktop app layout, keys, mods, popups, theme, moving the terminal Herdr session | Operator guide | `herdr-app/`, `bin/herdr-import`, `lib/herdr-app-mods/`, `herdr-app check` and `herdr-app status` |
 | [`THEME.md`](THEME.md) | Theme hotkeys, commands, propagation and pitfalls | Operator guide | `bin/theme` and its `status` output |
-| [`AGENT-TOOLS.md`](AGENT-TOOLS.md) | Pi models, extensions, prompts and MCP; OMP MCP, capabilities, skills | Operator guide | `pi/settings.json`, `pi/models.json`, `pi/mcp.json`, `omp/mcp.json`, extension READMEs |
+| [`AGENT-TOOLS.md`](AGENT-TOOLS.md) | Pi models, extensions, prompts, MCP and the HTML artifact store; OMP MCP, capabilities, skills | Operator guide | `pi/settings.json`, `pi/models.json`, `pi/mcp.json`, `omp/mcp.json`, extension READMEs, `bin/artifact` |
 
 No line in [`../links`](../links) deploys this directory, and `dotfiles-link` never
 reports it as unlisted: repository documentation must not appear as files in `$HOME`.

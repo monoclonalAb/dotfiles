@@ -5,7 +5,8 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { createNamer, findExecutable, findPi, loadCatalog, loadPiModules, loadPiSdk, projectTrust, readStartupDefaults,
   sessionLookup, startupModel } from "./pi-runtime.mjs";
-import { rpc } from "./rpc.mjs";
+import { createAppRpc, readAppPalette } from "./app-rpc.mjs";
+import { rpc as herdrRpc } from "./rpc.mjs";
 import { runTask } from "./runner.mjs";
 import { PLUGIN_ID, TaskLaunch, discoverRepo, initialSelection, loadPromptTemplates, readDraft, readHistory,
   readLauncherConfig, readPalette, readPreferences, sourceContext, sweepRequests, writeDraftSync } from "./task.mjs";
@@ -16,6 +17,9 @@ const stateDir = () => process.env.HERDR_PLUGIN_STATE_DIR
 const configDir = () => process.env.HERDR_PLUGIN_CONFIG_DIR
   || join(homedir(), ".config", "herdr", "plugins", "config", PLUGIN_ID);
 const herdrConfig = () => process.env.HERDR_CONFIG_PATH || join(homedir(), ".config", "herdr", "config.toml");
+// The Herdr desktop app (its popups mod sets this) or terminal Herdr's socket.
+const inApp = () => process.env.HERDR_TASK_BACKEND === "app";
+const rpc = (method, params, options) => (inApp() ? createAppRpc()(method, params) : herdrRpc(method, params, options));
 
 // The retry prompt in a Pi tab whose Pi exited with an error. A Herdr hangup
 // aborts it; the runner then cleans up without writing to the closed terminal.
@@ -104,7 +108,7 @@ export async function main(args) {
     // Project templates load only where Pi itself would load them (trusted).
     loadPromptTemplates([join(agentDir, "prompts"), ...(trust === true ? [join(repo.source, ".pi", "prompts")] : [])]),
     findExecutable("fd", process.env.PATH, [join(agentDir, "bin")]),
-    readPalette(herdrConfig()).catch(() => undefined),
+    (inApp() ? readAppPalette() : readPalette(herdrConfig())).catch(() => undefined),
   ]);
   const keybindings = modules.bindings.KeybindingsManager.create(agentDir);
   if (models.length === 0) throw new Error("No available Pi models. Configure a provider with /login in Pi, then reopen Pi Tasks.");

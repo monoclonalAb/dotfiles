@@ -4,7 +4,15 @@
 Bound to C-a v (uncommitted changes) and C-a V (--branch: the whole branch) as
 Herdr popups (herdr/config.base.toml). Herdr starts popup commands with the focused pane's HERDR_ACTIVE_PANE_ID and
 HERDR_ACTIVE_TAB_ID. The target is that pane when it runs an agent, otherwise
-the only agent in the same tab. tuicr opens in the agent's working directory:
+the only agent in the same tab.
+
+In the Herdr desktop app the same keys open it through the popups mod
+(herdr-app/mods/popups), which names the agent's herdr-core terminal in
+HERDR_REVIEW_TERMINAL; from a shell pane in the app (HC_TERMINAL_ID), the target
+is the only agent in that pane's tab. Comments then go through `hc send`, which,
+like `herdr agent prompt`, refuses an agent that is waiting on a question.
+
+tuicr opens in the agent's working directory:
 `:wq`/`ZZ` sends the numbered comments as one prompt and clears them from
 tuicr; `:q`/`ZQ` sends nothing.
 """
@@ -22,7 +30,7 @@ DEFAULT_TUICR_ARGS = ["-w"]  # staged + unstaged working-tree changes
 USAGE = """Usage: herdr-review [--check] [--branch] [tuicr arguments...]
 
 Review the focused Herdr agent's changes in tuicr and send the comments to it.
-Run from Herdr: C-a v / C-a V, or a shell pane in the agent's tab. tuicr
+Run from Herdr or the Herdr app: C-a v / C-a V, or a shell pane in the agent's tab. tuicr
 arguments default to -w (uncommitted changes).
 
   --branch  review everything on the agent's branch: the commits since it left
@@ -52,6 +60,25 @@ def herdr_client(env):
     return found
 
 
+def app_mode(env):
+    """The Herdr desktop app (herdr-core terminals) rather than terminal Herdr."""
+    if env.get("HERDR_REVIEW_TERMINAL"):
+        return True
+    return bool(env.get("HC_TERMINAL_ID")) and not (env.get("HERDR_ACTIVE_PANE_ID") or env.get("HERDR_PANE_ID"))
+
+
+def hc_client(env):
+    candidate = env.get("HERDR_REVIEW_HC") or shutil.which("hc", path=env["PATH"])
+    if not candidate or not os.access(candidate, os.X_OK):
+        raise ReviewError("no herdr-core client (hc) found on PATH")
+    return candidate
+
+
+def review_client(env):
+    """(kind, executable): ("hc", ...) in the Herdr app, else ("herdr", ...)."""
+    return ("hc", hc_client(env)) if app_mode(env) else ("herdr", herdr_client(env))
+
+
 def tuicr_client(env):
     candidate = env.get("HERDR_REVIEW_TUICR") or shutil.which("tuicr", path=env["PATH"])
     if not candidate or not os.access(candidate, os.X_OK):
@@ -74,6 +101,82 @@ def herdr_call(herdr, args, env):
     error = payload.get("error") or {}
     message = error.get("message") or completed.stderr.strip() or f"herdr {' '.join(args[:2])} failed"
     return None, message
+
+
+def hc_call(hc, args, env):
+    """Run an hc command with --json; return (result, error message)."""
+    completed = subprocess.run([hc, *args, "--json"], env=env, capture_output=True, text=True)
+    payload = {}
+    for stream in (completed.stdout, completed.stderr):
+        try:
+            payload = json.loads(stream)
+            break
+        except ValueError:
+            continue
+    if completed.returncode == 0 and not (isinstance(payload, dict) and "error" in payload):
+        return payload, None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    message = (error or {}).get("message") or completed.stderr.strip() or f"hc {args[0]} failed"
+    return None, message
+
+
+def app_agent(terminal):
+    """An `hc get` terminal as the agent shape used below, or None when it reports no status."""
+    status = terminal.get("status") or {}
+    if not status.get("state"):
+        return None
+    return {
+        "pane_id": terminal.get("address"), "tab_id": (terminal.get("labels") or {}).get("herdr.tab"),
+        "agent": status.get("app"), "agent_status": status.get("state"),
+        "cwd": terminal.get("cwd"), "foreground_cwd": (terminal.get("foreground") or {}).get("cwd"),
+    }
+
+
+def resolve_app_agent(hc, env):
+    target = env.get("HERDR_REVIEW_TERMINAL")
+    own = target or env.get("HC_TERMINAL_ID")
+    info, message = hc_call(hc, ["get", own], env)
+    if info is None:
+        raise ReviewError(message)
+    agent = app_agent(info)
+    if agent:
+        return agent
+    if target:
+        raise ReviewError(f"{target} is not an agent; focus the agent pane and try again")
+    # A shell pane: the only agent in its tab (the app labels terminals herdr.tab).
+    tab = (info.get("labels") or {}).get("herdr.tab")
+    listing, message = hc_call(hc, ["ls"], env)
+    if listing is None:
+        raise ReviewError(message)
+    agents = []
+    for terminal in listing.get("terminals", []):
+        if terminal.get("state") != "live" or not terminal.get("status") or terminal.get("address") == own:
+            continue
+        detail, _ = hc_call(hc, ["get", terminal["address"]], env)
+        candidate = app_agent(detail or {})
+        if tab and candidate and candidate["tab_id"] == tab:
+            agents.append(candidate)
+    if len(agents) == 1:
+        return agents[0]
+    if not agents:
+        raise ReviewError("no agent in this tab; focus the agent pane and try again")
+    raise ReviewError(f"{len(agents)} agents in this tab; focus the one that should get the review")
+
+
+def resolve(client, env):
+    kind, executable = client
+    return resolve_app_agent(executable, env) if kind == "hc" else resolve_agent(executable, env)
+
+
+def send_review(client, agent, text, env):
+    """Send the comments as one prompt; return an error message, or None."""
+    kind, executable = client
+    if kind == "hc":
+        # From inside a terminal hc wraps sent text in <hc from="t7"> tags, as a
+        # note between agents; the review is the person's own prompt.
+        untagged = {key: value for key, value in env.items() if key not in ("HC_TERMINAL_ID", "HC_SCOPE")}
+        return hc_call(executable, ["send", agent["pane_id"], text], untagged)[1]
+    return herdr_call(executable, ["agent", "prompt", agent["pane_id"], text], env)[1]
 
 
 def resolve_agent(herdr, env):
@@ -197,7 +300,7 @@ def pause(message):
             pass
 
 
-def review(herdr, tuicr, agent, directory, args, env):
+def review(client, tuicr, agent, directory, args, env):
     pane = agent["pane_id"]
     # --stdout renders the TUI on /dev/tty and prints the export on exit.
     completed = subprocess.run(
@@ -211,7 +314,7 @@ def review(herdr, tuicr, agent, directory, args, env):
     text = completed.stdout.strip()
     if not text:
         return 0  # quit without saving, or no comments
-    _, error = herdr_call(herdr, ["agent", "prompt", pane, text], env)
+    error = send_review(client, agent, text, env)
     if error:
         where = "copied to the clipboard and kept" if copy_to_clipboard(text) else "kept"
         pause(f"could not send the review to {pane}: {error}\nThe comments were {where} in tuicr.")
@@ -236,9 +339,9 @@ def check(env, args, branch=False):
     ok = True
     rows = []
     try:
-        herdr = herdr_client(env)
-        rows.append(("herdr", herdr))
-        agent = resolve_agent(herdr, env)
+        client = review_client(env)
+        rows.append(client)
+        agent = resolve(client, env)
         rows.append(("agent", f"{agent.get('pane_id')} ({agent.get('agent')}, {agent.get('agent_status')})"))
         directory = agent_directory(agent)
         rows.append(("cwd", directory))
@@ -273,8 +376,8 @@ def main(argv=None, environ=None):
     if "--check" in flags:
         return check(env, argv, "--branch" in flags)
     try:
-        herdr = herdr_client(env)
-        agent = resolve_agent(herdr, env)
+        client = review_client(env)
+        agent = resolve(client, env)
         directory = agent_directory(agent)
         tuicr = tuicr_client(env)
         if "--branch" in flags:
@@ -282,7 +385,7 @@ def main(argv=None, environ=None):
     except ReviewError as error:
         pause(str(error))
         return 1
-    return review(herdr, tuicr, agent, directory, tuicr_arguments(argv, env), env)
+    return review(client, tuicr, agent, directory, tuicr_arguments(argv, env), env)
 
 
 if __name__ == "__main__":

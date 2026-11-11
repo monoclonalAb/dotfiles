@@ -16,6 +16,7 @@ gh/             ~/.config/gh/
 ghostty/        ~/.config/ghostty/
 git/            ~/.config/git/
 herdr/          ~/.config/herdr/
+herdr-app/      ~/.config/herdr-app/
 nvim/           ~/.config/nvim/
 tmux/           ~/.config/tmux/
 tuicr/          ~/.config/tuicr/

@@ -1,6 +1,6 @@
 # Theme
 
-**Status:** Operator guide. Alacritty, Herdr, tmux, Neovim and Pi share one
+**Status:** Operator guide. Alacritty, Herdr, the Herdr app, tmux, Neovim and Pi share one
 Catppuccin flavour and one terminal opacity. [`bin/theme`](../bin/theme) is the
 only writer of that choice. Flow and ownership:
 [`ARCHITECTURE.md`](ARCHITECTURE.md#2-shared-theme-orchestration).
@@ -35,10 +35,13 @@ default, and Alacritty logs a harmless missing-import error to
 3. Herdr gets a regenerated `~/.config/herdr/config.toml` with the flavour's
    colours, then a config reload. The [Pi Tasks](../herdr/plugins/task-launcher/README.md)
    popup (`C-a t`) reads the same colours each time it opens.
-4. tmux runs `source-file`.
-5. Every running Neovim updates over RPC, with a `FocusGained` fallback. Below
+4. The [Herdr app](HERDR-APP.md#theme) gets `theme` (`catppuccin-<flavour>`) and
+   `appearance` in its `settings.json`, which it applies at once. Its theme files
+   are [`herdr-app/themes/`](../herdr-app/themes/). Opacity does not apply there.
+5. tmux runs `source-file`.
+6. Every running Neovim updates over RPC, with a `FocusGained` fallback. Below
    1.0 opacity Neovim turns on `transparent_background`.
-6. Pi's [theme-sync extension](../pi/extensions/theme-sync/README.md) polls the
+7. Pi's [theme-sync extension](../pi/extensions/theme-sync/README.md) polls the
    same state and follows within about half a second. It overrides Pi's
    `/settings` theme in memory without rewriting it.
 
@@ -62,7 +65,7 @@ which loads no profile, so the script sees only
 ## Diagnose
 
 Pushes report what they reached on stderr (hidden under the hotkey, visible when
-run by hand). `theme status` probes the four pushed apps without changing
+run by hand). `theme status` probes the five pushed apps without changing
 anything:
 
 ```
@@ -73,6 +76,7 @@ state    /Users/you/.local/state/theme
 
 alacritty  overlay present
 herdr      server up
+herdr-app  theme catppuccin-frappe
 tmux       server up
 neovim     found 3 instance(s)
 ```

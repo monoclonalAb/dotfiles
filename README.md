@@ -31,6 +31,7 @@ A file under `$HOME` is managed if it is a symlink into this checkout. Check wit
 | Check a change safely | [`docs/VERIFICATION.md`](docs/VERIFICATION.md) |
 | Set up a Mac by hand, fix setup errors, see machine-specific paths | [`docs/SETUP.md`](docs/SETUP.md) |
 | Use or change Herdr, the terminal workspace manager | [`docs/HERDR.md`](docs/HERDR.md) |
+| Use or change the Herdr desktop app, or move to it from terminal Herdr | [`docs/HERDR-APP.md`](docs/HERDR-APP.md) |
 | Use or change the shared colour theme | [`docs/THEME.md`](docs/THEME.md) |
 | Pi and OMP models, extensions, prompts and MCP servers | [`docs/AGENT-TOOLS.md`](docs/AGENT-TOOLS.md) |
 

@@ -1,8 +1,11 @@
 # Herdr
 
-**Status:** Operator guide. Herdr is the primary terminal workspace manager: it
+**Status:** Operator guide. Terminal Herdr is the terminal workspace manager: it
 holds Spaces (one per repository worktree), tabs and panes, and shows which agent
-conversations need attention. tmux remains as a fallback.
+conversations need attention. The Herdr desktop app is taking over as the main
+setup ([HERDR-APP.md](HERDR-APP.md)); terminal Herdr stays as a backup, and tmux
+remains as a fallback. Do not open one Pi conversation in both Herdrs at once:
+two Pi processes on one session file can corrupt it.
 
 Where things live:
 
@@ -13,6 +16,7 @@ Where things live:
   [`install-herdr-focus`](../bin/install-herdr-focus): the patched binary.
 - [`herdr/plugins/`](../herdr/plugins/): `next-agent`, `spaces-env`,
   `pr-status` and [`task-launcher`](../herdr/plugins/task-launcher/README.md).
+- The Herdr desktop app's keys, layout, theme and mods: [HERDR-APP.md](HERDR-APP.md).
 - Ownership details: [`ARCHITECTURE.md`](ARCHITECTURE.md#3-herdr-source-and-plugin-customisation).
 
 ## Install
@@ -20,9 +24,9 @@ Where things live:
 Commands here install software or change live state. Agents: run them only
 when asked.
 
-This repository builds Herdr from upstream v0.9.1
-(`065ef9d6a531c49fb8bee7e818ef837065b21ee9`) plus
-[`herdr-0.9.1-focused-pane.patch`](../herdr/patches/herdr-0.9.1-focused-pane.patch),
+This repository builds Herdr from upstream v0.9.5
+(`2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`) plus
+[`herdr-0.9.5-focused-pane.patch`](../herdr/patches/herdr-0.9.5-focused-pane.patch),
 which adds:
 
 - heavy focused-pane borders and attention colours: blocked panes red,
@@ -48,10 +52,22 @@ install-herdr-focus --build-only /tmp/herdr  # build and test only
 
 The installer never restarts a server. The client draws the sidebar and the
 server draws panes, so sidebar changes appear on the next `herdr` attach and pane
-changes on the next server start. The build reports `0.9.1-dotfiles.<patch-hash>`, and its `herdr update`
+changes on the next server start. The build reports `0.9.5-dotfiles.<patch-hash>`, and its `herdr update`
 refuses to replace itself with a stock release; upgrading needs a ported patch.
 To swap the binary under running agents, follow the
 [live-handoff checklist](VERIFICATION.md#explicitly-approved-live-herdr-handoff).
+
+To move to a newer upstream release, port the patch rather than running
+`herdr update`:
+
+1. In a scratch clone, commit the patch on top of the pinned tag, then
+   cherry-pick that commit onto the new tag and resolve the conflicts.
+2. Build, then run upstream's own suite with `cargo nextest run --bin herdr`.
+   Plain `cargo test` crashes on the full suite. Four release-notes tests
+   fail on any non-stable build label, stock code included.
+3. Write the result over the patch with `git diff <new-tag> HEAD`, renamed for
+   the new version. Update `SOURCE_COMMIT` and the patch path in
+   `install-herdr-focus`, then run `install-herdr-focus --build-only`.
 
 Then link the plugins and agent integrations:
 
@@ -97,6 +113,11 @@ and `C-a u` open Tern's needs-attention inbox. `C-a v` opens a git block, not
 tuicr. `x` and `C-h/j/k/l` move panes rather than swap them. Worktree keys,
 `;` / `:`, `m`, `U`, `V`, `` ` ``, `[`, `Space` and `M-1..9` have no Tern action; for
 worktrees use [`tw`](#worktrees-in-tern).
+
+## Desktop app keys
+
+The Herdr desktop app ignores `config.base.toml`. Its keys, including the
+plugin keys above as app mods, are in [HERDR-APP.md](HERDR-APP.md#keys).
 
 ## Worktrees in Tern
 
@@ -158,8 +179,11 @@ Plugin settings live in `~/.config/herdr/plugins/config/<plugin-id>/config.toml`
 
 **Conversation titles.** OMP rows use OMP's terminal title. Pi rows use the
 [`herdr-task-summary`](../pi/extensions/herdr-task-summary/summary.ts) token: a 2–6
-word title from a small, tool-free background request to the selected model (this
-uses provider quota). A scramble animation shows while it is pending; failures
+word title from a small, tool-free background request (this uses provider quota).
+It goes to `openai-codex/gpt-6-luna` whatever model the conversation uses, so
+switching models asks for no new title. When luna fails or Pi has no login for it,
+the conversation's own model writes the title. The model is `SUMMARY_MODEL` in that
+file. A scramble animation shows while it is pending; failures
 keep the previous title. If a conversation keeps `New conversation`, its pane's
 `task_summary_error` token says why:
 `herdr pane list | jq '.result.panes[] | {pane_id, tokens}'`. The next good title

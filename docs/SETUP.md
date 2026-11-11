@@ -163,6 +163,14 @@ application-bundle identity.
 **Herdr.** Run the Theme step first, then follow
 [Herdr: install](HERDR.md#install).
 
+**Herdr app.** The Brewfile installs the `herdr-app` cask. Open it once
+(`open -a Herdr`): its first start writes `~/.config/herdr-app/` and installs
+herdr-core (`hc`). Then run `theme apply` and
+`herdr-app do layout.switch --name eric`; `dotfiles-bootstrap` does both when the
+app has started once. On a Mac where `Herdr.app` was installed by hand,
+`brew install --cask --adopt herdr-app` once lets `brew bundle` own it. Details:
+[HERDR-APP.md](HERDR-APP.md).
+
 **tmux (legacy fallback)**
 
 ```sh
@@ -204,6 +212,7 @@ ls                       # colourised, dirs first: gls/coreutils works
 echo $ZDOTDIR            # /Users/you/.config/zsh: .zshenv is linked
 nvim +checkhealth        # lazy/mason/treesitter all green
 herdr config check       # config parses and every custom key is valid
+herdr-app status         # layout "eric", "errors": []
 ```
 
 ## What carries over, and what does not
@@ -217,7 +226,8 @@ Not carried over, and never stored here:
   `hosts.yml`, github-copilot.
 - `~/.config/mcp/mcp.json`, machine-local LaunchAgents, and other agent CLIs'
   settings (Claude Code, Codex, Gemini, opencode, cmux).
-- App state: Herdr sessions, logs, plugin state and generated `config.toml`;
+- App state: Herdr sessions, logs, plugin state and generated `config.toml`; the
+  Herdr app's `settings.json`, `shared.json`, `data/` and herdr-core's terminals;
   raycast, launchpad, StardewValley, the Obsidian vault.
 - The [personal bits](#personal-bits) below.
 

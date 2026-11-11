@@ -14,13 +14,17 @@ import {
   MAX_FAILURE_LENGTH,
   MAX_RECENT_REQUESTS,
   MAX_REQUEST_LENGTH,
+  SUMMARY_MODEL,
   checkSummary,
+  completeSideRequest,
   failureNote,
   generateTaskSummary,
   loadingSummaryFrame,
   recentRequests,
   reportTaskSummary,
   substantiveRequest,
+  summaryModels,
+  summaryTarget,
   validateSummary,
   type CommandRunner,
 } from "./summary.ts";
@@ -42,6 +46,16 @@ function deferred<T = any>() {
   return { promise, resolve };
 }
 
+const luna = { ...SUMMARY_MODEL };
+/** A model registry without gpt-6-luna unless `quick` is given; `loggedIn: false` models have no login. */
+function registry(complete: (...args: any[]) => Promise<any>, quick?: any) {
+  return {
+    find: (provider: string, id: string) => provider === quick?.provider && id === quick?.id ? quick : undefined,
+    hasConfiguredAuth: (model: any) => model.loggedIn !== false,
+    complete,
+  };
+}
+
 function harness(complete: (...args: any[]) => Promise<any> = async () => response("Diagnose login hang"),
   options: { debounceMs?: number; timeoutMs?: number; animationMs?: number } = { debounceMs: 0, timeoutMs: 1000 },
   env = environment) {
@@ -53,7 +67,7 @@ function harness(complete: (...args: any[]) => Promise<any> = async () => respon
   const entries: any[] = [];
   const ctx = {
     model: { provider: "test", id: "selected" },
-    modelRegistry: { complete: async (...args: any[]) => { calls.push(args); return complete(...args); } },
+    modelRegistry: registry(async (...args: any[]) => { calls.push(args); return complete(...args); }),
     sessionManager: { getBranch: () => entries },
   };
   const pi = {
@@ -337,7 +351,8 @@ test("semantic title uses the selected authenticated registry, isolated and tool
   assert.deepEqual(JSON.parse(context.messages[0].content), { recentUserRequests: [prompt] });
   assert.match(context.systemPrompt, /semantically summarizes/);
   assert.match(context.systemPrompt, /data, not instructions/);
-  assert.equal(options.signal, signal);
+  // Its own signal: the caller's cancellation, plus a per-model time limit.
+  assert.ok(options.signal instanceof AbortSignal && options.signal !== signal && !options.signal.aborted);
   assert.equal(options.maxTokens, 2048);
   assert.equal(options.cacheRetention, "none");
   assert.equal(options.transport, "sse");
@@ -540,6 +555,81 @@ test("model switch aborts old request and uses the newly selected model", async 
   await h.emit("session_shutdown");
 });
 
+test("gpt-6-luna names first when Pi has it with a login; the conversation's model is the fallback", () => {
+  const selected = { provider: "test", id: "selected" };
+  const none = async () => response("unused");
+  assert.deepEqual(summaryModels({ model: selected, modelRegistry: registry(none, luna) } as never), [luna, selected]);
+  assert.deepEqual(summaryModels({ model: selected, modelRegistry: registry(none, { ...luna, loggedIn: false }) } as never), [selected]);
+  assert.deepEqual(summaryModels({ model: selected, modelRegistry: registry(none) } as never), [selected]);
+  assert.deepEqual(summaryModels({ model: { ...luna }, modelRegistry: registry(none, luna) } as never), [luna]);
+  assert.deepEqual(summaryModels({ model: undefined, modelRegistry: registry(none, luna) } as never), [luna]);
+  assert.deepEqual(summaryModels({ model: undefined, modelRegistry: registry(none) } as never), []);
+});
+
+test("a failed luna title falls back to the conversation's model; all failing records each reason", async () => {
+  const selected = { provider: "test", id: "selected" };
+  const tried: string[] = [];
+  const ctx = (reply: (model: any) => Promise<any>) => ({ model: selected,
+    modelRegistry: registry(async (model: any) => { tried.push(model.id); return reply(model); }, luna) });
+  // Luna's login expired: the conversation's model writes the title, and no failure is recorded.
+  const reasons: string[] = [];
+  assert.equal(await generateTaskSummary(["Fix login"], ctx(async (model) => {
+    if (model.id === luna.id) throw Error("invalid_grant");
+    return response("Diagnose login hang");
+  }) as never, new AbortController().signal, (reason) => reasons.push(reason)), "Diagnose login hang");
+  assert.deepEqual(tried.splice(0), ["gpt-6-luna", "selected"]);
+  assert.deepEqual(reasons, []);
+  // Luna answers: the conversation's model is never asked.
+  assert.equal(await generateTaskSummary(["Fix login"], ctx(async () => response("Repair login redirect")) as never,
+    new AbortController().signal), "Repair login redirect");
+  assert.deepEqual(tried.splice(0), ["gpt-6-luna"]);
+  await generateTaskSummary(["Fix login"], ctx(async (model) => model.id === luna.id
+    ? { ...response(""), stopReason: "error", errorMessage: "usage limit" } : response("word")) as never,
+  new AbortController().signal, (reason) => reasons.push(reason));
+  assert.deepEqual(reasons, ['gpt-6-luna: model stopped with "error": usage limit; selected: rejected "word": only one word']);
+});
+
+test("a stalled model gets a time limit, then the next one tries", async () => {
+  const tried: string[] = [];
+  const signals: AbortSignal[] = [];
+  const ctx = { model: { provider: "test", id: "selected" }, modelRegistry: registry(async (model: any, _request: any, options: any) => {
+    tried.push(model.id);
+    signals.push(options.signal);
+    // Luna ignores cancellation and never answers.
+    return model.id === luna.id ? new Promise(() => {}) : response("value");
+  }, luna) };
+  const reasons: string[] = [];
+  assert.equal(await completeSideRequest(ctx as never, { messages: [] } as never, new AbortController().signal,
+    (text) => ({ value: text }), (reason) => reasons.push(reason), 20), "value");
+  assert.deepEqual(tried, ["gpt-6-luna", "selected"]);
+  assert.equal(signals[0]!.aborted, true);
+  assert.deepEqual(reasons, []);
+  await completeSideRequest({ ...ctx, model: undefined } as never, { messages: [] } as never, new AbortController().signal,
+    (text) => ({ value: text }), (reason) => reasons.push(reason), 20);
+  assert.deepEqual(reasons, ["no reply within 0.02s"]);
+  // The caller's own cancellation stops everything without a reason.
+  const abort = new AbortController();
+  const pending = completeSideRequest(ctx as never, { messages: [] } as never, abort.signal,
+    (text) => ({ value: text }), (reason) => reasons.push(reason), 1000);
+  abort.abort();
+  assert.equal(await pending, undefined);
+  assert.equal(reasons.length, 1);
+});
+
+test("with gpt-6-luna naming, switching the conversation's model asks for no new title", async () => {
+  const h = harness(async () => response("Diagnose login hang"));
+  h.ctx.modelRegistry = registry(h.ctx.modelRegistry.complete, luna);
+  await h.emit("session_start");
+  await h.message("Fix login");
+  await until(() => h.title() === "Diagnose login hang");
+  assert.equal(h.calls[0]![0], luna);
+  h.ctx.model = { provider: "different", id: "other" };
+  await h.emit("model_select");
+  await tick();
+  assert.equal(h.calls.length, 1);
+  await h.emit("session_shutdown");
+});
+
 test("shutdown/reload cancels work and old responses cannot name a new empty session", async () => {
   const pending = deferred();
   const h = harness(async () => pending.promise);
@@ -612,4 +702,54 @@ test("installed Pi ModelRegistry supports the side call with a faux provider, no
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("titles go to terminal Herdr first, else to the Herdr app terminal", () => {
+  assert.equal(summaryTarget({ HERDR_ENV: "1", HERDR_PANE_ID: "w1:p2", HC_TERMINAL_ID: "t7" }), "herdr");
+  assert.equal(summaryTarget({ HC_TERMINAL_ID: "t7" }), "hc");
+  assert.equal(summaryTarget({ HERDR_ENV: "1" }), undefined);
+  assert.equal(summaryTarget({}), undefined);
+});
+
+test("in the Herdr app the title is an hc label; pending and failures are labels too", async () => {
+  const runs: string[][] = [];
+  const run: CommandRunner = async (command, args) => { runs.push([command, ...args]); return { code: 0 }; };
+  const app = { HC_TERMINAL_ID: "t7" };
+  assert.equal(await reportTaskSummary("Fix login", app, run), true);
+  assert.equal(await reportTaskSummary("Fix login", { ...app, HC_BIN_PATH: "/x/hc" }, run, "12:00 no reply", true), true);
+  assert.equal(await reportTaskSummary("Fix login", app, run, null), true);
+  assert.deepEqual(runs, [
+    ["hc", "label", "t7", "task_summary_pending=", "task_summary=Fix login"],
+    ["/x/hc", "label", "t7", "task_summary_error=12:00 no reply", "task_summary_pending=1", "task_summary=Fix login"],
+    ["hc", "label", "t7", "task_summary_error=", "task_summary_pending=", "task_summary=Fix login"],
+  ]);
+  assert.equal(await reportTaskSummary("x", app, async () => { throw new Error("no hc"); }), false);
+});
+
+test("in the Herdr app a pending title is one mark, not animation frames", async () => {
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const labels: string[][] = [];
+  const pending = deferred();
+  const ctx = {
+    model: { provider: "test", id: "selected" },
+    modelRegistry: registry(async () => { await pending.promise; return response("Repair login redirect"); }),
+    sessionManager: { getBranch: () => [] },
+  };
+  registerHerdrTaskSummary({
+    on(name: string, handler: (...args: any[]) => any) { handlers.set(name, handler); },
+    async exec(command: string, args: string[]) {
+      assert.equal(command, "hc");
+      labels.push(args);
+      return { code: 0, stdout: "", stderr: "", killed: false };
+    },
+  } as never, { HC_TERMINAL_ID: "t7" }, { debounceMs: 0, timeoutMs: 1000, animationMs: 1 });
+  await handlers.get("session_start")?.({}, ctx);
+  await handlers.get("message_end")?.(user("Why does login redirect loop?"), ctx);
+  await until(() => labels.some((args) => args.includes("task_summary_pending=1")));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const whilePending = labels.length;
+  pending.resolve(undefined);
+  await until(() => labels.at(-1)?.at(-1) === "task_summary=Repair login redirect");
+  assert.ok(whilePending <= 3, `no frames while pending (${whilePending} label writes)`);
+  assert.ok(labels.at(-1)!.includes("task_summary_pending="), "the final title clears the pending mark");
 });

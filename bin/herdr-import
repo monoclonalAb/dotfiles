@@ -1,0 +1,352 @@
+#!/usr/bin/python3
+"""Rebuild terminal Herdr's saved session in the Herdr desktop app.
+
+Reads ~/.config/herdr/session.json, what terminal Herdr restores on start: its
+workspaces, tabs, split layouts, each pane's folder and the Pi conversation in
+it. For each workspace it makes a Space in the running Herdr app with the same
+name, tabs and splits, every pane in its folder, and Pi panes resuming their
+conversation (`pi --session <file>`). The Space then joins its Personal/Work
+environment (martinro.spaces-env's state) through the app's spaces-env mod.
+Split sizes come back even (the app has no pane resize command), and terminal
+output and other running programs are not carried over.
+
+Two Pi processes on one session file can corrupt it, so conversations are never
+resumed for a workspace the running terminal Herdr server still has open
+(`herdr workspace list`). Stop the server first (`herdr server stop`), or import
+from a copy of session.json after closing those workspaces in terminal Herdr,
+or use --shells-only.
+
+Imported workspaces are recorded in ~/.local/state/herdr-app/import.json and
+skipped on the next run; --again imports them once more. The app must be open
+on the `eric` layout for the environment step (otherwise it is reported).
+"""
+
+import argparse
+import datetime
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+
+DIRECTIONS = {"Vertical": "right", "Horizontal": "down"}
+USAGE_EXAMPLES = """examples:
+  herdr-import --dry-run                       what would be made; changes nothing
+  herdr-import --workspace w3 --shells-only    one workspace, no conversations (a rehearsal)
+  herdr-import                                 everything not imported yet
+"""
+
+
+class ImportFailure(Exception):
+    pass
+
+
+def search_path(env):
+    home = env.get("HOME", str(Path.home()))
+    return f"{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+
+# --- plan (pure) --------------------------------------------------------------
+
+
+def leaves(node):
+    if "Pane" in node:
+        return [node["Pane"]]
+    split = node["Split"]
+    return leaves(split["first"]) + leaves(split["second"])
+
+
+def split_ops(node):
+    """[(existing pane, "right" | "down", new pane)] that rebuild `node` from its first pane.
+
+    A split's area is held by its first pane; splitting that pane makes the
+    second subtree's first pane beside or below it. Parents come first, so each
+    split only divides the area its subtree owns.
+    """
+    if "Pane" in node:
+        return []
+    split = node["Split"]
+    direction = DIRECTIONS.get(split.get("direction"))
+    if not direction:
+        raise ImportFailure(f"unknown split direction {split.get('direction')!r}")
+    first, second = split["first"], split["second"]
+    return [(leaves(first)[0], direction, leaves(second)[0])] + split_ops(first) + split_ops(second)
+
+
+def pane_plan(pane, home, resume):
+    """{cwd, argv, notes} for one saved pane: argv None means a shell."""
+    notes = []
+    cwd = pane.get("cwd") or home
+    if not os.path.isdir(cwd):
+        notes.append(f"{cwd} is gone; the pane starts in ~")
+        cwd = home
+    session = pane.get("agent_session") or {}
+    argv = None
+    if session:
+        agent, kind, value = session.get("agent"), session.get("kind"), session.get("value")
+        if agent == "pi" and kind == "path" and value:
+            if not os.path.isfile(value):
+                notes.append(f"Pi conversation {value} is gone; a shell instead")
+            elif resume:
+                argv = ["pi", "--session", value]
+            else:
+                notes.append(f"not resumed: pi --session {value}")
+        else:
+            notes.append(f"{agent or 'agent'} conversation not resumed ({kind} {value}); resume it by hand")
+    return {"cwd": cwd, "argv": argv, "notes": notes}
+
+
+def plan(session, home, resume, only=(), skip=(), envs=None, live=()):
+    """The Spaces to make. `live`: workspaces the running terminal Herdr server has
+    open; their conversations are not resumed."""
+    out = []
+    workspaces = session.get("workspaces") or []
+    for index, ws in enumerate(workspaces):
+        if (only and ws["id"] not in only) or ws["id"] in skip:
+            continue
+        resume_here = resume and ws["id"] not in live
+        tabs = []
+        for tab in ws.get("tabs") or []:
+            layout = tab["layout"]
+            saved = tab.get("panes") or {}
+            panes = {leaf: pane_plan(saved.get(str(leaf), {}), home, resume_here) for leaf in leaves(layout)}
+            if resume and not resume_here:
+                for p in panes.values():
+                    p["notes"] = [n.replace("not resumed:", "not resumed (still open in terminal Herdr):") for n in p["notes"]]
+            root = leaves(layout)[0]
+            tabs.append({
+                "name": tab.get("custom_name"), "root": root, "splits": split_ops(layout), "panes": panes,
+                "focused": tab.get("focused") if tab.get("focused") in panes else root, "zoomed": bool(tab.get("zoomed")),
+            })
+        if not tabs:
+            continue
+        out.append({
+            "id": ws["id"], "name": ws.get("custom_name"), "tabs": tabs,
+            "active_tab": max(0, min(ws.get("active_tab") or 0, len(tabs) - 1)),
+            "env": (envs or {}).get(ws["id"]), "active": index == session.get("active"),
+        })
+    return out
+
+
+def describe(plans):
+    lines = []
+    for ws in plans:
+        panes = [p for tab in ws["tabs"] for p in tab["panes"].values()]
+        agents = sum(1 for p in panes if p["argv"])
+        lines.append(f"{ws['id']}: {ws['name'] or '(unnamed)'}: {len(ws['tabs'])} tab(s), {len(panes)} pane(s), "
+                     f"{agents} Pi conversation(s){', ' + ws['env'] if ws['env'] else ''}")
+        for t, tab in enumerate(ws["tabs"]):
+            label = tab["name"] or str(t + 1)
+            for leaf, p in tab["panes"].items():
+                what = " ".join(p["argv"]) if p["argv"] else "shell"
+                lines.append(f"  tab {label} pane {leaf}: {what} in {p['cwd']}")
+                lines.extend(f"    note: {n}" for n in p["notes"])
+    return "\n".join(lines)
+
+
+# --- the app --------------------------------------------------------------------
+
+
+class App:
+    def __init__(self, executable, env, wait=time.sleep):
+        self.executable, self.env, self.wait = executable, env, wait
+
+    def call(self, args):
+        completed = subprocess.run([self.executable, *args], capture_output=True, text=True, env=self.env)
+        try:
+            reply = json.loads(completed.stdout)
+        except ValueError:
+            reply = None
+        if completed.returncode != 0 or not isinstance(reply, dict) or "error" in reply:
+            detail = (reply or {}).get("error") if isinstance(reply, dict) else None
+            raise ImportFailure(f"herdr-app {' '.join(args[:2])}: {detail or completed.stderr.strip() or 'no reply'}")
+        return reply
+
+    def do(self, command, **args):
+        return self.call(["do", command, json.dumps(args)])
+
+    def where(self, terminal=None, pane=None):
+        """(pane, tab) of a terminal or pane, waiting briefly for the window to list it."""
+        for _ in range(30):
+            for space in self.call(["ls"]).get("spaces", []):
+                for tab in space.get("tabs", []):
+                    for t in tab.get("terminals", []):
+                        if (terminal and t.get("terminal") == terminal) or (pane and t.get("pane") == pane):
+                            return t.get("pane"), tab.get("id")
+            self.wait(0.1)
+        raise ImportFailure(f"the app never listed {terminal or pane}")
+
+
+def build(ws, app, log):
+    """Make one workspace's Space; return its id and any warnings."""
+    warnings = []
+    first = ws["tabs"][0]
+    root = first["panes"][first["root"]]
+    args = {"folder": root["cwd"]}
+    if ws["name"]:
+        args["name"] = ws["name"]
+    if first["name"]:
+        args["tab"] = first["name"]
+    if root["argv"]:
+        args["argv"] = root["argv"]
+    made = app.do("space.new", **args)
+    space = made["space"]
+    tab_ids = []
+    for index, tab in enumerate(ws["tabs"]):
+        if index == 0:
+            tab_id, terminal = made["tab"], made["terminal"]
+        else:
+            r = tab["panes"][tab["root"]]
+            args = {"space": space, "folder": r["cwd"]}
+            if tab["name"]:
+                args["name"] = tab["name"]
+            if r["argv"]:
+                args["argv"] = r["argv"]
+            m = app.do("tab.new", **args)
+            tab_id, terminal = m["tab"], m["terminal"]
+        tab_ids.append(tab_id)
+        pane_of = {tab["root"]: app.where(terminal=terminal)[0]}
+        for source, direction, new in tab["splits"]:
+            # terminal.open splits the focused pane: show that tab, focus the source.
+            app.do("space.select", id=space)
+            app.do("tab.select", id=tab_id)
+            app.do("pane.focus", pane=pane_of[source])
+            p = tab["panes"][new]
+            args = {"place": direction, "folder": p["cwd"]}
+            if p["argv"]:
+                args["argv"] = p["argv"]
+            m = app.do("terminal.open", **args)
+            pane, where = app.where(pane=m["pane"])
+            if where != tab_id:
+                raise ImportFailure(f"pane {new} of {ws['id']} landed in another tab ({where}); close Space {space} and retry")
+            pane_of[new] = pane
+        app.do("pane.focus", pane=pane_of[tab["focused"]])
+        if tab["zoomed"]:
+            app.do("pane.zoom", pane=pane_of[tab["focused"]])
+    app.do("tab.select", id=tab_ids[ws["active_tab"]])
+    if ws["env"]:
+        try:
+            app.do(f"spaces-env.assign:{space}={ws['env']}")
+        except ImportFailure as error:
+            warnings.append(f"{ws['id']}: not put in {ws['env']} ({error}); show the eric layout and press C-a : there")
+    log(f"{ws['id']} -> {space}  {ws['name'] or ''}")
+    return space, warnings
+
+
+# --- terminal Herdr -----------------------------------------------------------
+
+
+def tui_live_workspaces(env):
+    """Workspace ids the running terminal Herdr server has open; None when it runs but
+    cannot be asked; empty when no server runs."""
+    herdr = shutil.which("herdr", path=env["PATH"])
+    if not herdr:
+        return set()
+    status = subprocess.run([herdr, "status", "server"], capture_output=True, text=True, env=env)
+    if "status: running" not in status.stdout:
+        return set()
+    listing = subprocess.run([herdr, "workspace", "list"], capture_output=True, text=True, env=env)
+    try:
+        return {w["workspace_id"] for w in json.loads(listing.stdout)["result"]["workspaces"]}
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def read_json(path, default):
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def write_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n")
+    temporary.replace(path)
+
+
+def main(argv=None, environ=None, out=sys.stdout):
+    env = dict(os.environ if environ is None else environ)
+    env["PATH"] = search_path(env)
+    home = env.get("HOME", str(Path.home()))
+    parser = argparse.ArgumentParser(prog="herdr-import", description=__doc__.split("\n\n")[0],
+                                     epilog=USAGE_EXAMPLES, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--dry-run", action="store_true", help="print what would be made; change nothing")
+    parser.add_argument("--workspace", action="append", default=[], metavar="ID", help="only this workspace (repeatable)")
+    parser.add_argument("--shells-only", action="store_true", help="resume no conversation: every pane a shell")
+    parser.add_argument("--again", action="store_true", help="also workspaces imported before")
+    parser.add_argument("--from", dest="source", default=f"{home}/.config/herdr/session.json", help="the saved session")
+    parser.add_argument("--state", default=f"{home}/.local/state/herdr-app/import.json", help=argparse.SUPPRESS)
+    parser.add_argument("--environments", default=f"{home}/.local/state/herdr/plugins/martinro.spaces-env/state.json",
+                        help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    say = lambda line="": print(line, file=out)
+
+    session = read_json(args.source, None)
+    if not isinstance(session, dict) or not isinstance(session.get("workspaces"), list):
+        say(f"herdr-import: no terminal Herdr session at {args.source}")
+        return 1
+    known = {ws.get("id") for ws in session["workspaces"]}
+    unknown = [w for w in args.workspace if w not in known]
+    if unknown:
+        say(f"herdr-import: no workspace {', '.join(unknown)} in {args.source}")
+        return 1
+    record = read_json(args.state, {})
+    imported = record.get("imported") or {}
+    envs = (read_json(args.environments, {}) or {}).get("assignments") or {}
+    resume = not args.shells_only
+    live = tui_live_workspaces(env) if resume else set()
+    if live is None:
+        say("herdr-import: terminal Herdr's server runs but did not list its workspaces; stop it or use --shells-only")
+        return 1
+    skip = set() if args.again else set(imported)
+    plans = plan(session, home, resume, only=set(args.workspace), skip=skip, envs=envs, live=live)
+    skipped = [w for w in (args.workspace or known) if w in skip]
+    if skipped:
+        say(f"already imported (--again to repeat): {', '.join(sorted(skipped))}")
+    if not plans:
+        say("nothing to import")
+        return 0
+    say(describe(plans))
+    if live and resume:
+        held = sorted(w["id"] for w in plans if w["id"] in live)
+        if held:
+            say(f"\nterminal Herdr still has {', '.join(held)} open: their conversations stay there (stop the server to move them)")
+    if args.dry_run:
+        return 0
+
+    app = App(shutil.which("herdr-app", path=env["PATH"]) or "herdr-app", env)
+    try:
+        app.call(["status"])
+    except ImportFailure as error:
+        say(f"herdr-import: the Herdr app is not answering ({error}); open it first")
+        return 1
+    warnings = []
+    made = {}
+    say("")
+    for ws in plans:
+        try:
+            space, notes = build(ws, app, say)
+        except ImportFailure as error:
+            say(f"herdr-import: {ws['id']} failed: {error}")
+            say(f"made so far: {json.dumps(made)}")
+            return 1
+        warnings.extend(notes)
+        made[ws["id"]] = space
+        imported[ws["id"]] = {"space": space, "at": datetime.datetime.now().isoformat(timespec="seconds")}
+        write_json(args.state, {**record, "imported": imported})
+    active = next((made[w["id"]] for w in plans if w["active"]), None)
+    if active:
+        app.do("space.select", id=active)
+    for warning in warnings:
+        say(f"warning: {warning}")
+    say(f"\nimported {len(made)} workspace(s); recorded in {args.state}. Split sizes came back even: drag to resize.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -201,6 +201,32 @@ else
     done
 fi
 
+step 'Herdr app'
+# Installed by the Brewfile's herdr-app cask; it writes ~/.config/herdr-app and
+# installs herdr-core (hc) on its first start. See docs/HERDR-APP.md.
+if [ ! -d /Applications/Herdr.app ]; then
+    todo 'Herdr app (the Brewfile installs the herdr-app cask)'
+elif ! command -v herdr-app >/dev/null 2>&1 || [ ! -f "$HOME/.config/herdr-app/settings.json" ]; then
+    todo 'first start of the Herdr app (open -a Herdr, then rerun)'
+else
+    ok "Herdr app $(herdr-app --version 2>/dev/null | sed 's/^herdr-app //')"
+    if theme status 2>/dev/null | grep -q '^herdr-app  theme catppuccin-[a-z]*$'; then
+        ok 'Herdr app theme'
+    else
+        todo 'Herdr app theme'
+        $check || theme apply >/dev/null 2>&1 || warn 'theme apply failed; run it by hand'
+    fi
+    layout=$(herdr-app status 2>/dev/null | jq -r '.layout // empty' 2>/dev/null || true)
+    if [ "$layout" = eric ]; then
+        ok 'Herdr app layout eric'
+    elif [ -z "$layout" ]; then
+        todo 'Herdr app layout eric (open the app, then rerun)'
+    else
+        todo "Herdr app layout eric (showing ${layout})"
+        $check || herdr-app do layout.switch --name eric >/dev/null || warn 'herdr-app layout.switch failed'
+    fi
+fi
+
 step 'Summary'
 if $check; then
     [ "$pending" -eq 0 ] && echo '    nothing to install' || echo "    $pending item(s) missing; run dotfiles-bootstrap to install them"
