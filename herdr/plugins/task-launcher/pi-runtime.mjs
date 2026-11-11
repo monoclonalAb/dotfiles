@@ -167,21 +167,65 @@ export function startupModel(defaults, cycleModels) {
   return { model: entry.model.key, thinking: entry.thinkingLevel };
 }
 
+// All naming attempts together, and the most one model gets.
+export const NAMING_DEADLINE_MS = 30_000;
+const NAMING_ATTEMPT_MS = 15_000;
+
 // Names come from a quick model chosen once (plugin config naming_model, else
 // Pi's startup model), then the task's own model, then the rest of Pi's
 // enabledModels in order.
 export function createNamer(runtime, models, preferred = [], fallbacks = []) {
   const byKey = new Map(models.map((model) => [model.key, model]));
   const usable = (model) => model && !needsExtensionRoute(runtime, model);
-  const pick = (selected) => [...preferred.map((key) => byKey.get(key)), selected, ...fallbacks].find(usable);
+  const candidates = (selected) => [...new Map([...preferred.map((key) => byKey.get(key)), selected, ...fallbacks]
+    .filter(usable).map((model) => [`${model.provider}/${model.id}`, model])).values()];
   return {
-    pick,
-    summarize: async ({ prompt, model }) => {
-      const namer = pick(model);
-      if (!namer) throw new Error("no naming model outside the Claude subscription route; set naming_model");
-      return generateTaskTitle(runtime, { prompt, model: namer });
+    pick: (selected) => candidates(selected)[0],
+    // Any model now and then errors, stalls or answers with no usable name, so
+    // the next model in the list tries (a lone model tries twice), within one deadline.
+    summarize: async ({ prompt, model }, { signal = AbortSignal.timeout(NAMING_DEADLINE_MS) } = {}) => {
+      const namers = candidates(model);
+      if (!namers.length) throw new Error("no naming model outside the Claude subscription route; set naming_model");
+      const failures = [];
+      for (const namer of namers.length === 1 ? [namers[0], namers[0]] : namers) {
+        if (signal.aborted) break;
+        try {
+          return await generateTaskTitle(runtime, { prompt, model: namer },
+            { signal: AbortSignal.any([signal, AbortSignal.timeout(NAMING_ATTEMPT_MS)]) });
+        } catch (error) {
+          failures.push(error.message);
+        }
+      }
+      throw new Error(failures.join("; ") || "naming timed out");
     },
   };
+}
+
+const TRAILING_FILLER = new Set(["a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "of", "on", "or", "the", "to", "with"]);
+
+// Models wrap or pad a good name now and then: "**Title:** Fix sign-in hang.", a
+// preamble line, "contact's", a slug, a comma list, a few words too many. Keep the
+// name in it rather than fail. Returns undefined only when there is no name: no
+// line with 2+ words of English letters/digits, or a sentence of prose (the model
+// answered the task). Only letters, digits, spaces and single inner hyphens remain.
+export function cleanTaskTitle(text) {
+  // The first line that is not a preamble such as "Here is a title:".
+  const line = text.split(/\r?\n/).map((part) => part.trim()).find((part) => part && !/:[*_`\s]*$/.test(part)) ?? "";
+  let words = line.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/['’]/g, "")
+    // Markup, a list number, a "title:" label or a "task/" branch prefix.
+    .replace(/^[^a-z0-9]*(?:\d+[.)]\s+[^a-z0-9]*)?(?:(?:task\s+|branch\s+)?(?:title|name)\s*:|task\/)?/, "")
+    .split(/[.!?;](?:\s|$)|\s[—–-]\s/)[0] // The first sentence or clause only.
+    .replace(/[^a-z0-9-]+/g, " ")
+    .split(" ").map((word) => word.replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "")).filter(Boolean);
+  if (words.length === 1) words = words[0].split("-"); // "fix-login-spinner"
+  if (words.length < 2 || words.length > 10) return undefined;
+  const kept = [];
+  for (const word of words) {
+    if ([...kept, word].join(" ").length > 48) break;
+    kept.push(word);
+  }
+  if (kept.length < words.length) while (kept.length > 2 && TRAILING_FILLER.has(kept.at(-1))) kept.pop();
+  return kept.length >= 2 ? kept.join(" ") : undefined;
 }
 
 // A separate, tool-free naming request, only after explicit task submission.
@@ -190,7 +234,7 @@ export function createNamer(runtime, models, preferred = [], fallbacks = []) {
 // it off, else the provider default. Even the lowest explicit level breaks naming:
 // DeepSeek V4.1 Flash at "low" answered the task instead of naming it and hit
 // the token cap, while the same request without reasoning named it in ~1 s.
-export async function generateTaskTitle(runtime, { prompt, model }, { signal = AbortSignal.timeout(15_000) } = {}) {
+export async function generateTaskTitle(runtime, { prompt, model }, { signal = AbortSignal.timeout(NAMING_ATTEMPT_MS) } = {}) {
   const selected = runtime.getModel(model.provider, model.id);
   if (!selected) throw new Error(`naming model ${model.provider}/${model.id} is unavailable`);
   const response = await runtime.completeSimple(selected, {
@@ -205,12 +249,10 @@ export async function generateTaskTitle(runtime, { prompt, model }, { signal = A
   if (response.stopReason !== "stop") {
     throw new Error(`${model.provider}/${model.id} naming failed or timed out`);
   }
-  const title = response.content.filter((block) => block.type === "text").map((block) => block.text).join(" ")
-    .trim().replace(/^[\"'`]+|[\"'`.]+$/g, "").replace(/\s+/g, " ").toLowerCase();
-  if (!/^[a-z0-9][a-z0-9 -]*[a-z0-9]$/i.test(title) || title.length > 48
-      || title.split(/[ -]+/).length < 2 || title.split(/[ -]+/).length > 6) {
-    throw new Error(`${model.provider}/${model.id} returned an invalid task title`);
-  }
+  const text = response.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+  const title = cleanTaskTitle(text);
+  // The reply goes in the popup's warning, so the next failure shows what came back.
+  if (!title) throw new Error(`${model.provider}/${model.id} returned an invalid task title ${JSON.stringify(text.trim().slice(0, 60))}`);
   return title;
 }
 

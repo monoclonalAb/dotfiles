@@ -106,8 +106,25 @@ test("naming uses the exact selected model in a bounded tool-free request", asyn
   for (const stopReason of ["error", "aborted", "length", "toolUse"]) {
     await assert.rejects(generateTaskTitle({ ...runtime, completeSimple: async () => ({ stopReason, content: [] }) }, { prompt, model }), /naming failed/);
   }
-  for (const text of ["", "word", "one two three four five six seven", "x".repeat(49), "../../bad", "$(touch nope)", "日本語の名前"]) {
-    await assert.rejects(generateTaskTitle({ ...runtime, completeSimple: async () => ({ stopReason: "stop", content: [{ type: "text", text }] }) }, { prompt, model }), /invalid task title/);
+  const reply = (text) => generateTaskTitle({ ...runtime, completeSimple: async () => ({ stopReason: "stop", content: [{ type: "text", text }] }) }, { prompt, model });
+  // A hyphenated word counts once: this 6-word title from gpt-6-astra was rejected as 7.
+  assert.equal(await reply("enable stacked changes beyond log-only mode"), "enable stacked changes beyond log-only mode");
+  // Wrapped or padded names are tidied, not rejected; only letters, digits, spaces and hyphens survive.
+  for (const [text, title] of [
+    ["**Title:** Choose merged contact name fields.", "choose merged contact name fields"],
+    ["Here is a title:\n`task/fix-login-spinner`", "fix login spinner"],
+    ["1. fix sign in hang\n2. repair login spinner", "fix sign in hang"],
+    ["Fix sign-in hang — the page spins forever", "fix sign-in hang"],
+    ["Keep the contact’s naïve greeting", "keep the contacts naive greeting"],
+    ["one two three four five six seven", "one two three four five six seven"],
+    // Cut to 48 characters at a word, without a dangling "and".
+    ["Choose merged contact first name, last name and greeting rules", "choose merged contact first name last name"],
+    ["$(touch nope)", "touch nope"],
+  ]) assert.equal(await reply(text), title);
+  // No name at all, or prose (the model answered the task): the error shows the reply.
+  for (const text of ["", "word", "x".repeat(49), "../../bad", "日本語の名前", "Here is a title:",
+    "I will start by reading AGENTS.md and then look at the merge code to understand it."]) {
+    await assert.rejects(reply(text), (error) => error.message === `test/reasoner returned an invalid task title ${JSON.stringify(text.slice(0, 60))}`);
   }
   await assert.rejects(generateTaskTitle({ getModel: () => undefined }, { prompt, model }), /unavailable/);
 });
@@ -254,6 +271,36 @@ test("naming prefers the configured, then default, model and never sends Claude 
   // Route-only startup and task models fall through to Pi's next enabled model.
   assert.equal(createNamer(runtime(true), models, [claude.key], [claude, codex]).pick(claude), codex);
   assert.equal(createNamer(runtime(true), models, [], [claude]).pick(claude), undefined);
+});
+
+test("a failed naming attempt falls back to the next model, then fails with every reason", async () => {
+  const model = (provider, id) => ({ key: `${provider}/${id}`, provider, id, levels: ["off"] });
+  const [gemini, luna, sol] = [model("google-vertex", "gemini"), model("openai-codex", "luna"), model("openai-codex", "sol")];
+  const tried = [];
+  const runtime = (replies) => ({
+    getModel: (provider, id) => ({ provider, id, baseUrl: "https://example.invalid" }),
+    completeSimple: async (selected, context, options) => {
+      tried.push(selected.id);
+      assert.ok(options.signal instanceof AbortSignal);
+      const text = replies.shift();
+      return text === undefined ? { stopReason: "error", content: [] } : { stopReason: "stop", content: [{ type: "text", text }] };
+    },
+  });
+  // The task's model answers with prose; the next enabled model (deduplicated) names it.
+  const namer = createNamer(runtime(["I will read AGENTS.md first and then look into the contact merge code.", "choose merged contact names"]),
+    [gemini, luna, sol], [], [gemini, luna, sol]);
+  assert.equal(await namer.summarize({ prompt: "Merge contacts", model: gemini }), "choose merged contact names");
+  assert.deepEqual(tried.splice(0), ["gemini", "luna"]);
+  // A lone naming model gets a second try.
+  assert.equal(await createNamer(runtime(["", "fix login hang"]), [luna], [luna.key]).summarize({ prompt: "x", model: luna }), "fix login hang");
+  assert.deepEqual(tried.splice(0), ["luna", "luna"]);
+  // Every model failing reports each reason; a spent deadline stops further attempts.
+  await assert.rejects(createNamer(runtime(["word"]), [gemini, luna], [], [gemini, luna]).summarize({ prompt: "x", model: gemini }),
+    /^Error: google-vertex\/gemini returned an invalid task title "word"; openai-codex\/luna naming failed or timed out$/);
+  tried.length = 0;
+  await assert.rejects(createNamer(runtime([]), [gemini], [], [gemini]).summarize({ prompt: "x", model: gemini }, { signal: AbortSignal.abort() }),
+    /naming timed out/);
+  assert.deepEqual(tried, []);
 });
 
 test("the startup model follows Pi: a saved default outside enabledModels is ignored", () => {
