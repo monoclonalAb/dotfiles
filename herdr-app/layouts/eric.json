@@ -101,13 +101,6 @@
                       "content": {
                         "mod": "files"
                       }
-                    },
-                    {
-                      "id": "brief",
-                      "type": "block",
-                      "content": {
-                        "mod": "brief"
-                      }
                     }
                   ],
                   "active": "sidebar"

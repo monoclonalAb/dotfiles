@@ -16,9 +16,9 @@ Its own manual is `~/.config/herdr-app/AGENTS.md`, rewritten on every start.
 | Path | What it does |
 | --- | --- |
 | [`herdr-app/keys.json`](../herdr-app/keys.json) | Every key. `global` keeps the app's `Cmd` keys and the `C-a` prefix keys that map to app commands; `layout:eric` adds the keys that need this repository's mods |
-| [`herdr-app/layouts/eric.json`](../herdr-app/layouts/eric.json) | The window: a copy of the shipped `main` layout with one right-hand panel that shows the Spaces tree, Files or Brief, a tab bar without buttons, a status bar that hosts the mods below, attention pane headers and a 2 px focus border |
+| [`herdr-app/layouts/eric.json`](../herdr-app/layouts/eric.json) | The window: a copy of the shipped `main` layout with one right-hand panel that shows the Spaces tree or Files, a tab bar without buttons, a status bar that hosts the mods below, attention pane headers and a 2 px focus border |
 | [`herdr-app/themes/`](../herdr-app/themes/) | Catppuccin Latte, Frappé, Macchiato and Mocha, from the same palettes as Alacritty and Neovim |
-| [`herdr-app/mods/`](../herdr-app/mods/) | `tab-bar` (the app's own tab bar without its `+`, Files and Changes buttons), `spaces-tree` (the sidebar view of the right-hand panel), `next-agent`, `spaces-env`, `popups`, `pane-keys`, `pi-resume` (status bar), `attention-pane` (pane headers), `brief` (the right-hand panel), `conversation-picker` (a popup), `mission-control` (a dialog) |
+| [`herdr-app/mods/`](../herdr-app/mods/) | `tab-bar` (the app's own tab bar without its `+`, Files and Changes buttons), `spaces-tree` (the sidebar view of the right-hand panel), `next-agent`, `spaces-env`, `popups`, `pane-keys`, `pi-resume` (status bar), `attention-pane` (pane headers), `conversation-picker` (a popup), `mission-control` (a dialog) |
 | [`lib/herdr-app-mods/`](../lib/herdr-app-mods/) | Tests for the mods' rules, with the app's modules stubbed |
 | [`bin/herdr-import`](../bin/herdr-import) | Rebuilds the terminal Herdr session in the app |
 
@@ -71,12 +71,12 @@ Switch to it once with `herdr-app do layout.switch --name eric` (or `Ctrl+Shift+
 to cycle layouts). `Ctrl+Alt+Shift+Esc` always resets to the shipped `main`
 layout if a file breaks the window.
 
-- **Right-hand panel:** one area beside the panes that shows one of three
-  views. `C-a b` (or `Cmd+B`) shows the sidebar, `C-a f` the app's Files and
-  `C-a i` [Brief](#brief). The key of the view already showing closes the
-  panel. Example: the sidebar shows; `C-a i` swaps it for Brief; `C-a b`
-  brings the sidebar back; `C-a b` again closes the panel. The view stays as
-  you left it when you change Space. The app's Changes view is left out.
+- **Right-hand panel:** one area beside the panes with two views. `C-a b`
+  (or `Cmd+B`) shows the sidebar; `C-a f` shows the app's Files. The key of the
+  view already showing closes the panel. Example: the sidebar shows; `C-a f`
+  swaps it for Files; `C-a b` brings the sidebar back; `C-a b` again closes the
+  panel. The view stays as you left it when you change Space. The app's Changes
+  view is left out.
 - **Sidebar:** at the top, a pinned band lists the active environment's
   conversations that need you or finished unread (`◆ Needs you` / `● To review`),
   then the ones running (`◐ Running`), each with its Space or repository/PR
@@ -108,6 +108,9 @@ Each conversation has one dot. Example, three agents in one Space:
 
 Pi conversations are named by the `herdr-task-summary` extension (a 2–6 word
 title). Other agents show their own title, else their tab or program name.
+For a recap, read the latest reply or ask the agent directly. The extension
+only generates titles, not conversation summaries. Run `/reload` in idle Pi
+sessions after updating the extension; new sessions use the updated code.
 
 ### Motion
 
@@ -128,7 +131,7 @@ itself, so they use no timers:
 
 The app's own parts do not animate, and its files offer no setting for it: tabs,
 terminals, pane borders and focus, splits, zoom, and its dialogs and toasts.
-Nor do reordering a worktree by dragging and [Brief](#brief).
+Nor does reordering a worktree by dragging.
 
 A new row has to be drawn shut once before it can open, because the app
 animates only a change. So each mod draws it shut, then redraws it 32 ms later.
@@ -159,7 +162,6 @@ worktrees.
 | `C-a g` / `C-a G` / `C-a C-g` | Open / new / remove worktree (the app's dialog) |
 | `C-a b`, `Cmd+B` | The sidebar in the right-hand panel; again: close the panel |
 | `C-a f` | Files in the right-hand panel; again: close the panel |
-| `C-a i` | [Brief](#brief) in the right-hand panel; again: close the panel |
 
 `C-a w`, `Cmd+P` and `C-a C-w` work in every layout. `C-a C-a` sends a literal `C-a`. Keys a mod handles reach it only while its block
 is on screen, which is why those mods sit in the status bar: no key hides it.
@@ -248,52 +250,6 @@ or `Esc` closes it.
 
 The cards are text, refreshed every 2 seconds while the dialog is open. They
 are not live terminals, so opening it never resizes or types into a terminal.
-
-## Brief
-
-`C-a i` shows **Brief** in the right-hand panel, in place of the sidebar or
-Files; `C-a i` again closes the panel. It answers "what is this conversation about,
-what did I last ask, and where is the work?" for one agent: the focused pane's, else the
-first in the focused tab, else the first in the Space. Like Files, it follows
-the pane you focus.
-
-Example, the `fix-login` Space:
-
-1. 10:06: Pi starts on "Why does login spin forever after a 401?".
-2. 10:40: you add "Also show the error message instead." Two seconds later the
-   `herdr-task-summary` Pi extension writes a summary of the conversation so far.
-3. 11:30: `C-a u` lands there and `C-a i` shows:
-   - **Conversation:** the dot, the title, `1h 24m` since it started, and the
-     summary: "Fixing the login page's endless spinner after a 401; now showing
-     the error message instead."
-   - **Last prompt:** "Also show the error message instead.", `50m` ago
-     (`more ▾` shows all of a long one).
-   - **Branch:** `fix-login ↗`, which opens the branch on GitHub (`· not
-     pushed` until it is there). Then `3 commits since main`, `7 files · +142
-     −38` for those commits plus uncommitted edits (from the same starting
-     point as `C-a V`), and `2 files not committed`. On `main`: the commits not
-     pushed.
-   - **Pull request:** `#482 Fix login spinner ↗`, which opens it,
-     `Open · Changes requested`, `Checks ✓ 5 ✗ 1 ◌ 1` and each failing check
-     (click to open its log). Not shown on `main` or a detached HEAD.
-4. 11:35: CI finishes. While Brief shows, it reads git and the conversation
-   file every 15 seconds and GitHub at most once a minute, so the next look
-   has the result. Hidden, it reads nothing.
-
-Where each part comes from:
-
-- The summary is a second small, tool-free model request the extension makes
-  alongside the title, to the same model (gpt-6-luna, else the conversation's
-  model; see [titles](HERDR.md)). It costs provider usage: one
-  request per new prompt, plus one when a conversation opens or reloads. Like
-  the title, it sees only your messages, never the agent's replies or tool
-  output. A Pi started before this existed shows "No summary yet" until you
-  `/reload` it once idle.
-- The last prompt is read from the end of the Pi conversation file with `jq`,
-  which stops at that message. Many conversation files are over the app's
-  1 MB file-reading limit. Other agents (OMP) show their title only.
-- The links need the remote's website (GitHub, from `git remote get-url`), and
-  the pull request needs `gh` signed in.
 
 ## Popups
 
@@ -389,7 +345,6 @@ Terminal Herdr settings with no app equivalent:
 | --- | --- |
 | An edit here does nothing | The app did not see it: `touch -h` the link under `~/.config/herdr-app/`, then `herdr-app status` |
 | `C-a H/J/K/L` shows a `pane-keys resize` error | The app changed how it stores splits (herdr-core's `herdr-app` document). Drag edges meanwhile; compare that document with `resizePlan` in [`pane-keys`](../herdr-app/mods/pane-keys/main.js) |
-| Brief shows `GitHub: …`, no summary or no last prompt | Run `gh auth status` and `gh pr view` in that checkout. The summary needs a Pi started (or `/reload`ed) with the current `herdr-task-summary`; `hc get <t> \| jq .labels` shows `task_brief`, or why not in `task_brief_error`. The last prompt needs `jq` and the `herdr-app-resume` extension's `pi.session` label |
 | `C-a u`, `C-a ;` or `C-a t` does nothing | Another layout is showing (`herdr-app status` → `layout`): `herdr-app do layout.switch --name eric` |
 | `herdr-app status` lists `resolves outside the application directory` | A mod imports another file; mods must be one `main.js` (see above) |
 | The sidebar shows every Space | spaces-env is not loaded: the status bar has no `Personal | Work` pill. Switch to `eric` |

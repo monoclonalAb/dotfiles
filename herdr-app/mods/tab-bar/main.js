@@ -1,6 +1,6 @@
 // The tab bar: the shipped `tabs` mod (Herdr 0.1.13) with only the tabs. No
 // `+` (new-tab menu) and no Files/Changes panel buttons; keys do those jobs
-// (Cmd+T / C-a C-c, and C-a b / C-a f / C-a i for the right-hand panel). Tabs
+// (Cmd+T / C-a C-c, and C-a b / C-a f for the right-hand panel). Tabs
 // keep their clicks, double-click rename, drag to reorder, right-click menu and
 // wheel switching.
 //
