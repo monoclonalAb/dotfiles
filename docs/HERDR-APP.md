@@ -90,7 +90,10 @@ layout if a file breaks the window.
   conversations, a repository's chevron to fold its worktrees. It has no
   buttons: `C-a s` or `Cmd+N` makes a Space.
 - **Tab bar:** only the tabs, with room on the left for the window buttons. New
-  tab: `Cmd+T` or `C-a C-c`.
+  tab: `Cmd+T` or `C-a C-c`. The window buttons ignore zoom, so the layout's
+  `traffic_lights` height is set for `zoom` 0.7 in `settings.json`. At another
+  zoom they sit above or below the tabs; set its second number to
+  21 × zoom − 7.5 (6 at 0.7, 13.5 at 1).
 - **Status bar, right:** `Personal | Work` (click: toggle) and the attention
   counts (click: next agent).
 - **Pane headers:** a blocked pane's header is red ("◆ Needs you"), a finished but
