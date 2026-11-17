@@ -71,7 +71,7 @@ context.
 | `long-context` | `/long-context` switches GPT-5.6 / GPT-6 Astra to the 1.05M window (long-context pricing above 272K) |
 | [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
-| [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` and `/route`: park a second login and continue on it when one hits a usage limit |
+| [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` picker: switch logins, choose main, manage saved accounts and automation; `/route` controls fallback when a login hits a limit |
 | [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and an `MCP: N/M` footer |
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`theme-sync`](../pi/extensions/theme-sync/README.md) | Follows the shared Catppuccin flavour ([`THEME.md`](THEME.md)) |
