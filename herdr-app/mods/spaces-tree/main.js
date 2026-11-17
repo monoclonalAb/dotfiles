@@ -4,6 +4,10 @@
 //
 // - Only the active Personal/Work environment's Spaces show, plus the focused
 //   one (shared "spaces-env", kept by the spaces-env mod in the status bar).
+// - Above the Spaces list, a pinned activity band surfaces the shown
+//   environment's conversations that need you or finished unread (◆ / ●), then
+//   the ones currently running (◐), each with where it lives and how long; idle
+//   conversations stay out, and the band disappears when nothing is active.
 // - Each Space lists its conversations with the next-agent dot: ◆ blocked,
 //   ● finished and not reviewed, ◐ working, ○ idle (shared "next-agent.dots").
 //   Click a Space's counts to fold its conversations, a repository's chevron to
@@ -127,6 +131,75 @@ export function worktreeMove(rows, id, direction) {
   return { neighbour: next.id };
 }
 
+// Elapsed ms as a short age ("<1m", "8m", "1h 20m", "14h", "2d").
+export function formatAge(ms) {
+  if (!Number.isFinite(ms) || ms < 60_000) return "<1m";
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return h < 10 && m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+// Subtitle for an active conversation row: repo + PR/worktree, main checkout +
+// non-default branch, plus remote machine and a named tab when there are several.
+export function activityWhere({ spaceName = "", git = null, pr = null, tabName = "", tabNamed = false, tabCount = 1, machine = null } = {}) {
+  let loc = spaceName;
+  if (git?.linked) {
+    const repo = git.name ?? "";
+    const detail = pr
+      ? (pr.title ? `#${pr.number} ${pr.title}` : `#${pr.number}`)
+      : spaceName && spaceName.toLowerCase() !== repo.toLowerCase() ? spaceName : (git.branch ?? "");
+    loc = repo && detail ? `${repo} \u00b7 ${detail}` : repo || detail || spaceName;
+  } else if (git) {
+    const baseName = spaceName || git.name || "";
+    const branch = git.branch && !["main", "master"].includes(git.branch) && git.branch.toLowerCase() !== baseName.toLowerCase() ? git.branch : "";
+    loc = branch ? `${baseName} \u00b7 ${branch}` : baseName;
+  }
+  const parts = [machine, loc, tabCount > 1 && tabNamed && tabName ? tabName : null].filter(Boolean);
+  return parts.join(" \u00b7 ");
+}
+
+// Stamp when each conversation entered its current dot. Unseen entries stay
+// while `live` is empty (right after a start) and are pruned once `live` lists
+// the running terminals. `seedAt` seeds a first-seen entry only.
+export function trackSince(prev, observations, now, live = null) {
+  const store = prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {};
+  const next = {};
+  const seen = new Set();
+  for (const { address, dot, created = null, seedAt = null } of observations) {
+    if (!address) continue;
+    seen.add(address);
+    const old = store[address];
+    const sameTerm = old && typeof old === "object" && Number.isFinite(old.at)
+      && !(created != null && old.created != null && old.created !== created);
+    if (sameTerm && old.dot === dot) {
+      next[address] = { dot, at: old.at, created: created ?? old.created ?? null };
+    } else {
+      const seeded = !sameTerm && Number.isFinite(seedAt) && seedAt > 0 && seedAt <= now && (created == null || seedAt >= created);
+      next[address] = { dot, at: seeded ? seedAt : now, created: created ?? null };
+    }
+  }
+  for (const [address, old] of Object.entries(store)) {
+    if (seen.has(address) || !old || typeof old !== "object" || !Number.isFinite(old.at)) continue;
+    if (!live || !live.size || live.has(address)) next[address] = old;
+  }
+  return next;
+}
+
+// Split active items into `due` (blocked before review, preserving order within
+// each) and `running`, leaving idle conversations out.
+export function activityGroups(items) {
+  const blocked = items.filter((x) => x.dot === "blocked");
+  const review = items.filter((x) => x.dot === "review");
+  const running = items.filter((x) => x.dot === "working");
+  return {
+    due: [...blocked, ...review],
+    running,
+    counts: { blocked: blocked.length, review: review.length, running: running.length },
+  };
+}
+
 // --- The mod ------------------------------------------------------------------
 
 function find(node, id) {
@@ -177,6 +250,7 @@ const RANK = { blocked: 4, review: 3, working: 2, idle: 1 };
 // Without the next-agent mod: the app's own status.
 const fallbackDot = (status) => (status === "blocked" ? "blocked" : status === "done" ? "review" : status === "working" ? "working" : "idle");
 const PR_TONE = { open: "ansi2", draft: "dim", merged: "accent", closed: "ansi1" };
+const fade = (hex, alpha) => (/^#[0-9a-f]{6}$/i.test(hex ?? "") ? hex + alpha : hex);
 
 // GitHub's pull-request state icons (Lucide). svg() only loads files inside the
 // app's folder and this mod's files are links into the dotfiles repository, so
@@ -236,6 +310,10 @@ export default class SpacesTree extends View {
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
     this.foldedSpaces = new Set(JSON.parse(localStorage.getItem("folded.spaces") ?? "[]"));
     this.foldedRepos = new Set(JSON.parse(localStorage.getItem("folded.repos") ?? "[]"));
+    try { this.foldedActivity = new Set(JSON.parse(localStorage.getItem("folded.activity") ?? "[]")); } catch { this.foldedActivity = new Set(); }
+    try { this.since = JSON.parse(localStorage.getItem("activity.since") ?? "{}"); } catch { this.since = {}; }
+    if (!this.since || typeof this.since !== "object" || Array.isArray(this.since)) this.since = {};
+    this.hasActivity = false;
     this.prs = JSON.parse(localStorage.getItem("prs") ?? "{}"); // space id -> { checkout, branch, pr, at }
     this.refreshMachines(cx);
     cx.timer.every(15000, cx => this.refreshMachines(cx));
@@ -243,6 +321,7 @@ export default class SpacesTree extends View {
     // only when its answer could have changed (see `due`).
     cx.timer.every(250, (cx) => this.checkNew(cx));
     cx.timer.every(10000, (cx) => this.refreshPrs(cx));
+    cx.timer.every(30000, (cx) => { if (this.hasActivity) cx.notify(); });
     this.icons = false;
     cx.spawn(async (cx) => {
       try {
@@ -645,6 +724,192 @@ export default class SpacesTree extends View {
     return (this.agentList ?? agents()).filter((a) => a.space === w.id);
   }
 
+  // Due and running conversations across `shown` (including folded repositories
+  // and folded Spaces), while stamping state-change times across every live agent
+  // so toggling Personal/Work keeps ages intact.
+  activity(shown, opts = {}) {
+    this.since ??= {};
+    this.prs ??= {};
+    const list = opts.agents ?? this.agentList ?? agents();
+    const ps = opts.panes ?? this.paneList ?? panes();
+    const all = opts.terminals ?? this.terminalList ?? terminals();
+    const dots = opts.dots ?? shared("next-agent.dots") ?? {};
+    const now = opts.now ?? Date.now();
+    const dotFor = (a) => dots[a.address] ?? fallbackDot(a.status);
+    const paneOf = new Map(ps.map((p) => [p.pane, p]));
+    const termOf = new Map(all.map((x) => [x.address, x]));
+    const tabs = new Map();
+    for (const s of opts.spaces ?? spaces()) for (const tab of s.tabs ?? []) tabs.set(tab.id, tab);
+    for (const r of shown) for (const tab of r.w.tabs ?? []) if (!tabs.has(tab.id)) tabs.set(tab.id, tab);
+    const tabAgents = new Map();
+    const tabWorking = new Map();
+    for (const a of list) {
+      tabAgents.set(a.tab, (tabAgents.get(a.tab) ?? 0) + 1);
+      if (dotFor(a) === "working") tabWorking.set(a.tab, (tabWorking.get(a.tab) ?? 0) + 1);
+    }
+    const observations = list.map((a) => {
+      const d = dotFor(a);
+      const tab = tabs.get(a.tab);
+      const seedAt = d === "working"
+        ? (tabWorking.get(a.tab) === 1 ? tab?.working_since ?? null : null)
+        : (d === "blocked" || d === "review") && tabAgents.get(a.tab) === 1 ? tab?.changed_at ?? null : null;
+      return { address: a.address, dot: d, created: termOf.get(a.address)?.created_ms ?? null, seedAt };
+    });
+    const live = new Set(all.filter((x) => x.state === "live").map((x) => x.address));
+    const nextSince = trackSince(this.since, observations, now, live);
+    if (!same(nextSince, this.since)) {
+      this.since = nextSince;
+      try { localStorage.setItem("activity.since", JSON.stringify(nextSince)); } catch { /* outside the app */ }
+    }
+    const items = shown.flatMap(({ w, g }) => {
+      const pr = g?.linked ? this.prs[w.id]?.pr ?? null : null;
+      const tabCount = (w.tabs ?? []).length;
+      return list
+        .filter((a) => a.space === w.id && paneOf.has(a.pane))
+        .map((a) => {
+          const d = dotFor(a);
+          const pane = paneOf.get(a.pane);
+          const term = termOf.get(a.address);
+          const tab = (w.tabs ?? []).find((x) => x.id === a.tab);
+          const { text, strong } = conversationTitle({
+            summary: term?.labels?.task_summary, pending: term?.labels?.task_summary_pending === "1",
+            title: a.title, address: a.address, cwd: pane?.cwd, spaceName: w.name, tabName: tab?.name, tabNamed: tab?.named, program: a.program?.name,
+          });
+          const since = this.since[a.address]?.at ?? now;
+          return {
+            address: a.address,
+            pane: a.pane,
+            dot: d,
+            title: text,
+            strong,
+            where: activityWhere({ spaceName: w.name, git: g, pr, tabName: tab?.name ?? "", tabNamed: Boolean(tab?.named), tabCount, machine: w.machine ?? null }),
+            since,
+            age: formatAge(now - since),
+            focused: Boolean(a.focused),
+          };
+        });
+    });
+    return activityGroups(items);
+  }
+
+  toggleActivity(section, cx) {
+    this.foldedActivity ??= new Set();
+    this.foldedActivity.has(section) ? this.foldedActivity.delete(section) : this.foldedActivity.add(section);
+    try { localStorage.setItem("folded.activity", JSON.stringify([...this.foldedActivity])); } catch { /* outside the app */ }
+    cx.notify();
+  }
+
+  activityRow(item, section, open, t) {
+    const blocked = item.dot === "blocked";
+    const key = `${section}-${item.address}`;
+    const dot = blocked
+      ? div().id(`act-mark-${key}-blocked`).w(12).flex_none().text_size(11).text_color(t.blocked)
+        .loop("opacity", { from: 0.35, to: 1, period: 1200 }).child(GLYPH.blocked)
+      : this.mark(t, item.dot, `act-${key}`);
+    return this.grow(v_flex(), `act-row-${key}`, item.where ? 40 : 28, open)
+      .flex_none()
+      .relative()
+      .px(10)
+      .gap(2)
+      .justify_center()
+      .rounded(8)
+      .cursor_pointer()
+      .when(blocked && !item.focused, (el) => el.bg(fade(t.blocked, "14")).border(1).border_color(fade(t.blocked, "45")))
+      .child(this.tint(`act-tint-${key}`, t.selected, item.focused, 8))
+      .when(!item.focused, (el) => el.hover((s) => s.bg(blocked ? fade(t.blocked, "24") : t.hover)))
+      .on_click(() => run("pane.focus", { pane: item.pane }))
+      .child(
+        h_flex()
+          .min_w(0)
+          .gap(7)
+          .items_center()
+          .child(dot)
+          .child(div().flex_1().min_w(0).truncate().text_size(12.2).font_medium()
+            .text_color(item.strong || blocked || item.dot === "review" ? t.foreground : t.muted).child(item.title))
+          .child(div().flex_none().text_size(10.5).text_color(blocked ? t.blocked : t.dim)
+            .when(blocked, (el) => el.font_semibold()).child(item.age)),
+      )
+      .when(Boolean(item.where), (el) => el.child(div().pl(19).min_w(0).truncate().text_size(10.5).text_color(t.dim).child(item.where)));
+  }
+
+  activityBand(model, t) {
+    const { due, running, counts } = model;
+    if (!due.length && !running.length) return null;
+    this.foldedActivity ??= new Set();
+    const pill = (n, color) => h_flex().h(15).px(5).flex_none().items_center().rounded(7)
+      .bg(fade(color, "24")).text_size(10.5).font_semibold().text_color(color).child(String(n));
+    const out = [];
+    if (due.length) {
+      const folded = this.foldedActivity.has("due");
+      out.push(
+        h_flex()
+          .id("act-head-due")
+          .h(24)
+          .flex_none()
+          .px(6)
+          .gap(5)
+          .items_center()
+          .rounded(6)
+          .text_size(11)
+          .cursor_pointer()
+          .hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => this.toggleActivity("due", cx))
+          .when(counts.blocked > 0, (el) => el
+            .child(div().text_color(t.blocked).child(GLYPH.blocked))
+            .child(div().font_medium().text_color(t.muted).child("Needs you"))
+            .child(pill(counts.blocked, t.blocked)))
+          .when(counts.blocked > 0 && counts.review > 0, (el) => el.child(div().text_color(t.dim).child("\u00b7")))
+          .when(counts.review > 0, (el) => el
+            .child(div().text_color(t.done).child(GLYPH.review))
+            .child(div().font_medium().text_color(t.muted).child("To review"))
+            .child(pill(counts.review, t.done)))
+          .child(div().flex_1().h(1).bg(t.border))
+          .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim)),
+        ...due.map((item) => this.activityRow(item, "due", !folded, t)),
+      );
+    }
+    if (running.length) {
+      const folded = this.foldedActivity.has("running");
+      out.push(
+        h_flex()
+          .id("act-head-running")
+          .h(24)
+          .flex_none()
+          .when(due.length > 0, (el) => el.mt(5))
+          .px(6)
+          .gap(5)
+          .items_center()
+          .rounded(6)
+          .text_size(11)
+          .cursor_pointer()
+          .hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => this.toggleActivity("running", cx))
+          .child(div().id("act-head-spin").w(11).flex_none().text_color(t.working).frames(SPIN, 180))
+          .child(div().font_medium().text_color(t.muted).child("Running"))
+          .child(pill(counts.running, t.working))
+          .child(div().flex_1().h(1).bg(t.border))
+          .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim)),
+        ...running.map((item) => this.activityRow(item, "run", !folded, t)),
+      );
+    }
+    const rowH = (item) => (item.where ? 40 : 28);
+    const dueH = due.length ? 24 + (this.foldedActivity.has("due") ? 0 : due.reduce((sum, x) => sum + 3 + rowH(x), 0)) : 0;
+    const runH = running.length ? (due.length ? 8 : 0) + 24 + (this.foldedActivity.has("running") ? 0 : running.reduce((sum, x) => sum + 3 + rowH(x), 0)) : 0;
+    const contentH = 18 + dueH + runH;
+    const capped = contentH > 350;
+    return v_flex()
+      .id("activity-band")
+      .flex_none()
+      .px(10)
+      .pt(8)
+      .pb(10)
+      .gap(3)
+      .border_b(1)
+      .border_color(t.border)
+      .when(capped, (el) => el.h(350).overflow_y_scrollbar())
+      .children(out);
+  }
+
   // A Space's conversations (and their helpers); shut while folded, so folding
   // slides them away.
   conversations({ w, tree, hidden }, t) {
@@ -859,6 +1124,9 @@ export default class SpacesTree extends View {
 
     const env = shared("spaces-env")?.active;
     const heading = env ? env[0].toUpperCase() + env.slice(1) : "Spaces";
+    const act = this.activity(shown);
+    this.hasActivity = act.due.length > 0 || act.running.length > 0;
+    const band = collapsed ? null : this.activityBand(act, t);
     const rows = this.grouped(t, collapsed, shown);
     // Rows drawn shut this time open on the next render.
     if (this.fresh && !this.opening) {
@@ -870,6 +1138,7 @@ export default class SpacesTree extends View {
     }
     // No buttons in the heading: new Spaces are C-a s or Cmd+N.
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
+      .when(Boolean(band), (el) => el.child(band))
       .child(h_flex().h(31).flex_none().pl(16).pr(10).items_center().text_size(11.5).text_color(t.dim)
         .when(!collapsed, el => el.child(heading)))
       .child(v_flex().flex_1().min_h(0).px(8).pb(14).overflow_y_scrollbar().mode("always")

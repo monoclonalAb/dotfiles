@@ -77,11 +77,15 @@ layout if a file breaks the window.
   panel. Example: the sidebar shows; `C-a i` swaps it for Brief; `C-a b`
   brings the sidebar back; `C-a b` again closes the panel. The view stays as
   you left it when you change Space. The app's Changes view is left out.
-- **Sidebar:** one tree. Repository, then its worktree Spaces (branch icon),
-  then the conversations in each Space. Each Space's row ends with its
-  repository and branch, `main` included (`.config  dotfiles · main`); a
-  worktree named after its branch, or showing its pull request, leaves them
-  out. Only the active environment's Spaces
+- **Sidebar:** at the top, a pinned band lists the active environment's
+  conversations that need you or finished unread (`◆ Needs you` / `● To review`),
+  then the ones running (`◐ Running`), each with its Space or repository/PR
+  and how long it has been in that state (click a row to jump there, or a
+  heading to fold; hidden when all are idle). Below it is one tree: repository,
+  then its worktree Spaces (branch icon), then the conversations in each Space.
+  Each Space's row ends with its repository and branch, `main` included
+  (`.config  dotfiles · main`); a worktree named after its branch, or showing
+  its pull request, leaves them out. Only the active environment's Spaces
   show, plus the one you are in. Click a Space's counts (`◆1 ●2`) to fold its
   conversations, a repository's chevron to fold its worktrees. It has no
   buttons: `C-a s` or `Cmd+N` makes a Space.
