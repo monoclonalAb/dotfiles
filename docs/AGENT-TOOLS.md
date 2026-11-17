@@ -121,7 +121,7 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
   branch, even the default branch, with no PR. For changes small enough to skip
   review.
 - `/rho <task>`: the default way to work on a task (below).
-- `/rho-verify [notes]`: build or repair a project's verify skill (below).
+- `/rho-verify [notes]`: give a project its own way to prove a change (below).
 - `/poteto <task>`: work on the task in pstack's poteto-mode (below).
 
 ### HTML artifacts
@@ -155,23 +155,33 @@ original. Nothing deletes pages; remove a folder by hand. The store is private
 `/rho <task>` ([`pi/prompts/rho.md`](../pi/prompts/rho.md)) is a personal
 workflow modelled on the habits behind Lauren Tan's pstack results. The agent
 restates the goal, writes a done check that can fail, follows a short checklist
-(question, bug or feature, AI decision change; or, read from
+(question, bug or feature, PR review or audit, AI decision change; or, read from
 [`pi/prompts/rho/`](../pi/prompts/rho/), refactor, speed or a measured number,
 and multi-PR plan), proves the result on real data,
 gets a second opinion from the other model family, and ships a small PR through
 `/pr`'s rules. It merges its own PR without asking only where
 [`rho-may-merge`](../bin/rho-may-merge) says yes (your own GitHub repositories
-under `~/Desktop/projects/personal/`, worktrees included), CI passed and the
-review found nothing proven. `/rho` overrides repository rules against
-committing, pushing or merging. It also covers overnight runs ("I'm away") and
-pausing through the [`agent-handoff`](../pi/skills/agent-handoff/SKILL.md)
+under `~/Desktop/projects/personal/`, worktrees included), CI passed, the last
+review round read the code being merged, every review finding it kept is fixed,
+and the PR leaves tests and CI, lint and review rules intact. It keeps a finding
+only if it can happen on real input and has happened or would be serious. Review
+rounds build on the earlier ones and stop at three. Each code task adds a line
+to `~/.local/share/rho/ledger.tsv` (outside this repository) saying how it was
+proved and reviewed, so past work can be audited without rereading sessions. `/rho` overrides repository
+rules against committing, pushing or merging. It also covers overnight runs
+("I'm away") and pausing through the [`agent-handoff`](../pi/skills/agent-handoff/SKILL.md)
 skill.
 
-`/rho-verify` ([`pi/prompts/rho-verify.md`](../pi/prompts/rho-verify.md)), run
-once per project, builds `.agents/skills/verify/` in that project: a script that
-starts the app, checks its health, drives a feature and saves evidence, with
-every external write blocked, plus a short feature list. `/rho` uses it to prove
-changes. Status and next steps:
+`/rho` proves each change the way the project itself says to: its guide, its
+check command and its saved cases. When a project has no way to run what a task
+changed, `/rho` adds one to the project during the task by following
+[`pi/prompts/rho-verify.md`](../pi/prompts/rho-verify.md): a command beside the
+existing ones, a safe mode where a write leaves the code, and a line in the
+project's guide saying what done means. It is fitted to the kind of project (web
+page, backend, CLI or library), no bigger than the task needs, and there is no
+separate verify skill or agent folder. It adds nothing for questions, docs-only
+changes or someone else's PR. `/rho-verify [notes]` runs the same steps on
+purpose. Status and next steps:
 [plan](plans/active/2026-11-03-rho-workflow.md).
 
 [`pi-agent`](../bin/pi-agent) runs a helper agent: a separate `pi -p` process

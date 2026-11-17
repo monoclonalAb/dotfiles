@@ -1,92 +1,104 @@
 ---
-description: Build this project's verify skill, so agents can prove their own changes work
+description: Give this project its own way to prove a change works (a command, a safe mode and a line in its guide)
 argument-hint: "[what to prove first, or notes]"
 ---
 # rho-verify
 
-Notes (blank means none): $ARGUMENTS
+Notes (blank means none; when `/rho` reads this file, its task is the note):
+$ARGUMENTS
 
-Build this project's verify skill: a script plus instructions that let any agent
-start the app, use it the way a user or trigger would, and save evidence that a
-change works. `/rho` reads it at `.agents/skills/verify/SKILL.md`. Write it for
-an agent that has never seen the project. If the skill already exists, check it
-against the code and fix what has drifted instead of starting over.
+A project should show anyone who opens it how to prove a change: one command
+that runs the real thing safely, and a line in its own guide saying what done
+means. Build that into the project itself, in the places it already keeps its
+commands, tests and docs. Don't add a separate skill or agent folder for it.
 
-## 1. Study the repo, not me
+This file is used two ways:
+
+- **`/rho` reads it during a task** when the project has no way to run what the
+  task changed. Add only what that task needs, then go back to the task.
+- **I run `/rho-verify` myself** to fill a project's gaps on purpose.
+
+## 1. Read what the project already says
 
 Answer these from the code, docs and scripts. Ask me only what you cannot
 observe.
 
-- **Surface.** What does a user or trigger touch: a web page, a CLI, an HTTP
-  API, a webhook, a scheduled job, a library? Pick the main one and note the
-  rest.
-- **Start.** The repo's own dev command, ports, environment variables, seed
-  data and sign-in.
-- **Drive.** Existing harnesses first (Playwright specs, run scripts, curl-able
-  routes, fixtures). For a backend with no screen, drive it by calling its real
-  routes (webhook, cron, task endpoints) on a local server with a real or saved
-  case.
-- **Observe.** Screenshots, response bodies, logs, workflow summaries, exit
-  codes, stored state.
-- **External writes.** Every system it changes that it doesn't own: email,
-  customer job systems, CRMs, shared databases, queues, paid APIs.
-- **Isolation.** Can two runs happen at once (ports, data directories)? If not,
-  the skill must refuse to drive an instance it didn't start.
+- **Its guide:** what `AGENTS.md`, the README or a testing doc say done means.
+- **Its commands:** the Makefile, package scripts and `scripts/`, and what each
+  one really runs.
+- **Its real runs:** live tests, evals, run scripts, saved cases, and any
+  dry-run or log-only mode.
+- **Its edges:** what a user or trigger touches (a page, a CLI, a route, a
+  scheduled job), and every outside system it writes to: email, customer job
+  systems, CRMs, shared databases, queues, paid APIs.
 
-If the app doesn't start as it is, fix that first or report exactly why.
+If what is there already proves this change, use it and stop. Before adding
+anything, check that another branch or open PR hasn't added it already.
 
-## 2. Make external writes safe
+## 2. Fit the proof to the project
 
-The verify run must not change anything outside this machine. Block every
-external write at the service boundary (a log-only or dry-run mode, a guard in
-the client, a local fake), then prove the block: attempt one write in a run and
-show it was refused or captured. Don't trust a mode's name; observe what it
-skips. Ask me before the verify run reads live customer data, unless the
-repo's instructions already allow it. Saved cases need no permission.
+Pick the lightest thing that shows the real behaviour for this kind of project.
 
-## 3. Build the lever
+- **Web page or UI:** build it, serve it locally, open the page in a browser,
+  do what the user does and capture what they see.
+- **HTTP API, webhook or scheduled job:** start a local server, call the real
+  route with a real or saved case, and read the response, logs and stored
+  state.
+- **CLI, script or configuration:** run the real command on a real input in a
+  temporary folder or home directory, and keep the output and exit code.
+- **Library:** call the public function on real cases. A test file may be the
+  whole proof.
 
-Put the repeated steps into one executable script with subcommands, for example
-`.agents/skills/verify/verify start | health | drive <feature> | stop`, or a
-package script if the repo prefers. One command beats a throwaway script per
-run. Keep it small.
+## 3. Add what is missing, where the project keeps such things
 
-## 4. Write the skill
+- **A command.** Extend the project's one check command (`make check`,
+  `pnpm verify`) or add a run script beside the existing ones, named the way
+  they are. It prints what it did and what resulted (rows written, emails that
+  would have gone out, writes blocked), so its output is the evidence.
+- **A saved case.** Beside the existing fixtures or test data, following the
+  project's rules for customer data.
+- **A safe mode.** In the code where the write leaves (the client that sends
+  the email or calls the other system), using the setting the project already
+  has if there is one.
+- **A line in the guide.** Where the project says what done means: the command,
+  when to run it, and what in its output proves the change. If the guide has no
+  such place, add a short "Done means" section to it. Say it once; don't write
+  a second doc.
 
-`.agents/skills/verify/SKILL.md`, with front matter (`name: verify` and a
-`description` naming the app, its surface and when to use it) and these
-sections, using real commands, routes and selectors from this repo:
+If two runs can't happen at once (a fixed port, one data folder), the command
+refuses to drive an instance it didn't start.
 
-- **Start:** the command, and how to tell the app is ready to use (not just
-  that a process answers).
-- **Health:** one read-only check that this instance is worth driving.
-- **Drive:** how to exercise each feature, with stable handles (routes, labels,
-  prompt strings), never screen coordinates.
-- **Evidence:** what to save and where. Capture the action and the resulting
-  state, including side effects (rows written, emails that would have gone out,
-  blocked writes). Keep evidence somewhere cleanup doesn't touch.
-- **Safety:** how external writes are blocked and how that was proved.
-- **Stop:** stop only what this run started; keep the evidence.
+## 4. Make external writes safe
 
-## 5. Feature list
+A proof run must not change anything outside this machine. Block every external
+write at the service boundary, then prove the block: attempt one write in a run
+and show it was refused or captured. Don't trust a mode's name; observe what it
+skips. Do this before driving anything that can write. A project that writes to
+nothing outside this machine skips this step.
 
-`.agents/skills/verify/features/README.md` as an index, plus one file for each
-of the top three to five features or workflows. Each says what it is, how a
-user or trigger reaches it, how to drive it with the script, what end state
-proves it works, and its gotchas. If a check needs data the seed doesn't have,
-say so in its gotchas. Never weaken a check to make it pass.
+If you can't block a write and prove it, don't drive that path. Prove the change
+below the write instead (the function that builds the email, a saved case) and
+say what stayed unproved.
 
-## 6. Prove the skill
+Ask me before a proof run reads live customer data, unless the project's guide
+already allows it. When I'm away, don't ask: use saved cases. Saved cases need
+no permission.
 
-Run it end to end once: start, health, drive one feature, save evidence, stop.
-Then confirm the evidence still exists. Fix whatever failed and stop leftovers
-after each failed attempt. A skill that was never run is a draft.
+## 5. Prove it
 
-## 7. Ship it
+Run the command end to end on a real or saved case, then again straight away:
+the second run must pass with no cleanup by hand. Say how long it takes; if it
+is more than a few minutes, find what is slow, because a slow check gets
+skipped. Then follow the guide line as a newcomer would. If you needed anything
+it doesn't say, fix the line.
 
-Finish with `/rho` steps 6 to 8 and its merge rule
-(`~/.pi/agent/prompts/rho.md`): second opinion, PR, report. In the report, list
-which features are covered and which are still missing.
+## 6. Ship it
 
-Afterwards, whenever a task finds the verify skill wrong or out of date, fix it
-in the same PR as the task.
+From a `/rho` task: commit this on its own, before the change it proves, in the
+same PR, then carry on with the task.
+
+Run on its own: finish with `/rho` steps 6 to 8 and its merge rule
+(`~/.pi/agent/prompts/rho.md`): second opinion, PR, report.
+
+Afterwards, whenever a task finds the command or the guide line wrong or out of
+date, fix it in the same PR as the task.
