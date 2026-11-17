@@ -34,7 +34,7 @@ Use temporary directories outside the repository for generated output.
 | Pi extensions (Bun) | `bun test ./pi/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `herdr-app-resume`, `theme-sync`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `long-context`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links`, `gemini-thinking-tidy`, `readable-transcript`, `token-speed` |
 | Pi extensions (Node native) | `node --test pi/extensions/<name>/*.test.mjs` | Real Pi SDK sessions with isolated HOME and synthetic providers. Applies to `agent-stuff`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route`, `token-speed` |
 | Pi agent-stuff public API | `node pi/extensions/agent-stuff/typecheck.mjs` | Installed `tsc` and Pi public types |
-| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `theme-sync` and `quota-footer` (which also covers `compact-ui`) |
+| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `theme-sync`, `quota-router` (account picker/main selection) and `quota-footer` (which also covers `compact-ui`) |
 
 Run Pi suites as separate commands: some install module mocks for the installed
 Pi packages. None make real provider requests, so they do not prove provider

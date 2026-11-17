@@ -145,6 +145,10 @@ export class AccountStore {
     return this.state.read();
   }
 
+  supportsLogin(provider: string): boolean {
+    return this.backend.supportsLogin(provider);
+  }
+
   /** Label occupying the provider key according to state; `main` until a move happens. */
   activeLabel(provider: string): string {
     return this.state.read().providers[provider]?.active ?? DEFAULT_LABEL;
@@ -186,18 +190,33 @@ export class AccountStore {
     for (const key of await this.backend.keys()) {
       const parsed = parseParkedKey(key);
       if (parsed) providers.add(parsed.provider);
+      else if (this.backend.supportsLogin(key)) providers.add(key);
     }
     for (const provider of Object.keys(this.state.read().providers)) providers.add(provider);
     return [...providers].sort();
   }
 
-  /**
-   * First parked account whose cooldown has passed, in label order. The active label is
-   * excluded by construction (it is not parked).
-   */
+  /** First eligible parked login, preferring main and excluding duplicate credentials. */
   async next(provider: string): Promise<string | undefined> {
-    for (const label of await this.parkedLabels(provider)) {
-      if (!this.cooldown(provider, label)) return label;
+    const current = await this.backend.read(provider);
+    const labels = await this.parkedLabels(provider);
+    const excluded = current ? [current] : [];
+    // A duplicate of any exhausted login is exhausted too, even after we have
+    // already switched away from that login earlier in this turn.
+    for (const label of labels) {
+      if (!this.cooldown(provider, label)) continue;
+      const credential = await this.backend.read(parkedKey(provider, label));
+      if (credential) excluded.push(credential);
+    }
+    const preferred = this.preferredLabel(provider);
+    if (preferred && labels.includes(preferred)) {
+      labels.splice(labels.indexOf(preferred), 1);
+      labels.unshift(preferred);
+    }
+    for (const label of labels) {
+      if (this.cooldown(provider, label)) continue;
+      const candidate = await this.backend.read(parkedKey(provider, label));
+      if (candidate && !excluded.some((credential) => sameAccount(credential, candidate))) return label;
     }
     return undefined;
   }
@@ -216,6 +235,20 @@ export class AccountStore {
       if (entry.until <= this.now()) delete state.cooldowns[key];
     }
     this.state.write(state);
+  }
+
+  /** Record a failure only if another session has not already switched accounts. */
+  async recordLimit(provider: string, label: string, until: number, reason: string): Promise<boolean> {
+    return this.state.withLock(async () => {
+      if (this.activeLabel(provider) !== label) return false;
+      const limited = await this.backend.read(provider);
+      this.markCooldown(provider, label, until, reason);
+      for (const other of await this.parkedLabels(provider)) {
+        const credential = await this.backend.read(parkedKey(provider, other));
+        if (credential && sameAccount(limited, credential)) this.markCooldown(provider, other, until, reason);
+      }
+      return true;
+    });
   }
 
   clearCooldowns(provider?: string): void {
@@ -255,7 +288,11 @@ export class AccountStore {
    * credential is parked first so no token set is ever the only copy in flight, and a
    * refresh Pi performed in between is re-parked from the value the swap observed.
    */
-  async activate(provider: string, rawLabel: string, options: { preferred?: string | null } = {}): Promise<Activation | undefined> {
+  async activate(
+    provider: string,
+    rawLabel: string,
+    options: { preferred?: string | null; whenReady?: boolean; fallbackFrom?: string; returnToMain?: boolean } = {},
+  ): Promise<Activation | undefined> {
     const label = normalizeLabel(rawLabel);
     if (!label) throw new Error(`Invalid label ${JSON.stringify(rawLabel)}`);
     return this.state.withLock(async () => {
@@ -263,9 +300,29 @@ export class AccountStore {
       const entry = state.providers[provider] ?? { active: DEFAULT_LABEL };
       const keys = await this.backend.keys();
       const hasActive = keys.includes(provider);
-      if (hasActive && entry.active === label) return undefined;
+      // Recheck under the move lock: another session or the account picker may have
+      // changed the account since a failed response planned its fallback.
+      if (options.returnToMain && (entry.preferred !== label || this.cooldown(provider, label))) return undefined;
+      if (options.fallbackFrom !== undefined) {
+        if (!hasActive || entry.active !== options.fallbackFrom || this.cooldown(provider, label)) return undefined;
+        if (await this.next(provider) !== label) return undefined;
+      }
+      if (hasActive && entry.active === label) {
+        if (options.preferred === undefined) return undefined;
+        if (options.preferred === null || options.preferred === label) delete entry.preferred;
+        else entry.preferred = options.preferred;
+        state.providers[provider] = entry;
+        this.state.write(state);
+        return undefined;
+      }
       const incoming = await this.backend.read(parkedKey(provider, label));
       if (!incoming) throw new Error(`${provider} has no parked account labelled ${label}`);
+      if (options.whenReady && hasActive && this.cooldown(provider, label)) {
+        entry.preferred = label;
+        state.providers[provider] = entry;
+        this.state.write(state);
+        return undefined;
+      }
 
       const from = hasActive ? entry.active : undefined;
       if (hasActive) {
@@ -283,6 +340,7 @@ export class AccountStore {
       entry.active = label;
       if (options.preferred === null) delete entry.preferred;
       else if (options.preferred !== undefined) entry.preferred = options.preferred;
+      else if (options.fallbackFrom !== undefined) entry.preferred ??= options.fallbackFrom;
       if (entry.preferred === label) delete entry.preferred;
       state.providers[provider] = entry;
       this.state.write(state);
@@ -313,6 +371,15 @@ export class AccountStore {
 
 function sameCredential(a: Credential, b: Credential): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Compare locally; never log tokens or expose them in picker/completion data. */
+function sameAccount(a: Credential | undefined, b: Credential): boolean {
+  if (!a) return false;
+  const identity = accountIdentity(a);
+  if (identity && identity === accountIdentity(b)) return true;
+  if (a.type === "oauth" && b.type === "oauth") return a.access === b.access || a.refresh === b.refresh;
+  return sameCredential(a, b);
 }
 
 /** Codex tokens carry the ChatGPT account id; use it to warn about duplicate logins. */

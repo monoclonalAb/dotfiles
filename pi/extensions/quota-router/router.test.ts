@@ -174,6 +174,8 @@ function harness(options: {
   configText?: string;
   oauthProviders?: string[];
   input?: () => Promise<string | undefined>;
+  select?: (title: string, options: string[]) => Promise<string | undefined>;
+  confirm?: () => Promise<boolean>;
 } = {}) {
   let current = options.initial ?? codex;
   let idle = true;
@@ -225,9 +227,10 @@ function harness(options: {
         statuses.push(text);
       },
       input: options.input ?? (async () => "acct-new"),
-      select: async () => undefined,
+      select: options.select ?? (async () => undefined),
+      confirm: options.confirm ?? (async () => true),
     },
-    modelRegistry: { isUsingOAuth: (m: ActiveModel) => oauth.has(m.provider) },
+    modelRegistry: { isUsingOAuth: (m: ActiveModel) => oauth.has(m.provider), getAll: () => [codex, claude] },
   } as unknown as ExtensionContext;
   registerQuotaRouter(api, {
     now: () => clock,
@@ -283,7 +286,7 @@ describe("router lifecycle", () => {
   test("Codex limit: annotates for Pi's retry, swaps to the parked account, then returns after the reset", async () => {
     const h = harness();
     await h.start();
-    expect(h.statuses.at(-1)).toBeUndefined();
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@main");
     const replacement = await failTurn(h, CODEX_LIMIT, 429, { "x-codex-primary-used-percent": "100", "x-codex-primary-reset-after-seconds": "3600" });
     expect(replacement?.message.errorMessage.startsWith(CODEX_LIMIT)).toBe(true);
     expect(replacement?.message.content).toEqual([]);
@@ -296,7 +299,7 @@ describe("router lifecycle", () => {
     expect(h.ctx.model).toBe(codex);
     // The message-reported reset (120 min) wins over the header hint (60 min).
     expect(h.accounts.state.cooldowns["openai-codex@main"].until).toBe(T0 + 120 * 60_000);
-    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@work");
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@work (main: main)");
     expect(h.notifications.map((n) => n.type)).toEqual(["warning"]);
     expect(h.notifications[0].message).toContain("account main usage limit");
     expect(h.notifications[0].message).toContain("switched to account work");
@@ -317,7 +320,7 @@ describe("router lifecycle", () => {
     expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "main" });
     expect(h.accounts.data.get("openai-codex")).toEqual(cred("main"));
     expect(h.accounts.data.get("openai-codex@work")).toEqual(cred("work"));
-    expect(h.statuses.at(-1)).toBeUndefined();
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@main");
     expect(h.notifications.at(-1)?.message).toContain("back on account main");
   });
 
@@ -325,10 +328,10 @@ describe("router lifecycle", () => {
     const h = harness();
     await h.start();
     await failTurn(h, CODEX_LIMIT);
-    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@work");
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@work (main: main)");
     h.setPalette("mocha");
     h.emitEvent(THEME_APPLIED_EVENT);
-    expect(h.statuses.at(-1)).toBe("<mocha:dim>· </mocha:dim>@work");
+    expect(h.statuses.at(-1)).toBe("<mocha:dim>· </mocha:dim>@work (main: main)");
   });
 
   test("Anthropic 429 is already retryable: no replacement; with no parked account the error is left alone once", async () => {
@@ -357,10 +360,11 @@ describe("router lifecycle", () => {
     expect(await failTurn(h, CODEX_LIMIT.replace("120", "45"))).toBeUndefined();
     expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "work", preferred: "main" });
     expect(h.notifications.at(-1)?.message).toContain("no other signed-in openai-codex account");
-    // home resets first but main is preferred: return waits for main, then goes straight back.
-    h.setClock(T0 + 46 * 60_000);
+    // Recover on the first ready login instead of waiting for main's longer reset.
+    expect(h.timers.at(-1)?.delay).toBe(30 * 60_000);
+    h.setClock(T0 + 31 * 60_000);
     await h.handlers.get("agent_settled")!({ type: "agent_settled" }, h.ctx);
-    expect(h.accounts.state.providers["openai-codex"].active).toBe("work");
+    expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "home", preferred: "main" });
     h.setClock(T0 + 121 * 60_000);
     await h.handlers.get("agent_settled")!({ type: "agent_settled" }, h.ctx);
     expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "main" });
@@ -456,7 +460,7 @@ describe("router lifecycle", () => {
     expect(await failTurn(h, CODEX_LIMIT, 429)).toBeUndefined();
     expect(h.accounts.state).toEqual(emptyState());
     await h.command("route", "on");
-    expect(h.statuses.at(-1)).toBeUndefined();
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@main");
     await failTurn(h, CODEX_LIMIT);
     expect(h.accounts.state.providers["openai-codex"].active).toBe("work");
     await h.command("route", "forget");
@@ -465,20 +469,18 @@ describe("router lifecycle", () => {
     await h.command("route", "status");
     const status = h.notifications.at(-1)!.message;
     expect(status).toContain("quota-router on; auto-return on");
-    expect(status).toContain("openai-codex: work (active), main (parked, return here)");
+    expect(status).toContain("openai-codex: work (active), main (parked, main)");
     await h.command("route", "bogus");
     expect(h.notifications.at(-1)?.type).toBe("error");
     expect(h.completions("route", "f")).toEqual([{ value: "forget", label: "forget" }]);
-    expect(h.completions("accounts", "zz")).toBeNull();
+    expect(await h.completions("accounts", "zz")).toBeNull();
   });
 
   test("/accounts list, add (with duplicate warning), use and remove", async () => {
     const h = harness({ credentials: { "openai-codex": cred("main") } });
     await h.start();
-    await h.command("accounts");
-    expect(h.notifications.at(-1)?.message).toBe("openai-codex: main (active)");
-    await h.command("accounts", "add openai-codex");
-    expect(h.notifications.at(-1)?.type).toBe("error");
+    await h.command("accounts", "list");
+    expect(h.notifications.at(-1)?.message).toBe("openai-codex: main (active, main)");
     await h.command("accounts", "add openai-codex work");
     expect(h.opened).toEqual(["https://example.invalid/login"]);
     expect(h.accounts.data.get("openai-codex@work")).toMatchObject({ accountId: "acct-new" });
@@ -500,7 +502,7 @@ describe("router lifecycle", () => {
     await h.command("accounts", "use openai-codex work");
     expect(h.notifications.at(-1)?.message).toContain("already uses account work");
     await h.command("accounts", "list");
-    expect(h.notifications.at(-1)?.message).toBe("openai-codex: work (active), main (parked)");
+    expect(h.notifications.at(-1)?.message).toBe("openai-codex: work (active, main), main (parked)");
     await h.command("accounts", "add anthropic Bad-Label");
     expect(h.accounts.data.has("anthropic@bad-label")).toBe(true);
     await h.command("accounts", "add google x");
@@ -512,6 +514,7 @@ describe("router lifecycle", () => {
     await h.start();
     await h.command("accounts", "add openai-codex work");
     expect(h.notifications.at(-1)?.message).toContain("Login cancelled");
+    expect(h.notifications.at(-1)?.type).toBe("info");
     expect(h.accounts.data.has("openai-codex@work")).toBe(false);
   });
 
@@ -522,7 +525,104 @@ describe("router lifecycle", () => {
     await h.command("accounts", "use openai-codex main");
     expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "main" });
     expect(h.timers.at(-1)?.cancelled).toBe(true);
-    expect(h.statuses.at(-1)).toBeUndefined();
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@main");
+  });
+
+  test("/accounts picker changes main, including choosing the already-active fallback", async () => {
+    const seen: string[][] = [];
+    const h = harness({ select: async (_title, choices) => {
+      seen.push(choices);
+      return choices.find((choice) => choice.includes("· work —"));
+    } });
+    await h.start();
+    await failTurn(h, CODEX_LIMIT);
+    await h.command("accounts");
+    expect(seen[0]).toContain("ChatGPT / Codex · work — using now · ready");
+    expect(seen[0].some((row) => row.includes("· main — saved · main · wait"))).toBe(true);
+    expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "work" });
+    expect(h.timers.at(-1)?.cancelled).toBe(true);
+    h.setClock(T0 + 121 * 60_000);
+    await h.handlers.get("agent_settled")!({}, h.ctx);
+    expect(h.accounts.store.activeLabel("openai-codex")).toBe("work");
+    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@work");
+  });
+
+  test("short main command waits for a cooling account, then automatically returns to it", async () => {
+    const h = harness();
+    await h.start();
+    h.accounts.store.markCooldown("openai-codex", "work", T0 + 60_000, "usage limit");
+    await h.command("accounts", "main work");
+    expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "main", preferred: "work" });
+    expect(h.notifications.at(-1)?.message).toContain("work is now main. Staying on main");
+    expect(h.timers.at(-1)?.delay).toBe(60_000);
+    h.setClock(T0 + 61_000);
+    await h.handlers.get("agent_settled")!({}, h.ctx);
+    expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "work" });
+    const completions = await h.completions("accounts", "main w");
+    expect(completions).toContainEqual({ value: "main work", label: "main work" });
+  });
+
+  test("picker cancellation and guided removal cancellation change nothing", async () => {
+    const h = harness();
+    await h.start();
+    await h.command("accounts");
+    expect(h.accounts.state).toEqual(emptyState());
+    expect(h.notifications).toEqual([]);
+    const removal = harness({ select: async (_title, choices) => choices[0], confirm: async () => false });
+    await removal.start();
+    await removal.command("accounts", "remove");
+    expect(removal.accounts.data.has("openai-codex@work")).toBe(true);
+  });
+
+  test("management guides sign-in through provider and label dialogs", async () => {
+    let inputs = 0;
+    const h = harness({
+      select: async (title, choices) => title.startsWith("Choose main") ? "Manage accounts…"
+        : title === "Manage accounts" ? "Add account" : choices.find((choice) => choice === "ChatGPT / Codex"),
+      input: async () => ++inputs === 1 ? "office" : "new-login",
+    });
+    await h.start();
+    await h.command("accounts");
+    expect(h.accounts.data.get("openai-codex@office")).toMatchObject({ accountId: "new-login" });
+    expect(h.accounts.store.activeLabel("openai-codex")).toBe("main");
+    expect(h.notifications.at(-1)?.type).toBe("info");
+  });
+
+  test("a manual switch between failure and fallback is not overwritten", async () => {
+    const h = harness({ credentials: { "openai-codex": cred("main"), "openai-codex@home": cred("home"), "openai-codex@work": cred("work") } });
+    await h.start();
+    await h.handlers.get("message_end")!({ message: errorMessage(CODEX_LIMIT) }, h.ctx);
+    await h.command("accounts", "main work");
+    await h.handlers.get("agent_end")!({}, h.ctx);
+    expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "work" });
+    expect(h.accounts.data.get("openai-codex")).toEqual(cred("work"));
+  });
+
+  test("an in-flight error never puts a different tab's new account into cooldown", async () => {
+    const h = harness();
+    await h.start();
+    await h.handlers.get("turn_start")!({}, h.ctx);
+    await h.accounts.store.activate("openai-codex", "work", { preferred: null });
+    const replacement = await h.handlers.get("message_end")!({ message: errorMessage(CODEX_LIMIT) }, h.ctx);
+    expect(replacement?.message.errorMessage).toContain("retrying on account work");
+    await h.handlers.get("agent_end")!({}, h.ctx);
+    expect(h.accounts.state.providers["openai-codex"]).toEqual({ active: "work" });
+    expect(h.accounts.store.cooldown("openai-codex", "work")).toBeUndefined();
+    expect(h.accounts.store.cooldown("openai-codex", "main")).toBeUndefined();
+  });
+
+  test("management toggles automatic switching without changing main", async () => {
+    const h = harness({ select: async (title, choices) => title.startsWith("Choose main") ? "Manage accounts…"
+      : choices.find((choice) => choice.startsWith("Automatic switching:")) });
+    await h.start();
+    await h.command("accounts");
+    expect(h.statuses.at(-1)).toBe("route:off");
+    expect(h.notifications.at(-1)?.message).toContain("toggles reset on reload");
+    expect(await failTurn(h, CODEX_LIMIT)).toBeUndefined();
+    expect(h.accounts.state).toEqual(emptyState());
+    await h.command("accounts");
+    await failTurn(h, CODEX_LIMIT);
+    expect(h.accounts.store.activeLabel("openai-codex")).toBe("work");
   });
 
   test("an unreadable config file is reported and defaults apply", async () => {
