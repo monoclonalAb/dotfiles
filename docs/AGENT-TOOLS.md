@@ -17,6 +17,10 @@ sessions. Pi writes `/settings`, `/model` and changelog updates through the
 tracked [`settings.json`](../pi/settings.json) link, so they show up as repository
 diffs; review and commit them like any other change.
 
+[`pi/keybindings.json`](../pi/keybindings.json) changes Pi's default keys. It
+unbinds `Ctrl+G` (`app.editor.external`, open the prompt in an external editor);
+run `/reload` in open sessions after editing it.
+
 ### Models
 
 [`pi/models.json`](../pi/models.json) adds DeepSeek V4.1 Flash (Base tier) through
