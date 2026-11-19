@@ -42,6 +42,8 @@ open(os.environ["FAKE_LOG"], "a").write(json.dumps(["hc", *args]) + "\n")
 if args[0] == "ls":
     want = args[args.index("--label") + 1].split("=", 1)
     print(json.dumps({"terminals": [t for t in state["terminals"] if t["labels"].get(want[0]) == want[1]]}))
+elif args[0] == "get":
+    print(json.dumps({"address": args[1], "foreground": {"cwd": state.get("cwd", {}).get(args[1])}}))
 '''
 
 FAKE_GH = r'''#!/usr/bin/python3
@@ -133,6 +135,38 @@ class ReviewTest(unittest.TestCase):
         self.assertEqual(self.made()[0]["folder"], str(found))
         # No Space shows the repository: it joins the environment you are in.
         self.assertFalse([c for c in self.calls("herdr-app") if c[1:2] and c[1].startswith("spaces-env.")])
+
+    def test_a_space_whose_terminal_moved_into_the_clone_counts(self):
+        # A Space made in one folder whose shell now works in the clone, like
+        # genius-de02 made from raywhite-crm-migration.
+        other = self.clone("Desktop/projects/DE/crm", remote="https://github.com/owner/crm")
+        main = self.clone("Desktop/projects/DE/app")
+        self.state["spaces"] = [{"id": "sp1", "folder": str(other), "machine": None,
+                                 "tabs": [{"id": "tb1", "terminals": [{"terminal": "t1"}]}]}]
+        self.state["cwd"] = {"t1": str(main / "src")}
+        (main / "src").mkdir()
+        self.environments({"sp1": "work"})
+
+        code, _, err = self.review(LINK)
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.made()[0]["folder"], str(main))
+        self.assertIn(["do", "spaces-env.assign:sp9=work"], [c[:2] for c in self.calls("herdr-app")])
+
+    def test_with_no_space_on_the_repository_it_joins_its_owners_environment(self):
+        self.clone("Desktop/projects/DE/app")
+        sibling = self.clone("Desktop/projects/DE/billing", remote="git@github.com:Owner/billing.git")
+        mine = self.clone("Desktop/projects/personal/site", remote="https://github.com/me/site")
+        self.state["spaces"] = [
+            {"id": "sp1", "folder": str(mine), "machine": None},
+            {"id": "sp2", "folder": str(sibling), "machine": None},
+        ]
+        self.environments({"sp1": "personal", "sp2": "work"})
+
+        code, _, err = self.review(LINK)
+
+        self.assertEqual(code, 0, err)
+        self.assertIn(["do", "spaces-env.assign:sp9=work"], [c[:2] for c in self.calls("herdr-app")])
 
     def test_without_a_clone_nothing_starts(self):
         self.clone("Desktop/projects/personal/other", remote="https://github.com/owner/other")
