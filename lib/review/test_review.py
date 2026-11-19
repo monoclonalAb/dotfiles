@@ -8,8 +8,11 @@ import io
 import json
 import os
 from pathlib import Path
+import pty
+import select
 import subprocess
 import tempfile
+import time
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[2] / "bin" / "review"
@@ -101,6 +104,32 @@ class ReviewTest(unittest.TestCase):
             return []
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]
         return [c[1:] for c in calls if c[0] == program] if program else calls
+
+    def popup(self, typed, wait=6):
+        """Run review with no link in a terminal, as the C-a R popup does; type
+        `typed` at its prompt. Returns (screen text, exit code or None if it
+        still runs after `wait` seconds, seconds it took, the process)."""
+        self.state_path.write_text(json.dumps(self.state))
+        leader, follower = pty.openpty()
+        proc = subprocess.Popen([str(SOURCE)], stdin=follower, stdout=follower, stderr=follower,
+                                env={**self.env, "PATH": "/usr/bin:/bin"})
+        os.close(follower)
+        self.addCleanup(os.close, leader)
+        screen, typed_at, ended = b"", None, None
+        end = time.monotonic() + wait
+        while time.monotonic() < end and ended is None:
+            if select.select([leader], [], [], 0.05)[0]:
+                try:
+                    screen += os.read(leader, 4096)
+                except OSError:  # Linux: the program is gone
+                    pass
+            if typed_at is None and b"> " in screen:
+                os.write(leader, typed.encode())
+                typed_at = time.monotonic()
+            if proc.poll() is not None:
+                ended = time.monotonic()
+        took = (ended or time.monotonic()) - (typed_at or time.monotonic())
+        return screen.decode(errors="replace"), proc.poll(), took, (proc, leader)
 
     def made(self):
         return [json.loads(c[2]) for c in self.calls("herdr-app") if c[:2] == ["do", "space.new"]]
@@ -205,6 +234,27 @@ class ReviewTest(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("Could not resolve to a PullRequest", err)
+        self.assertEqual(self.made(), [])
+
+    def test_the_popup_asks_for_a_link_shows_the_result_then_closes_itself(self):
+        self.clone("Desktop/projects/DE/app")
+
+        screen, code, took, _ = self.popup(LINK + "\n")
+
+        self.assertIn("Paste a pull request link", screen)
+        self.assertIn("Reviewing #8 Fix login", screen)
+        self.assertEqual(code, 0)
+        # The result stays readable for a moment, then the popup goes by itself.
+        self.assertGreater(took, 2)
+        self.assertEqual(len(self.made()), 1)
+
+    def test_the_popup_keeps_a_mistake_on_screen_until_enter(self):
+        screen, code, _, (proc, leader) = self.popup("https://github.com/o/r/issues/1\n", wait=4)
+
+        self.assertIn("not a GitHub pull request link", screen)
+        self.assertIsNone(code)
+        os.write(leader, b"\n")
+        self.assertEqual(proc.wait(timeout=5), 1)
         self.assertEqual(self.made(), [])
 
     def test_only_pull_request_links_are_taken(self):

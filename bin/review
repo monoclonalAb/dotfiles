@@ -11,8 +11,8 @@ repository (in its folder or one of its terminals'), else the one most Spaces
 showing that owner's repositories are in, else the one you are in. A link that
 already has a review Space is not started twice.
 
-C-a R in the Herdr app (herdr-app/mods/popups) runs this with the clipboard's
-link, or opens it in a popup to ask for one.
+C-a R in the Herdr app (herdr-app/mods/popups) runs this in a popup, which
+asks for the link and closes itself a moment after the review starts.
 """
 
 import argparse
@@ -21,6 +21,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shlex
 import shutil
 import subprocess
@@ -216,6 +217,14 @@ def start(p, app, env):
     return warning
 
 
+def linger(asked, seconds=2.5):
+    """In the C-a R popup, which closes when this exits: leave the result on
+    screen a moment (Enter closes it at once)."""
+    if asked and sys.stdin.isatty():
+        print("Closing…", end="", flush=True)
+        select.select([sys.stdin], [], [], seconds)
+
+
 def main(argv=None, env=None):
     env = dict(os.environ if env is None else env)
     env.setdefault("HOME", str(Path.home()))
@@ -229,7 +238,7 @@ def main(argv=None, env=None):
         if asked:
             if not sys.stdin.isatty():
                 raise ReviewError("give a pull request link")
-            args.link = input("Pull request link: ")
+            args.link = input("Paste a pull request link (Enter starts it, Ctrl-C cancels):\n> ")
         app = App(env)
         p = plan(args.link, env, app)
         if args.dry_run:
@@ -237,12 +246,14 @@ def main(argv=None, env=None):
             return 0
         if p["existing"]:
             print(f"Already reviewing {p['name']}\nIt is under Reviews in the sidebar ({', '.join(p['existing'])}).")
+            linger(asked)
             return 0
         warning = start(p, app, env)
         where = f"in {p['environment'].title()}" if p["environment"] else "in the sidebar"
         print(f"Reviewing {p['name']}\n{Path(p['folder']).name} · under Reviews {where}")
         if warning:
             print(f"review: {warning}", file=sys.stderr)
+        linger(asked)
         return 0
     except (KeyboardInterrupt, EOFError):
         return 130

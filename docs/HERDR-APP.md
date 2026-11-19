@@ -152,7 +152,7 @@ worktrees.
 | `C-a ;` / `C-a :` | Toggle Personal/Work / send this Space to the other one |
 | `C-a S-1..9`, `Ctrl+1..9`, `C-a S-←/→` | Spaces of the active environment, in sidebar order |
 | `C-a t` | Pi Tasks: a new worktree Space running Pi |
-| `C-a R` | [Review](#pull-request-reviews) the pull request link on the clipboard in its own Space |
+| `C-a R` | [Review a pull request](#pull-request-reviews): a popup asks for its link, then its `/rho audit` starts in a Space of its own |
 | `C-a v` / `C-a V` | Review the agent's changes / whole branch in tuicr |
 | `C-a e` | This terminal's history in `$EDITOR` |
 | `C-a h/j/k/l`, `Cmd+Alt+arrows` | The pane in that direction; in a zoomed tab, unzooms first |
@@ -300,7 +300,7 @@ Where each part comes from:
 
 ## Popups
 
-`C-a t`, `C-a v`, `C-a V` and `C-a e` open a terminal in a dialog with a small bar.
+`C-a t`, `C-a v`, `C-a V`, `C-a e` and `C-a R` open a terminal in a dialog with a small bar.
 The dialog closes when its program exits; closing it first (click outside or
 `×`) ends the program. `Esc` goes to the program.
 
@@ -317,11 +317,13 @@ The dialog closes when its program exits; closing it first (click outside or
 `C-a R` starts `/rho audit <link>` in a Space of its own, so reviews stay out
 of the Space you work in. Example:
 
-1. 10:00: you copy a pull request's link from GitHub and press `C-a R`.
+1. 10:00: you press `C-a R`. A popup asks for a pull request link; you paste
+   one (`Cmd+V`) and press `Enter`.
 2. A Space named after the pull request (`#163 Disable BWOF drafts`) opens in
    your clone of that repository, running Pi on `/rho audit <link>`, in Work
    for a work repository even while you are in Personal. You stay where you
-   are; a toast says it started and where (`under Reviews in Work`).
+   are. The popup says where it went (`under Reviews in Work`) and closes
+   itself after a moment (`Enter` closes it at once).
 3. The sidebar lists it under **Reviews** at the bottom, not in the tree: the
    pull request's state icon, its repository and the conversation's dot (`◐`
    while it audits, `●` when the verdict is ready, `◆` if it asks you
@@ -330,16 +332,17 @@ of the Space you work in. Example:
    merged or closed, its row dims; close the Space with `C-a D` or its
    right-click menu.
 
-- `C-a R` again for the same pull request opens nothing new: a toast says it is
-  already under Reviews.
-- Without a link on the clipboard, `C-a R` opens a popup that asks for one.
+- The same link again opens nothing new: the popup says it is already under
+  Reviews.
+- A mistake (not a pull request link, no clone, `gh` signed out) stays in the
+  popup until `Enter`. `Ctrl-C` in the popup cancels.
 - From any shell: `review <link>`. `review --dry-run <link>` shows the Space it
   would make (name, folder, environment, command) and changes nothing.
 - The clone is the first one whose GitHub remote matches: from the open Spaces
   (the folder each was made in and where its terminals are now), then
-  `~/Desktop/projects` (three folders deep) and the folders directly in `~`. Without one, nothing starts and the toast says to clone it.
-  Pi starts in its main checkout; `/rho` reads the change in its own `/tmp`
-  worktree.
+  `~/Desktop/projects` (three folders deep) and the folders directly in `~`.
+  Without one, nothing starts and the popup says to clone it. Pi starts in its
+  main checkout; `/rho` reads the change in its own `/tmp` worktree.
 - The review joins Personal or Work with a Space that already shows that
   repository. With none open, it joins the one most Spaces of the same GitHub
   owner are in (an `everyday-artificial-intelligence` repository goes to Work),
