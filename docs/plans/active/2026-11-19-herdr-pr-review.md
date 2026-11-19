@@ -58,6 +58,8 @@ each) and his own.
   6 s, including a private organisation repository over HTTPS.
 - **Threads are readable.** GraphQL `reviewThreads` gives path, line or
   originalLine, isOutdated, isResolved and comments (#293: 15 threads; #400: 2).
+- **One pending review per person.** A second pending review on #14 was
+  refused: `User can only have one pending review per pull request` (HTTP 422).
 - **Posting works with this login.** Token scopes include `repo`. A pending
   review with one inline comment on #14 (`docs/HERDR-APP.md`, line 252, RIGHT)
   was created, read back and deleted; #14 then had 0 reviews and 0 comments.
@@ -133,19 +135,21 @@ Each changes something Eric sees, so each gets a screenshot review before merge.
 - **Waits for:** PR 3a.
 - **Files:** `herdr-app/mods/pr-review/main.js`, its test, docs.
 - **Change:** a Submit dialog naming the pull request, the decision (Comment,
-  Approve or Request changes), the summary and the draft count. One
-  `POST /pulls/<n>/reviews` with `commit_id` = the pinned head; the button is
-  disabled while it runs. Each submission's body ends with a hidden marker
-  (`<!-- herdr-review:<id> -->`, a new id per Submit). After a failed or unknown
-  result, the tab lists the pull request's reviews and treats one of Eric's
-  carrying that marker as sent; only without one does it offer a retry, so
-  nothing posts twice. A moved head warns
+  Approve or Request changes), the summary and the draft count. Posting
+  takes two steps: create a pending review with the drafts and
+  `commit_id` = the pinned head, then submit that review by id with the
+  decision. GitHub allows one pending review per person per pull request, so
+  a lost or slow reply cannot leave two. After a failed or unknown result the
+  tab stays blocked until a lookup succeeds: Eric's pending review there is
+  submitted by id, never created again; a submitted one counts as sent. A
+  failed lookup offers only "Check again". The button is disabled while it
+  runs. A moved head warns
   and shows which drafts sit on lines that changed. Cancel posts nothing.
 - **Done check:** Comment on a test pull request of Eric's own: the review's
   comments read back from the API at the same path, line and side, and the
-  drafts file is emptied. A test whose fake `gh` creates the review but
-  returns an error, then lists it with the marker, leaves exactly one review
-  and offers no retry. Authors cannot approve or request changes on their
+  drafts file is emptied. A test whose fake `gh` times out on the create, shows
+  no review on the first lookup and the pending one on the second, creates
+  once and submits once. Authors cannot approve or request changes on their
   own pull requests, so those two are checked by tests on the request body and
   then by Eric's first real review request, read back from the API.
 
