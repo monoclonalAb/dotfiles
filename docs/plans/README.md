@@ -32,7 +32,7 @@ placeholder directories are unnecessary.
 - [Pi provider-native compaction](active/2026-09-15-pi-provider-native-compaction.md) — planned; baseline verified, API-first vs subscription-first scope decision pending.
 - [rho: many small, verified PRs a day](active/2026-11-03-rho-workflow.md) — `/rho`, `/rho-verify` and the merge rule written; a week of real use and the first project verify skill pending.
 - [Migrate to the Herdr desktop app](active/2026-11-04-herdr-app-migration.md) — theme, layout, keys, the four plugins as mods, popups and `herdr-import` live; the `home` machine pending; no cutover, and terminal Herdr stays as a backup.
-- [Review GitHub pull requests inside Herdr](active/2026-11-19-herdr-pr-review.md) — planned; prototypes run (local diffs, threads, pending review), no code yet; waits for #12, #13 and #14.
+- [Review GitHub pull requests inside Herdr](active/2026-11-19-herdr-pr-review.md) — planned; prototypes run (local diffs, threads, pending review), no code yet; waits for #12 and #14.
 
 When there are no active plans, use `No active plans.` instead of the list.
 Keep other tasks' entries intact when adding or completing your own plan.

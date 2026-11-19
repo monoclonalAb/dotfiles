@@ -25,11 +25,12 @@ each) and his own.
 
 ## Context and constraints
 
-- Depends on three open drafts: [#12](https://github.com/monoclonalAb/dotfiles/pull/12)
-  (adds `/rho`'s "Review or audit of a PR" checklist, which PR 4a extends), [#14](https://github.com/monoclonalAb/dotfiles/pull/14)
-  (Mission control's pull-request column, the click target) and
+- Depends on two open drafts: [#12](https://github.com/monoclonalAb/dotfiles/pull/12)
+  (adds `/rho`'s "Review or audit of a PR" checklist, which PR 4a extends) and
+  [#14](https://github.com/monoclonalAb/dotfiles/pull/14) (Mission control's
+  pull-request column, the click target).
   [#13](https://github.com/monoclonalAb/dotfiles/pull/13) (review Spaces started
-  with `C-a R`, which run `/rho audit <link>`).
+  with `C-a R`, which run `/rho audit <link>`) merged on 2026-11-19.
 - Existing review tools: `C-a v` / `C-a V` open tuicr on an agent's changes
   ([HERDR-APP.md](../../HERDR-APP.md)); Herdr's shipped `changes` mod draws a
   working-tree diff in a virtual list and has a text input.
@@ -98,7 +99,7 @@ Each changes something Eric sees, so each gets a screenshot review before merge.
 
 ### PR 1b: review Spaces open their Review tab
 
-- **Waits for:** #13 and PR 1.
+- **Waits for:** PR 1 (#13 is merged).
 - **Files:** `bin/review` and its test, docs.
 - **Change:** `review <link>` (and `C-a R`) also opens a Review tab for the
   link in the new Space, beside the `/rho audit` conversation.
@@ -156,7 +157,7 @@ Each changes something Eric sees, so each gets a screenshot review before merge.
 ### PR 4a: `/rho audit` writes its findings as data
 
 - **Waits for:** #12 (it adds the "Review or audit of a PR" checklist to
-  `pi/prompts/rho.md`) and #13. Can run beside PR 2 or 3 (different files).
+  `pi/prompts/rho.md`). Can run beside PR 2 or 3 (different files).
 - **Files:** `pi/prompts/rho.md` (that checklist), `docs/`.
 - **Change:** the audit also writes `findings.json` to
   `~/.cache/herdr-pr-review/<owner>/<repo>/<n>/`: the head and merge-base SHAs
@@ -193,7 +194,7 @@ Each changes something Eric sees, so each gets a screenshot review before merge.
 
 ## Parallel work
 
-PR 4a can run beside PR 2, 3a or 3b; PR 1b beside PR 2 once #13 is merged.
+PR 4a can run beside PR 2, 3a or 3b; PR 1b beside PR 2.
 Everything else edits `pr-review/main.js` and goes in order.
 
 ## Decisions
