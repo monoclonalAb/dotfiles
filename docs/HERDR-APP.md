@@ -319,8 +319,9 @@ of the Space you work in. Example:
 
 1. 10:00: you copy a pull request's link from GitHub and press `C-a R`.
 2. A Space named after the pull request (`#163 Disable BWOF drafts`) opens in
-   your clone of that repository, running Pi on `/rho audit <link>`. You stay
-   where you are; a toast says it started.
+   your clone of that repository, running Pi on `/rho audit <link>`, in Work
+   for a work repository even while you are in Personal. You stay where you
+   are; a toast says it started and where (`under Reviews in Work`).
 3. The sidebar lists it under **Reviews** at the bottom, not in the tree: the
    pull request's state icon, its repository and the conversation's dot (`◐`
    while it audits, `●` when the verdict is ready, `◆` if it asks you
@@ -334,13 +335,15 @@ of the Space you work in. Example:
 - Without a link on the clipboard, `C-a R` opens a popup that asks for one.
 - From any shell: `review <link>`. `review --dry-run <link>` shows the Space it
   would make (name, folder, environment, command) and changes nothing.
-- The clone is the first one whose GitHub remote matches: from the open Spaces'
-  folders, then `~/Desktop/projects` (three folders deep) and the folders
-  directly in `~`. Without one, nothing starts and the toast says to clone it.
+- The clone is the first one whose GitHub remote matches: from the open Spaces
+  (the folder each was made in and where its terminals are now), then
+  `~/Desktop/projects` (three folders deep) and the folders directly in `~`. Without one, nothing starts and the toast says to clone it.
   Pi starts in its main checkout; `/rho` reads the change in its own `/tmp`
   worktree.
-- The review joins Personal or Work with the Space that already shows that
-  repository, else the one you are in.
+- The review joins Personal or Work with a Space that already shows that
+  repository. With none open, it joins the one most Spaces of the same GitHub
+  owner are in (an `everyday-artificial-intelligence` repository goes to Work),
+  else the one you are in.
 - [`bin/review`](../bin/review) labels the Space's terminal
   `review.pr=<link>`; that label is what puts it under Reviews.
 

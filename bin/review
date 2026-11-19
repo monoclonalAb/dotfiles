@@ -7,14 +7,16 @@ the change in its own /tmp worktree), is named after the pull request
 labelled review.pr=<link>; the sidebar (herdr-app/mods/spaces-tree) lists
 Spaces with that label under Reviews instead of in the Spaces tree. The Space
 joins the Personal/Work environment of a Space that already shows that
-repository, else the one you are in. A link that already has a review Space is
-not started twice.
+repository (in its folder or one of its terminals'), else the one most Spaces
+showing that owner's repositories are in, else the one you are in. A link that
+already has a review Space is not started twice.
 
 C-a R in the Herdr app (herdr-app/mods/popups) runs this with the clipboard's
 link, or opens it in a popup to ask for one.
 """
 
 import argparse
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -124,6 +126,22 @@ class App:
         return self.call(["do", command, json.dumps(args)])
 
 
+def space_folders(space, env):
+    """Where a Space is: the folder it was made in, then where its terminals are now."""
+    folders = [space["folder"]] if space.get("folder") else []
+    for tab in space.get("tabs", []):
+        for t in tab.get("terminals", []):
+            got = run(["hc", "get", t.get("terminal", ""), "--json"], env)
+            try:
+                info = json.loads(got.stdout) if got.returncode == 0 else {}
+            except ValueError:
+                info = {}
+            cwd = (info.get("foreground") or {}).get("cwd") or info.get("cwd")
+            if cwd and cwd not in folders:
+                folders.append(cwd)
+    return folders
+
+
 def environment_of(space_id, env):
     """The Personal/Work environment the spaces-env mod gave a Space, or None."""
     home = env.get("HERDR_APP_HOME") or f"{env['HOME']}/.config/herdr-app"
@@ -155,15 +173,19 @@ def plan(link, env, app):
 
     clones = Clones(env)
     folder = environment = None
+    owners = Counter()  # environments of Spaces showing the owner's repositories
     for space in app.call(["ls"]).get("spaces", []):
-        if space.get("machine") or not space.get("folder"):
+        if space.get("machine"):
             continue
-        found = clones.of(space["folder"])
-        if found and want in found[1]:
-            folder = folder or found[0]
-            environment = environment_of(space["id"], env)
-            if environment:
-                break
+        found = [f for f in map(clones.of, space_folders(space, env)) if f]
+        repos = set().union(*(r for _, r in found))
+        here = environment_of(space["id"], env)
+        if want in repos:
+            folder = folder or next(root for root, r in found if want in r)
+            environment = environment or here
+        if here and any(r.split("/", 1)[0] == want.split("/", 1)[0] for r in repos):
+            owners[here] += 1
+    environment = environment or next((e for e, _ in owners.most_common(1)), None)
     if not folder:
         folder = next((found[0] for f in scan(env["HOME"]) if (found := clones.of(f)) and want in found[1]), None)
     if not folder:
@@ -217,7 +239,8 @@ def main(argv=None, env=None):
             print(f"Already reviewing {p['name']}\nIt is under Reviews in the sidebar ({', '.join(p['existing'])}).")
             return 0
         warning = start(p, app, env)
-        print(f"Reviewing {p['name']}\n{Path(p['folder']).name} · under Reviews in the sidebar")
+        where = f"in {p['environment'].title()}" if p["environment"] else "in the sidebar"
+        print(f"Reviewing {p['name']}\n{Path(p['folder']).name} · under Reviews {where}")
         if warning:
             print(f"review: {warning}", file=sys.stderr)
         return 0

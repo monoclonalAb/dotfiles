@@ -116,7 +116,7 @@ class ReviewTest(unittest.TestCase):
         code, out, err = self.review(LINK + "/files")
 
         self.assertEqual(code, 0, err)
-        self.assertEqual(out.splitlines()[0], "Reviewing #8 Fix login")
+        self.assertEqual(out.splitlines(), ["Reviewing #8 Fix login", "app · under Reviews in Work"])
         [space] = self.made()
         self.assertEqual(space["name"], "#8 Fix login")
         self.assertEqual(space["folder"], str(main))
