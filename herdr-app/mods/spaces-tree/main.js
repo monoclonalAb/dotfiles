@@ -25,8 +25,11 @@
 // - No coloured letter avatars: a repository or plain Space shows its name alone.
 // - Every Space row names its branch, main and master included, so a checkout
 //   left on another branch is plain to see.
+// - Review Spaces (bin/review, C-a R: a terminal labelled review.pr) leave the
+//   tree for a Reviews section pinned at the bottom: one row per pull request
+//   with its state icon, repository and dot; merged and closed ones dim.
 //
-// Publishes shared "spaces-tree.order" (every Space in tree order) and
+// Publishes shared "spaces-tree.order" (every Space in tree order, reviews last) and
 // "spaces-tree.agents" (shown conversations in tree order), and sets the
 // agent.next / agent.prev order to the conversations it shows.
 
@@ -187,6 +190,41 @@ export function trackSince(prev, observations, now, live = null) {
   return next;
 }
 
+// Review Spaces: bin/review labels a Space's Pi terminal with its pull request's
+// link. `reviewsOf` maps each such Space to that link (space id -> link).
+export const REVIEW_LABEL = "review.pr";
+
+export function reviewsOf(spaceList, paneList, terminalList) {
+  const links = new Map(terminalList.filter((x) => x.labels?.[REVIEW_LABEL]).map((x) => [x.address, x.labels[REVIEW_LABEL]]));
+  const spaceOf = new Map();
+  for (const s of spaceList) for (const tab of s.tabs ?? []) spaceOf.set(tab.id, s.id);
+  const out = {};
+  for (const p of paneList) {
+    const link = p.terminal && links.get(p.terminal);
+    const space = spaceOf.get(p.tab);
+    if (link && space && !(space in out)) out[space] = link;
+  }
+  return out;
+}
+
+// { owner, repo, number } of a pull request link, else null.
+export function reviewRef(link) {
+  const m = /^https?:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/i.exec(link ?? "");
+  return m ? { owner: m[1], repo: m[2], number: Number(m[3]) } : null;
+}
+
+// Review Spaces leave the tree for the Reviews section, so a review in a
+// repository's main checkout never becomes the parent of its worktrees.
+export function splitReviews(list, reviews) {
+  const tree = [];
+  const review = [];
+  for (const r of list) {
+    if (r.w.id in reviews) review.push({ ...r, review: reviews[r.w.id], tree: null, kids: 0 });
+    else tree.push(r);
+  }
+  return { tree, review };
+}
+
 // Split active items into `due` (blocked before review, preserving order within
 // each) and `running`, leaving idle conversations out.
 export function activityGroups(items) {
@@ -279,6 +317,10 @@ const LAYOUT_PREVIEW = { path: "mods/spaces-tree/.layout-preview.svg", text: `<s
     <rect x="10" y="92" width="9" height="9" rx="2" fill="#40a02b"/><rect x="24" y="94" width="36" height="5" rx="2"/>
   </g>
 </svg>` };
+
+// A count in a section heading.
+const pill = (n, color) => h_flex().h(15).px(5).flex_none().items_center().rounded(7)
+  .bg(fade(color, "24")).text_size(10.5).font_semibold().text_color(color).child(String(n));
 
 export function glyph(status) {
   return status === "blocked" || status === "done" ? "\u25cf" : "\u00b7";
@@ -527,12 +569,15 @@ export default class SpacesTree extends View {
     const ps = panes();
     const due = [];
     const kept = {};
+    const reviews = reviewsOf(sp, ps, terminals());
     for (const s of sp) {
       const g = this.git[where(s, ps)];
-      if (!g?.linked || !g.branch) continue;
-      const entry = currentEntry(this.prs[s.id], place(s, ps), g.branch);
+      const link = reviews[s.id];
+      if (!link && (!g?.linked || !g.branch)) continue;
+      // A review's entry is keyed by its link: its checkout's branch is not the pull request's.
+      const entry = link ? currentEntry(this.prs[s.id], link, "review") : currentEntry(this.prs[s.id], place(s, ps), g.branch);
       kept[s.id] = entry;
-      if ((window().active || !entry.at) && prDue(entry, s.active, now)) due.push({ s, cwd: entry.checkout });
+      if ((window().active || !entry.at) && prDue(entry, s.active, now)) due.push({ s, key: entry.checkout, cwd: place(s, ps), link });
     }
     // A Space whose machine is still loading keeps its entry; a closed one goes.
     const ready = new Set(machines().filter((m) => m.layout === "ready").map((m) => m.name ?? null));
@@ -544,14 +589,14 @@ export default class SpacesTree extends View {
     if (!due.length) return;
     this.prBusy = true;
     cx.spawn(async (cx) => {
-      for (const { s, cwd } of due.slice(0, 4)) {
+      for (const { s, key, cwd, link } of due.slice(0, 4)) {
         let result;
         try {
-          result = ghOutcome(await exec("gh", ["pr", "view", "--json", "number,title,state,isDraft"], { cwd, on: s.machine }));
+          result = ghOutcome(await exec("gh", ["pr", "view", ...(link ? [link] : []), "--json", "number,title,state,isDraft"], { cwd, on: s.machine }));
         } catch (e) {
           result = { outcome: "error", detail: String(e?.message ?? e) };
         }
-        if (this.prs[s.id]?.checkout === cwd) this.prs[s.id] = applyOutcome(this.prs[s.id], result, Date.now());
+        if (this.prs[s.id]?.checkout === key) this.prs[s.id] = applyOutcome(this.prs[s.id], result, Date.now());
       }
       localStorage.setItem("prs", JSON.stringify(this.prs));
       this.prBusy = false;
@@ -574,7 +619,8 @@ export default class SpacesTree extends View {
     const list = sp.map((w, i) => ({ w, i, g: this.git[where(w, ps)] ?? null })).filter((r) => this.shown.has(r.w.id));
     const env = shared("spaces-env");
     const inEnv = (r) => !env?.assign || (env.assign[r.w.id] ?? "personal") === (env.active ?? "personal") || r.w.active;
-    return { full: this.nest(list, false), shown: this.nest(list.filter(inEnv), true) };
+    const { tree, review } = splitReviews(list, reviewsOf(sp, ps, this.terminalList ?? terminals()));
+    return { full: [...this.nest(tree, false), ...review], shown: this.nest(tree.filter(inEnv), true), reviews: review.filter(inEnv) };
   }
 
   nest(list, folding) {
@@ -761,8 +807,10 @@ export default class SpacesTree extends View {
       this.since = nextSince;
       try { localStorage.setItem("activity.since", JSON.stringify(nextSince)); } catch { /* outside the app */ }
     }
-    const items = shown.flatMap(({ w, g }) => {
-      const pr = g?.linked ? this.prs[w.id]?.pr ?? null : null;
+    const items = shown.flatMap(({ w, g, review }) => {
+      const pr = g?.linked || review ? this.prs[w.id]?.pr ?? null : null;
+      // A review reads as its repository and pull request, like a worktree's.
+      if (review) g = { linked: true, name: g?.name ?? reviewRef(review)?.repo ?? "", branch: null };
       const tabCount = (w.tabs ?? []).length;
       return list
         .filter((a) => a.space === w.id && paneOf.has(a.pane))
@@ -836,8 +884,6 @@ export default class SpacesTree extends View {
     const { due, running, counts } = model;
     if (!due.length && !running.length) return null;
     this.foldedActivity ??= new Set();
-    const pill = (n, color) => h_flex().h(15).px(5).flex_none().items_center().rounded(7)
-      .bg(fade(color, "24")).text_size(10.5).font_semibold().text_color(color).child(String(n));
     const out = [];
     if (due.length) {
       const folded = this.foldedActivity.has("due");
@@ -908,6 +954,72 @@ export default class SpacesTree extends View {
       .border_color(t.border)
       .when(capped, (el) => el.h(350).overflow_y_scrollbar())
       .children(out);
+  }
+
+  // One review Space: its pull request (state icon, number and title, dimmed
+  // once merged or closed), its repository and its most urgent conversation's dot.
+  reviewRow(r, t, open) {
+    const { w, g } = r;
+    const pr = this.prs[w.id]?.pr ?? null;
+    const finished = pr?.state === "merged" || pr?.state === "closed";
+    const repo = g?.name ?? reviewRef(r.review)?.repo ?? "";
+    const top = this.agentsOf(w).map((a) => this.dotOf(a)).reduce((m, d) => (m && RANK[m] >= RANK[d] ? m : d), null);
+    return v_flex().id(`review-card-${w.id}`).flex_none().relative()
+      .child(this.tint(`review-tint-${w.id}`, t.selected, w.active && open))
+      .child(this.grow(h_flex(), `review-${w.id}`, 28, open)
+        .relative()
+        .px(8)
+        .gap(9)
+        .items_center()
+        .rounded(8)
+        .cursor_pointer()
+        .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
+        .on_click(() => run("space.select", { id: w.id }))
+        .on_mouse_down("right", () => this.menu(w))
+        .child(svg(pr && this.icons ? prIcon(pr.state) : "mods/workspace-chrome/branch.svg").size(13).flex_none()
+          .text_color(pr ? t[PR_TONE[pr.state]] ?? t.dim : t.dim))
+        .child(div().flex_1().min_w(0).truncate().text_color(finished ? t.dim : t.foreground)
+          .child(pr ? `#${pr.number} ${pr.title}` : w.name))
+        .when(Boolean(repo), (el) => el.child(div().flex_none().max_w(90).truncate().text_size(11.5).text_color(t.dim).child(repo)))
+        .when(Boolean(top), (el) => el.child(this.mark(t, top, `review-${w.id}`))));
+  }
+
+  // Review Spaces, pinned below the tree; the heading folds them.
+  reviewsSection(reviews, t, collapsed) {
+    if (!reviews.length) return null;
+    if (collapsed) return v_flex().id("reviews").flex_none().py(4).border_t(1).border_color(t.border).children(reviews.map((r) => this.compact(r, t)));
+    this.foldedActivity ??= new Set();
+    const folded = this.foldedActivity.has("reviews");
+    const head = h_flex()
+      .id("reviews-head")
+      .h(24)
+      .flex_none()
+      .px(6)
+      .gap(5)
+      .items_center()
+      .rounded(6)
+      .text_size(11)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .tooltip("Pull request reviews (C-a R starts one)")
+      .on_click((_e, cx) => this.toggleActivity("reviews", cx))
+      .child(div().font_medium().text_color(t.muted).child("Reviews"))
+      .child(pill(reviews.length, t.dim))
+      .child(div().flex_1().h(1).bg(t.border))
+      .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim));
+    const contentH = 18 + 24 + (folded ? 0 : reviews.length * 31);
+    return v_flex()
+      .id("reviews")
+      .flex_none()
+      .px(10)
+      .pt(8)
+      .pb(10)
+      .gap(3)
+      .border_t(1)
+      .border_color(t.border)
+      .when(contentH > 220, (el) => el.h(220).overflow_y_scrollbar())
+      .child(head)
+      .children(reviews.map((r) => this.reviewRow(r, t, !folded)));
   }
 
   // A Space's conversations (and their helpers); shut while folded, so folding
@@ -1113,21 +1225,22 @@ export default class SpacesTree extends View {
     this.agentList = agents();
     this.paneList = panes();
     this.terminalList = terminals();
-    const { full, shown } = this.ordered();
+    const { full, shown, reviews } = this.ordered();
     const order = full.map((r) => r.w.id);
     if (!same(order, shared("spaces-tree.order"))) setShared("spaces-tree.order", order);
     // Every conversation of the shown Spaces, folded or not, in tree order
-    // (not those of a folded repository's worktrees).
-    const conversations = shown.filter((r) => !r.hidden).flatMap((r) => this.agentsOf(r.w).map((a) => a.address));
+    // (not those of a folded repository's worktrees), then the reviews'.
+    const conversations = [...shown.filter((r) => !r.hidden), ...reviews].flatMap((r) => this.agentsOf(r.w).map((a) => a.address));
     setAgentOrder(conversations);
     if (!same(conversations, shared("spaces-tree.agents"))) setShared("spaces-tree.agents", conversations);
 
     const env = shared("spaces-env")?.active;
     const heading = env ? env[0].toUpperCase() + env.slice(1) : "Spaces";
-    const act = this.activity(shown);
+    const act = this.activity([...shown, ...reviews]);
     this.hasActivity = act.due.length > 0 || act.running.length > 0;
     const band = collapsed ? null : this.activityBand(act, t);
     const rows = this.grouped(t, collapsed, shown);
+    const reviewSection = this.reviewsSection(reviews, t, collapsed);
     // Rows drawn shut this time open on the next render.
     if (this.fresh && !this.opening) {
       this.opening = true;
@@ -1144,6 +1257,7 @@ export default class SpacesTree extends View {
       .child(v_flex().flex_1().min_h(0).px(8).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
         .children(rows))
+      .when(Boolean(reviewSection), (el) => el.child(reviewSection))
       .when(collapsed, (el) => el.child(h_flex().h(28).flex_none().items_center().justify_center()
         .child(div().id("unfold").text_size(13).text_color(t.dim).hover((s) => s.text_color(t.foreground)).on_click(toggleSidebar).child("\u00bb"))));
   }
