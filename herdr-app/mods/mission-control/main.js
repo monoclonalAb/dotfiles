@@ -11,13 +11,19 @@
 // Cards are text read with `hc read` every 2 s while the dialog is open, not live
 // terminal blocks, so opening it never resizes or types into a terminal.
 //
+// A column on the right lists pull requests as GitHub's own pages do: those
+// asking for your review, then your open ones, newest first, each with its
+// checks and review decision. One `gh api graphql` run on opening and every
+// minute while open; the last lists show at once on the next opening. A click
+// opens the pull request in the browser. They do not follow Personal/Work.
+//
 // Motion is the app's native kind (no timers): on opening, the rows fade and
 // rise in one after another; scrolling springs; the selection is a ring that
 // glides from card to card while the old card's title tint fades to the new one.
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, panes, agents, terminals, focused, run, hc, theme, settings, shared, props, closeOverlay } from "herdr";
+import { spaces, panes, agents, terminals, focused, run, hc, exec, checking, theme, settings, shared, props, closeOverlay } from "herdr";
 
 // Sizes in px at zoom 1.
 export const HEAD = 34; // a Space's heading
@@ -37,6 +43,9 @@ const ENTER = 220; // ms its fade takes
 const STAGGER = 30; // ms between rows on opening
 const STAGGER_ROWS = 6; // rows after this many come in together
 const TINT = 160; // ms a title's selection tint fades
+const PR_WIDTH = 380; // the pull-request column
+const PR_PAGE = 30; // pull requests fetched per list
+const PR_REFRESH = 60_000;
 
 // --- Rules (pure; tested by lib/herdr-app-mods) ------------------------------
 
@@ -165,6 +174,38 @@ export function conversationTitle({ summary, pending, title, address, cwd, space
   return { text: program || "agent", strong: false };
 }
 
+// Pull requests: the two lists of GitHub's pull-request pages, in one query.
+const PR_FIELDS = "number title url isDraft repository { nameWithOwner } reviewDecision "
+  + "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }";
+const prSearch = (who) => `search(type: ISSUE, first: ${PR_PAGE}, query: "is:pr is:open archived:false ${who} sort:updated-desc") `
+  + `{ issueCount nodes { ... on PullRequest { ${PR_FIELDS} } } }`;
+export const PR_QUERY = `query { review: ${prSearch("review-requested:@me")} mine: ${prSearch("author:@me")} }`;
+const CHECKS = { SUCCESS: "pass", FAILURE: "fail", ERROR: "fail", PENDING: "pending", EXPECTED: "pending" };
+const DECISION = { APPROVED: "approved", CHANGES_REQUESTED: "changes" };
+
+// One `gh api graphql` run of PR_QUERY: { review, mine }, each { total, items },
+// or { error } with gh's message.
+export function pullRequests({ code, stdout, stderr }) {
+  if (code !== 0) return { error: (stderr ?? "").trim().split("\n")[0] || `gh exited with ${code}` };
+  let data = null;
+  try { data = JSON.parse(stdout).data; } catch { /* not JSON */ }
+  if (!data?.review || !data?.mine) return { error: "GitHub sent no pull requests" };
+  const list = (s) => ({
+    total: s.issueCount,
+    items: (s.nodes ?? []).filter((n) => n?.number).map((n) => ({
+      repo: n.repository.nameWithOwner, number: n.number, title: n.title, url: n.url, draft: n.isDraft,
+      ci: CHECKS[n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state] ?? null,
+      review: DECISION[n.reviewDecision] ?? null,
+    })),
+  });
+  return { review: list(data.review), mine: list(data.mine) };
+}
+
+// What to show after a refresh: a failed one keeps the last lists, saying why.
+export function refreshed(last, next) {
+  return next.error && last?.review ? { review: last.review, mine: last.mine, error: next.error } : next;
+}
+
 // --- The mod ------------------------------------------------------------------
 
 // The sidebar's dots and avatar colours, so a card looks like its sidebar row.
@@ -174,6 +215,13 @@ const TONE = { blocked: "blocked", review: "done", working: "working", idle: "id
 const fallbackDot = (status) => (status === "blocked" ? "blocked" : status === "done" ? "review" : status === "working" ? "working" : "idle");
 const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
 const DIRS = { left: "left", h: "left", right: "right", l: "right", up: "up", k: "up", down: "down", j: "down" };
+// The sidebar's pull-request icons: spaces-tree writes them into its own folder.
+const prIcon = (state) => `mods/spaces-tree/.pr-${state}.svg`;
+const CHECKS_TEXT = { pass: "\u2713 checks", fail: "\u2717 checks", pending: "\u25cf checks" };
+const CHECKS_TONE = { pass: "ansi2", fail: "ansi1", pending: "ansi3" };
+const DECISION_TEXT = { approved: "approved", changes: "changes requested" };
+const DECISION_TONE = { approved: "ansi2", changes: "ansi1" };
+const PR_PAGES = { review: "https://github.com/pulls/review-requested", mine: "https://github.com/pulls" };
 
 function icon(p, size, color) {
   if (!p?.icon) return null;
@@ -192,6 +240,28 @@ export default class MissionControl extends View {
     this.entered = false; // the opening fade has started
     this.read(cx);
     cx.timer.every(REFRESH, (cx) => this.read(cx));
+    try { this.pulls = JSON.parse(localStorage.getItem("pulls") ?? "null"); } catch { this.pulls = null; }
+    if (checking()) return;
+    this.fetchPulls(cx);
+    cx.timer.every(PR_REFRESH, (cx) => this.fetchPulls(cx));
+  }
+
+  fetchPulls(cx) {
+    if (this.fetching) return;
+    this.fetching = true;
+    cx.spawn(async (cx) => {
+      let next;
+      try {
+        next = pullRequests(await exec("gh", ["api", "graphql", "-f", `query=${PR_QUERY}`]));
+      } catch (e) {
+        next = { error: String(e?.message ?? e) };
+      } finally {
+        this.fetching = false;
+      }
+      this.pulls = refreshed(this.pulls, next);
+      if (!next.error) try { localStorage.setItem("pulls", JSON.stringify(next)); } catch { /* outside the app */ }
+      cx.notify();
+    });
   }
 
   model() {
@@ -323,6 +393,81 @@ export default class MissionControl extends View {
         .when(Boolean(lines), (el) => el.children(lines.map((line) => div().h(LINE).flex_none().whitespace_nowrap().overflow_hidden().child(line || " ")))));
   }
 
+  pullRow(key, pr, t) {
+    const meta = [
+      [`${pr.repo.split("/").pop()} #${pr.number}`, t.dim],
+      pr.draft && ["draft", t.dim],
+      pr.ci && [CHECKS_TEXT[pr.ci], t[CHECKS_TONE[pr.ci]]],
+      pr.review && [DECISION_TEXT[pr.review], t[DECISION_TONE[pr.review]]],
+    ].filter(Boolean);
+    return h_flex()
+      .id(`mc-pr-${key}-${pr.repo}#${pr.number}`)
+      .px(8)
+      .py(6)
+      .gap(8)
+      .items_start()
+      .rounded(6)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => {
+        this.dismiss();
+        cx.open_url(pr.url);
+      })
+      .child(svg(prIcon(pr.draft ? "draft" : "open")).size(13).mt(2).flex_none().text_color(pr.draft ? t.dim : t.ansi2))
+      .child(v_flex()
+        .flex_1()
+        .min_w(0)
+        .gap(2)
+        .child(div().truncate().text_size(12.5).text_color(t.foreground).child(pr.title))
+        .child(h_flex().gap(8).text_size(11).children(meta.map(([text, color]) => div().flex_none().text_color(color).child(text)))));
+  }
+
+  pullList(key, title, list, empty, t) {
+    const more = list.total - list.items.length;
+    return v_flex()
+      .child(h_flex().px(8).pt(12).pb(4).gap(6).text_size(11.5)
+        .child(div().font_semibold().text_color(t.muted).child(title))
+        .child(div().text_color(t.dim).child(String(list.total))))
+      .when(!list.items.length, (el) => el.child(div().px(8).py(4).text_size(12).text_color(t.dim).child(empty)))
+      .children(list.items.map((pr) => this.pullRow(key, pr, t)))
+      .when(more > 0, (el) => el.child(div()
+        .id(`mc-pr-more-${key}`)
+        .px(8)
+        .py(6)
+        .text_size(11.5)
+        .text_color(t.accent)
+        .cursor_pointer()
+        .on_click((_e, cx) => {
+          this.dismiss();
+          cx.open_url(PR_PAGES[key]);
+        })
+        .child(`${more} more on GitHub`)));
+  }
+
+  pullColumn(t) {
+    const p = this.pulls;
+    return v_flex()
+      .id("mc-prs")
+      .w(PR_WIDTH)
+      .flex_none()
+      .min_h(0)
+      .mr(18)
+      .mt(4)
+      .mb(14)
+      .child(h_flex().h(HEAD).flex_none().px(8).pb(6).gap(8).items_end().text_size(12.5)
+        .child(div().font_semibold().text_color(t.foreground).child("Pull requests"))
+        .when(Boolean(this.fetching), (el) => el.child(div().text_size(11).text_color(t.dim).frames(SPIN, 180))))
+      .when(Boolean(p?.error), (el) => el.child(div().px(8).py(4).text_size(11.5).text_color(t.blocked).child(p.error)))
+      .when(!p, (el) => el.child(div().px(8).py(4).text_size(12).text_color(t.dim).child("Loading\u2026")))
+      .when(Boolean(p?.review), (el) => el.child(v_flex()
+        .id("mc-prs-list")
+        .flex_1()
+        .min_h(0)
+        .overflow_y_scrollbar()
+        .child(this.pullList("review", "Needs your review", p.review, "Nothing waiting for you.", t))
+        .child(this.pullList("mine", "Yours", p.mine, "No open pull requests.", t))));
+  }
+
   render() {
     const t = theme();
     const g = this.model();
@@ -375,10 +520,10 @@ export default class MissionControl extends View {
         .when(review > 0, (el) => el.child(div().text_size(12).text_color(t.done).child(`${GLYPH.review}${review}`)))
         .child(div().flex_1())
         .child(div().text_size(11).text_color(t.dim).child("\u2190\u2191\u2193\u2192 or hjkl move \u00b7 Enter go \u00b7 Esc close")))
-      .child(div()
+      .child(div().flex().flex_row().items_stretch().flex_1().min_h(0).child(div()
         .id("mc-grid")
         .flex_1()
-        .min_h(0)
+        .min_w(0)
         .mx(18)
         .mt(4)
         .mb(14)
@@ -425,6 +570,6 @@ export default class MissionControl extends View {
           .h(CARD)
           .spring("left", SPRING)
           .spring("top", SPRING)
-          .child(this.enter(div().id("mc-ring-in").size_full(), delay(g.cards[at].row)).rounded(8).border(2).border_color(t.accent)))));
+          .child(this.enter(div().id("mc-ring-in").size_full(), delay(g.cards[at].row)).rounded(8).border(2).border_color(t.accent))))).child(this.pullColumn(t)));
   }
 }

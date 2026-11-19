@@ -143,7 +143,7 @@ worktrees.
 | Key | Action |
 | --- | --- |
 | `C-a w`, `Cmd+P` | [Conversation picker](#conversation-picker): type part of a conversation's name, `Enter` goes there |
-| `C-a C-w` | [Mission control](#mission-control): every agent at once |
+| `C-a C-w` | [Mission control](#mission-control): every agent and your pull requests at once |
 | `C-a u` / `C-a U` | Next conversation needing you / back to where the jumps started |
 | `C-a m` | Keep this conversation unread until you reply; again: mark it read |
 | `C-a o` | The conversation that most recently came to need you (terminal Herdr: the latest notification's pane) |
@@ -248,6 +248,16 @@ or `Esc` closes it.
 
 The cards are text, refreshed every 2 seconds while the dialog is open. They
 are not live terminals, so opening it never resizes or types into a terminal.
+
+A **Pull requests** column on the right lists GitHub's two pull-request
+pages: **Needs your review** (open ones asking for your review) and **Yours**
+(your open ones), newest first, 30 of each. Each row has its title, repository
+and number, and marks drafts, checks (✓ passing, ✗ failing, ● running) and an
+approval or requested changes. A click opens it in the browser; the keys stay
+on the cards. The lists come from one `gh api graphql` run with your `gh`
+login when the dialog opens and every minute while it is open. The last lists
+show at once on the next opening and stay, with gh's error above them, if a
+refresh fails. They are every repository's, not only the active environment's.
 
 ## Brief
 
