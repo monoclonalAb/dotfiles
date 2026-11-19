@@ -5,6 +5,9 @@
 //   popups.review         tuicr on the focused agent's changes (bin/herdr-review)
 //   popups.review-branch  the same for its whole branch (herdr-review --branch)
 //   popups.scrollback     the focused terminal's history in $EDITOR
+//   popups.pr-review      a /rho audit of the pull request link on the clipboard, in
+//                         its own Space (bin/review); with no link there, review asks
+//                         for one in a popup
 //
 // Each popup is an hc terminal without Herdr's space/tab labels (so it shows in
 // no tab), drawn in a dialog under a small bar of this mod (props { bar }).
@@ -13,7 +16,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { focused, agents, terminals, hc, home, notify, openOverlay, closeOverlay, nextCommand, props, theme } from "herdr";
+import { focused, agents, terminals, exec, hc, home, notify, openOverlay, closeOverlay, nextCommand, props, theme } from "herdr";
 
 const BAR = 28;
 // Herdr's dialog frame: radius 8 with a 1 px border, so the bar's fill rounds to 7
@@ -23,13 +26,21 @@ const FRAME_INNER_RADIUS = 7;
 // Hotkey and GUI programs inherit no login shell: the same PATH the TUI's popups had.
 const PATH = () => `${home()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
 
+// The clipboard as a pull request link (bin/review's), or null: only a link
+// alone, so an old paragraph that mentions one never starts a review.
+const PR_LINK = /^https?:\/\/(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:[/?#]\S*)?$/i;
+export function clipboardLink(text) {
+  const s = (text ?? "").trim();
+  return PR_LINK.test(s) ? s : null;
+}
+
 export default class Popups extends View {
   init(_props, cx) {
     if (props()?.bar) return;
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
-        try { await this.command(command); }
+        try { await this.command(command, cx); }
         catch (e) { notify({ title: "Popup failed", body: String(e?.message ?? e), level: "error" }); }
         cx.notify();
       }
@@ -48,7 +59,7 @@ export default class Popups extends View {
     throw new Error(inTab.length ? `${inTab.length} agents in this tab; focus the one that should get the review` : "No agent in this tab; focus the agent pane and try again");
   }
 
-  async command(command) {
+  async command(command, cx) {
     const f = focused();
     if (command === "task") {
       if (!f?.cwd) throw new Error("The focused pane needs a local folder for Pi Tasks.");
@@ -79,6 +90,16 @@ export default class Popups extends View {
         title: `Scrollback of ${address}`, cwd: f.cwd || home(), width: 0.95, height: 0.9,
         env: {}, argv: ["/bin/sh", "-c", script, "sh", address],
       });
+    }
+    if (command === "pr-review") {
+      const review = `${home()}/.local/bin/review`;
+      const link = clipboardLink(cx.read_from_clipboard());
+      if (!link) return this.open({ title: "Review a pull request", cwd: home(), width: 0.6, height: 120, env: {}, argv: [review] });
+      const r = await exec(review, [link], { cwd: home(), timeout: 120_000 });
+      const [title, ...rest] = r.stdout.trim().split("\n");
+      const problem = r.stderr.trim().replace(/^review: /gm, "");
+      if (r.code !== 0) return notify({ title: "Review not started", body: problem || `review exited ${r.code}`, level: "error" });
+      return notify({ title, body: [...rest, problem].filter(Boolean).join("\n"), level: problem ? "warning" : "success", timeout: 4000 });
     }
     throw new Error(`unknown command ${command}`);
   }
