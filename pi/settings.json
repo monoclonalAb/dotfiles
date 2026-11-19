@@ -14,7 +14,7 @@
     "google-vertex/gemini-4-carbon",
     "anthropic/claude-fable-5-2",
     "openai-codex/gpt-6-luna",
-    "openai-codex/gpt-6.1-sol"
+    "openai-codex/gpt-6.2-sol"
   ],
   "images": {
     "blockImages": false
