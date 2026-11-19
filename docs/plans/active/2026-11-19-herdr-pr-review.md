@@ -80,15 +80,19 @@ Each changes something Eric sees, so each gets a screenshot review before merge.
   (`~/.cache/herdr-pr-review/<owner>/<repo>`) fetches `pull/<n>/head` and the
   base branch; the tab pins two SHAs on load, head and
   `merge-base(base tip, head)`, and every read uses them. The file list comes
-  from `git diff --numstat`; each file's diff is read on its own, so no single
-  `exec` comes near its 8 MiB output cap. Mission control's row opens this tab;
+  from `git diff --numstat`; each file's diff is read on its own. A file whose
+  numstat adds and deletes more than 20,000 lines together, or whose read
+  comes back at or near `exec`'s 8 MiB cap, shows "Too large to show here" with
+  its counts and a browser link, never a cut-off diff. Mission control's row opens this tab;
   a small "↗" keeps the browser.
 - **Eric sees:** clicking a review request opens a Herdr tab with its diff.
 - **Done check:** on raywhite-ai#486 and ckc-de04#293, the tab's files and
   per-file +/− equal `gh pr view <n> -R <repo> --json files` (a base-tip diff
   would add the base branch's own changes and fail this); #293 lists all 119
   files, where tuicr failed; the first and last hunk of #293's largest file
-  match `git diff <merge-base> <head> -- <file>`, and scrolling reaches its end.
+  match `git diff <merge-base> <head> -- <file>`, and scrolling reaches its end;
+  a test feeds the file reader an over-limit numstat and an 8 MiB reply and
+  gets the placeholder both times.
 
 ### PR 1b: review Spaces open their Review tab
 
@@ -131,12 +135,17 @@ Each changes something Eric sees, so each gets a screenshot review before merge.
 - **Change:** a Submit dialog naming the pull request, the decision (Comment,
   Approve or Request changes), the summary and the draft count. One
   `POST /pulls/<n>/reviews` with `commit_id` = the pinned head; the button is
-  disabled while it runs. A failed or unknown result lists the pull request's
-  reviews before offering a retry, so nothing posts twice. A moved head warns
+  disabled while it runs. Each submission's body ends with a hidden marker
+  (`<!-- herdr-review:<id> -->`, a new id per Submit). After a failed or unknown
+  result, the tab lists the pull request's reviews and treats one of Eric's
+  carrying that marker as sent; only without one does it offer a retry, so
+  nothing posts twice. A moved head warns
   and shows which drafts sit on lines that changed. Cancel posts nothing.
 - **Done check:** Comment on a test pull request of Eric's own: the review's
   comments read back from the API at the same path, line and side, and the
-  drafts file is emptied. Authors cannot approve or request changes on their
+  drafts file is emptied. A test whose fake `gh` creates the review but
+  returns an error, then lists it with the marker, leaves exactly one review
+  and offers no retry. Authors cannot approve or request changes on their
   own pull requests, so those two are checked by tests on the request body and
   then by Eric's first real review request, read back from the API.
 
@@ -161,12 +170,13 @@ Each changes something Eric sees, so each gets a screenshot review before merge.
 - **Waits for:** PR 3a and 4a.
 - **Files:** `herdr-app/mods/pr-review/main.js`, its test, docs.
 - **Change:** a findings sidebar (must-fix first), each jumping to its line;
-  "Use as comment" adds its draft to the drafts file. Findings whose head SHA
-  differs from the tab's are shown as stale, without jumps or "Use", with a
-  note to rerun the audit.
+  "Use as comment" adds its draft to the drafts file. Findings whose head or
+  merge-base SHA differs from the tab's (a push, or a retargeted base) are
+  shown as stale, without jumps or "Use", with a note to rerun the audit.
 - **Done check:** the PR 4a review request's findings all show and each jump
   lands on its line; "Use" adds exactly one draft; the same file with an older
-  head SHA shows every finding as stale.
+  head SHA, and again with the same head but another merge-base, shows every
+  finding as stale.
 
 ### PR 5 (optional): ask the review agent, keys, reviewed files
 
