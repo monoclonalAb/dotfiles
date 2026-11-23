@@ -301,6 +301,15 @@ The global servers:
   `~/Desktop/projects/personal/hark-mcp/server.mjs` (override with
   `HARK_MCP_HOME`). That project lives outside this repository; moving it is a
   one-line change in the launcher.
+- **gmail** (read-only) and **gmail-send** both start
+  [`bin/gmail-mcp`](../bin/gmail-mcp), which runs
+  `~/Desktop/projects/personal/gmail-mcp/server.mjs` (override with
+  `GMAIL_MCP_HOME`; setup in that project's README). Their tools do not
+  overlap, so disabling `gmail-send` in `/mcp` leaves reading intact. Each has
+  its own Google sign-in (`gmail-mcp login read`, `gmail-mcp login send`),
+  stored under `~/.config/gmail-mcp/`, outside this repository. Every send
+  waits for a macOS confirmation dialog, which is why `gmail-send` has a
+  240-second `timeout`.
 
 ## OMP
 
