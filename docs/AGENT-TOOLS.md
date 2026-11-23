@@ -197,8 +197,10 @@ purpose. Status and next steps:
 with no session, skills or MCP servers, and no extensions except
 `omp-anthropic-route`, so it cannot touch the caller's Herdr pane. `-m other`
 picks the other model family than the calling session (Claude or GPT), which is
-how `/rho` gets its second opinion. `-m claude`, `gpt` and `fast` (GPT-6 Luna)
-and pstack's names also work. Each Claude child runs the route's preflight,
+how `/rho` gets its second opinion. `-m claude`, `gpt` (GPT-6.2 Sol), `fast`
+(GPT-6 Luna) and pstack's names also work. `-f` loads `codex-fast` and starts
+it on, so a GPT child uses Codex fast mode (more ChatGPT credits); `/rho`
+passes it to its reviewer, and it does nothing for Claude. Each Claude child runs the route's preflight,
 including one small probe request. See `pi-agent --help`.
 
 ### pstack

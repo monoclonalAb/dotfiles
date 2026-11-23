@@ -8,7 +8,7 @@ const codex = {
   contextWindow: 272_000, maxTokens: 128_000,
 } as Model;
 
-function harness(initialModel: Model | undefined = codex) {
+function harness(initialModel: Model | undefined = codex, fastFlag = false) {
   let model = initialModel;
   let idle = true;
   let command: any;
@@ -22,6 +22,11 @@ function harness(initialModel: Model | undefined = codex) {
       command = value;
     },
     on(name: string, handler: any) { handlers.set(name, handler); },
+    registerFlag(name: string, options: any) {
+      expect(name).toBe("fast");
+      expect(options).toMatchObject({ type: "boolean", default: false });
+    },
+    getFlag: (name: string) => name === "fast" ? fastFlag : undefined,
   } as unknown as ExtensionAPI);
   const ctx = {
     get model() { return model; },
@@ -70,7 +75,7 @@ const unsupported = [
 
 describe("Codex-only /fast", () => {
   test("accepts only reviewed Codex models on the Codex API", () => {
-    for (const id of ["gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra"]) {
+    for (const id of ["gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"]) {
       expect(supportsCodexFast({ ...codex, id })).toBe(true);
     }
     for (const model of [...unsupported, undefined]) expect(supportsCodexFast(model)).toBe(false);
@@ -182,6 +187,22 @@ describe("Codex-only /fast", () => {
     expect(h.statuses.get("codex-fast")).toBeUndefined();
     h.select(codex);
     expect(h.request(payload())).toBeUndefined();
+  });
+
+  test("--fast starts every session on, still only for supported Codex models", async () => {
+    const h = harness(codex, true);
+    for (const reason of ["startup", "reload", "new"]) {
+      await h.run("off");
+      h.start(reason);
+      expect(h.request(payload()).service_tier).toBe("priority");
+      expect(h.statuses.get("codex-fast")).toBe("fast:codex");
+    }
+    for (const model of unsupported) {
+      const other = harness(model, true);
+      other.start("startup");
+      expect(other.request({ ...payload(), model: model.id })).toBeUndefined();
+      expect(other.statuses.get("codex-fast")).toBeUndefined();
+    }
   });
 
   test("registers only command/request/lifecycle hooks; separate runtimes do not share state", async () => {

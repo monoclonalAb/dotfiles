@@ -5,11 +5,14 @@ available. Enable it while Pi is idle. The footer shows `fast:codex` when enable
 
 Only Pi's `openai-codex` provider with the native `openai-codex-responses` API is
 targeted. Supported models are GPT-5.4, GPT-5.5, GPT-5.6 (including Sol, Terra and
-Luna) and GPT-6 Astra; the reviewed allowlist lives in [`index.ts`](index.ts).
-Claude, direct OpenAI API, proxies under other provider names, Spark and unknown
-models are untouched. The command does not select a different model.
+Luna), GPT-6 Astra and GPT-6.2 (Sol and Astra); the reviewed allowlist lives in
+[`index.ts`](index.ts). Claude, direct OpenAI API, proxies under other provider
+names, Spark and unknown models are untouched. The command does not select a
+different model.
 
-- Starts **off** on startup, `/reload` and every new/resumed/forked session.
+- Starts **off** on startup, `/reload` and every new/resumed/forked session,
+  unless Pi was started with `--fast` (as `pi-agent -f` does), which starts each
+  of those sessions **on**.
 - Switching to an unsupported model turns it off; supported Codex models keep it.
 - When on, the request hook sets only `service_tier: "priority"` on main-agent
   requests; nothing else in the payload changes. When off, payloads are untouched.

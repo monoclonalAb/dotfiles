@@ -90,7 +90,7 @@ class PiAgentTest(unittest.TestCase):
     def test_pstack_model_names_map_to_both_providers(self):
         expected = {
             "claude": "anthropic/claude-opus-5-5",
-            "gpt": "openai-codex/gpt-6.1-sol",
+            "gpt": "openai-codex/gpt-6.2-sol",
             "fast": "openai-codex/gpt-6-luna",
             "opus": "anthropic/claude-opus-5-5",
             "fable": "anthropic/claude-fable-5-2",
@@ -108,7 +108,7 @@ class PiAgentTest(unittest.TestCase):
     def test_other_picks_the_other_provider_than_the_caller(self):
         _, call = self.run_agent("-m", "other", "-p", "hi", env={
             "PI_PROVIDER": "anthropic", "PI_MODEL": "claude-opus-5-5"})
-        self.assertEqual(self.option(call, "--model"), "openai-codex/gpt-6.1-sol")
+        self.assertEqual(self.option(call, "--model"), "openai-codex/gpt-6.2-sol")
         _, call = self.run_agent("-m", "other", "-p", "hi", env={
             "PI_PROVIDER": "openai-codex", "PI_MODEL": "gpt-6-astra"})
         self.assertEqual(self.option(call, "--model"), "anthropic/claude-opus-5-5")
@@ -131,6 +131,29 @@ class PiAgentTest(unittest.TestCase):
         route.write_text("")
         _, call = self.run_agent("-p", "hi")
         self.assertEqual(self.option(call, "-e"), str(route))
+
+    def test_fast_loads_codex_fast_and_turns_it_on(self):
+        route = self.home / ".pi/agent/extensions/omp-anthropic-route/index.ts"
+        fast = self.home / ".pi/agent/extensions/codex-fast/index.ts"
+        for path in (route, fast):
+            path.parent.mkdir(parents=True)
+            path.write_text("")
+        _, call = self.run_agent("-m", "gpt", "-p", "hi")
+        self.assertNotIn(str(fast), call["args"])
+        self.assertNotIn("--fast", call["args"])
+        result, call = self.run_agent("-m", "gpt", "--fast", "-p", "hi")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--no-extensions", call["args"])
+        extensions = [call["args"][i + 1] for i, a in enumerate(call["args"]) if a == "-e"]
+        self.assertEqual(extensions, [str(route), str(fast)])
+        self.assertIn("--fast", call["args"][:call["args"].index("--")])
+        self.assertEqual(self.option(call, "--model"), "openai-codex/gpt-6.2-sol")
+
+    def test_fast_without_the_extension_fails_before_running(self):
+        result, call = self.run_agent("-f", "-p", "hi")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--fast needs", result.stderr)
+        self.assertIsNone(call)
 
     def test_readonly_and_mcp_switches(self):
         _, call = self.run_agent("-r", "--mcp", "-p", "hi")

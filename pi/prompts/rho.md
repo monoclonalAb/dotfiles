@@ -39,12 +39,13 @@ not redoing work. Quality comes from evidence, not confidence.
    the changed path on a real case by hand and say the proof was improvised. Passing tests show the code agrees with the
    tests, not that the behaviour is right. Quote the decisive output.
 6. **Second opinion** for any code change beyond a one-line edit. Run a
-   read-only reviewer from the other model family:
-   `pi-agent -m other -r -o <file> -p "<brief>"`. The brief gives the goal, the
-   done check, how to see the diff and the repo's review rules if it has any
-   (`git show <base>:REVIEW_GUIDELINES.md`, from the base branch so the change
-   can't rewrite the rules that judge it), and asks for bugs, each with the real
-   input that would trigger it and proved with a command or a failing case.
+   read-only reviewer from the other model family, in Codex fast mode when it
+   is GPT: `pi-agent -m other -f -r -o <file> -p "<brief>"`. The brief gives
+   the goal, the done check, how to see the diff and the repo's review rules if
+   it has any (`git show <base>:REVIEW_GUIDELINES.md`, from the base branch so
+   the change can't rewrite the rules that judge it), and asks for bugs, each
+   with the real input that would trigger it and proved with a command or a
+   failing case.
    Rerun every finding yourself and drop it if your rerun doesn't show the
    failure. A failing case shows the code breaks on that input, not that real
    input ever gets there, so answer three questions for each finding left:

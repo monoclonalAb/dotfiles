@@ -2,8 +2,8 @@
 # pi-agent: run one helper agent. It is a separate Pi process that answers one
 # prompt in print mode and exits. pstack's skills call these subagents; see
 # docs/AGENT-TOOLS.md (pstack). The child loads no skills, no MCP servers and no
-# extensions except the Claude OAuth route, so it cannot change the caller's
-# Herdr pane, and it saves no session.
+# extensions except the Claude OAuth route (and codex-fast with --fast), so it
+# cannot change the caller's Herdr pane, and it saves no session.
 set -eu
 
 usage() {
@@ -18,6 +18,8 @@ usage: pi-agent [options] [--] [prompt ...]
   -a, --agent NAME|FILE  a pstack agent (poteto-agent, comment-sicko, ...) or a
                          Markdown file; its body is added to the system prompt
   -r, --readonly         remove the edit and write tools (bash stays)
+  -f, --fast             Codex fast mode (priority tier, more ChatGPT credits);
+                         ignored for models /fast doesn't support, e.g. Claude
       --mcp              connect the configured MCP servers
   -C, --cd DIR           run in DIR, for example a worktree
   -o, --out FILE         write the reply to FILE and errors to FILE.log
@@ -29,6 +31,7 @@ EOF
 
 pstack_root=${PSTACK_HOME:-$HOME/.local/share/pstack}/plugins/pstack
 route_extension=$HOME/.pi/agent/extensions/omp-anthropic-route/index.ts
+fast_extension=$HOME/.pi/agent/extensions/codex-fast/index.ts
 max_depth=3
 
 # Pi exports the calling session's model to its bash tool.
@@ -37,6 +40,7 @@ model=$parent_model
 thinking=${PI_REASONING_LEVEL:-}
 agent=
 readonly=false
+fast=false
 mcp=false
 directory=
 out=
@@ -52,6 +56,7 @@ while [ $# -gt 0 ]; do
         -t|--thinking) need_value "$1" $#; thinking=$2; shift 2 ;;
         -a|--agent) need_value "$1" $#; agent=$2; shift 2 ;;
         -r|--readonly) readonly=true; shift ;;
+        -f|--fast) fast=true; shift ;;
         --mcp) mcp=true; shift ;;
         -C|--cd) need_value "$1" $#; directory=$2; shift 2 ;;
         -o|--out) need_value "$1" $#; out=$2; shift 2 ;;
@@ -93,7 +98,7 @@ case $model in
 esac
 case $model in
     claude) model=anthropic/claude-opus-5-5 ;;
-    gpt) model=openai-codex/gpt-6.1-sol ;;
+    gpt) model=openai-codex/gpt-6.2-sol ;;
     fast) model=openai-codex/gpt-6-luna ;;
     opus) model=anthropic/claude-opus-5-5 ;;
     fable) model=anthropic/claude-fable-5-2 ;;
@@ -104,6 +109,13 @@ esac
 
 set -- -p --no-session --no-extensions --no-prompt-templates
 [ -f "$route_extension" ] && set -- "$@" -e "$route_extension"
+if [ "$fast" = true ]; then
+    if ! [ -f "$fast_extension" ]; then
+        printf 'pi-agent: --fast needs %s\n' "$fast_extension" >&2
+        exit 1
+    fi
+    set -- "$@" -e "$fast_extension" --fast
+fi
 [ -n "$model" ] && set -- "$@" --model "$model"
 [ -n "$thinking" ] && set -- "$@" --thinking "$thinking"
 [ "$readonly" = true ] && set -- "$@" --exclude-tools edit,write

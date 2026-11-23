@@ -10,6 +10,8 @@ const SUPPORTED_MODELS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-6-astra",
+  "gpt-6.2-astra",
+  "gpt-6.2-sol",
 ]);
 
 export function supportsCodexFast(model: ExtensionContext["model"]): boolean {
@@ -20,6 +22,13 @@ export function supportsCodexFast(model: ExtensionContext["model"]): boolean {
 
 export default function codexFastExtension(pi: ExtensionAPI): void {
   let enabled = false;
+
+  // pi-agent passes --fast so a helper agent starts in fast mode without a command.
+  pi.registerFlag("fast", {
+    description: "Start with Codex fast mode on (priority tier; more ChatGPT credits)",
+    type: "boolean",
+    default: false,
+  });
 
   const updateStatus = (ctx: ExtensionContext) => {
     if (ctx.hasUI) {
@@ -42,7 +51,7 @@ export default function codexFastExtension(pi: ExtensionAPI): void {
         return;
       }
       if (!supportsCodexFast(ctx.model)) {
-        ctx.ui.notify("/fast only supports Codex GPT-5.4, GPT-5.5, GPT-5.6 and GPT-6 Astra; current model is unchanged", "warning");
+        ctx.ui.notify("/fast only supports Codex GPT-5.4, GPT-5.5, GPT-5.6, GPT-6 Astra and GPT-6.2; current model is unchanged", "warning");
         return;
       }
       if (action !== "status") {
@@ -74,7 +83,7 @@ export default function codexFastExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", (_event, ctx) => {
-    enabled = false;
+    enabled = pi.getFlag("fast") === true;
     updateStatus(ctx);
   });
 
