@@ -154,6 +154,7 @@
     "ctrl-9": "spaces-env.select:9",
 
     "ctrl-a t": "popups.task",
+    "ctrl-a shift-r": "popups.pr-review",
     "ctrl-a v": "popups.review",
     "ctrl-a shift-v": "popups.review-branch",
     "ctrl-a e": "popups.scrollback",

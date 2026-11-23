@@ -24,6 +24,7 @@ Its own manual is `~/.config/herdr-app/AGENTS.md`, rewritten on every start.
 
 Also app-aware: [`bin/theme`](../bin/theme) (writes the flavour into the app's
 `settings.json`), [`bin/herdr-review`](../bin/herdr-review) (sends with `hc`),
+[`bin/review`](../bin/review) ([pull request reviews](#pull-request-reviews)),
 the [Pi Tasks launcher](../herdr/plugins/task-launcher/README.md#in-the-herdr-app)
 (`app-rpc.mjs`) and the
 [`herdr-task-summary`](../pi/extensions/herdr-task-summary/summary.ts) Pi
@@ -88,7 +89,8 @@ layout if a file breaks the window.
   its pull request, leaves them out. Only the active environment's Spaces
   show, plus the one you are in. Click a Space's counts (`◆1 ●2`) to fold its
   conversations, a repository's chevron to fold its worktrees. It has no
-  buttons: `C-a s` or `Cmd+N` makes a Space.
+  buttons: `C-a s` or `Cmd+N` makes a Space. At the bottom, **Reviews** lists
+  [pull request reviews](#pull-request-reviews) instead of the tree.
 - **Tab bar:** only the tabs, with room on the left for the window buttons. New
   tab: `Cmd+T` or `C-a C-c`.
 - **Status bar, right:** `Personal | Work` (click: toggle) and the attention
@@ -153,6 +155,7 @@ worktrees.
 | `C-a ;` / `C-a :` | Toggle Personal/Work / send this Space to the other one |
 | `C-a S-1..9`, `Ctrl+1..9`, `C-a S-←/→` | Spaces of the active environment, in sidebar order |
 | `C-a t` | Pi Tasks: a new worktree Space running Pi |
+| `C-a R` | [Review a pull request](#pull-request-reviews): a popup asks for its link, then its `/rho audit` starts in a Space of its own |
 | `C-a v` / `C-a V` | Review the agent's changes / whole branch in tuicr |
 | `C-a e` | This terminal's history in `$EDITOR` |
 | `C-a h/j/k/l`, `Cmd+Alt+arrows` | The pane in that direction; in a zoomed tab, unzooms first |
@@ -253,7 +256,7 @@ are not live terminals, so opening it never resizes or types into a terminal.
 
 ## Popups
 
-`C-a t`, `C-a v`, `C-a V` and `C-a e` open a terminal in a dialog with a small bar.
+`C-a t`, `C-a v`, `C-a V`, `C-a e` and `C-a R` open a terminal in a dialog with a small bar.
 The dialog closes when its program exits; closing it first (click outside or
 `×`) ends the program. `Esc` goes to the program.
 
@@ -264,6 +267,44 @@ The dialog closes when its program exits; closing it first (click outside or
 - **Review** runs `herdr-review` on the focused agent, or the only agent in the
   tab. `:wq` sends the comments with `hc send`, which refuses an agent waiting on
   a question; the comments then stay in tuicr and go to the clipboard.
+
+## Pull request reviews
+
+`C-a R` starts `/rho audit <link>` in a Space of its own, so reviews stay out
+of the Space you work in. Example:
+
+1. 10:00: you press `C-a R`. A popup asks for a pull request link; you paste
+   one (`Cmd+V`) and press `Enter`.
+2. A Space named after the pull request (`#163 Disable BWOF drafts`) opens in
+   your clone of that repository, running Pi on `/rho audit <link>`, in Work
+   for a work repository even while you are in Personal. You stay where you
+   are. The popup says where it went (`under Reviews in Work`) and closes
+   itself after a moment (`Enter` closes it at once).
+3. The sidebar lists it under **Reviews** at the bottom, not in the tree: the
+   pull request's state icon, its repository and the conversation's dot (`◐`
+   while it audits, `●` when the verdict is ready, `◆` if it asks you
+   something). Its conversation also shows in the top band like any other.
+4. 10:20: you click the row and read the verdict. When the pull request is
+   merged or closed, its row dims; close the Space with `C-a D` or its
+   right-click menu.
+
+- The same link again opens nothing new: the popup says it is already under
+  Reviews.
+- A mistake (not a pull request link, no clone, `gh` signed out) stays in the
+  popup until `Enter`. `Ctrl-C` in the popup cancels.
+- From any shell: `review <link>`. `review --dry-run <link>` shows the Space it
+  would make (name, folder, environment, command) and changes nothing.
+- The clone is the first one whose GitHub remote matches: from the open Spaces
+  (the folder each was made in and where its terminals are now), then
+  `~/Desktop/projects` (three folders deep) and the folders directly in `~`.
+  Without one, nothing starts and the popup says to clone it. Pi starts in its
+  main checkout; `/rho` reads the change in its own `/tmp` worktree.
+- The review joins Personal or Work with a Space that already shows that
+  repository. With none open, it joins the one most Spaces of the same GitHub
+  owner are in (an `everyday-artificial-intelligence` repository goes to Work),
+  else the one you are in.
+- [`bin/review`](../bin/review) labels the Space's terminal
+  `review.pr=<link>`; that label is what puts it under Reviews.
 
 ## After a reboot
 
@@ -350,4 +391,5 @@ Terminal Herdr settings with no app equivalent:
 | The sidebar shows every Space | spaces-env is not loaded: the status bar has no `Personal | Work` pill. Switch to `eric` |
 | A worktree shows its branch, not its pull request | Lookups run every 30 s for the shown Space, 5 min for others, and need `gh auth status` to pass. The cache is the `spaces-tree` mod's localStorage in `~/.config/herdr-app/data/` |
 | A Pi conversation did not reopen after a reboot | It started before the `herdr-app-resume` extension existed (no `pi.session` label): reopen it by hand with `pi --session <file>`; `/reload` running ones once idle |
+| A review Space shows in the tree, not under Reviews | Its terminal lost the `review.pr` label (`hc get <t> \| jq .labels`). `hc label <t> review.pr=<link>` puts it back |
 | A Pi conversation stays `Pi` or `Naming…` | Its Pi started before the extension learned `hc` labels: `/reload` it once idle. `hc get <t> \| jq .labels` shows `task_summary_error` |
