@@ -38,8 +38,9 @@ function completed() {
   } }];
 }
 
-async function fixture() {
-  const requests = [], errors = [], events = [];
+async function fixture({ select } = {}) {
+  const requests = [], errors = [], events = [], notices = [];
+  const statuses = new Map();
   const limited = new Set();
   let session;
   const server = createServer(async (req, res) => {
@@ -91,8 +92,13 @@ async function fixture() {
     const model = services.modelRuntime.getModel('openai-codex', 'gpt-6-astra');
     ({ session } = await sdk.createAgentSessionFromServices({ services, sessionManager: sdk.SessionManager.inMemory(root), model, tools: [], thinkingLevel: 'low' }));
     session.subscribe(event => events.push(event));
-    await session.bindExtensions({ mode: 'json', onError: error => errors.push(error) });
-    return { session, requests, errors, events, limited, close };
+    await session.bindExtensions({ mode: select ? 'tui' : 'json', onError: error => errors.push(error),
+      ...(select ? { uiContext: {
+        theme: { fg: (_color, text) => text }, select,
+        notify: text => notices.push(text), setStatus: (key, value) => statuses.set(key, value),
+      } } : {}),
+    });
+    return { session, requests, errors, events, limited, close, notices, statuses };
   } catch (error) { await close(); throw error; }
 }
 
@@ -188,6 +194,54 @@ test('native Pi: every account exhausted leaves the error; /accounts use switche
     await f.session.prompt('again');
     assert.equal(f.session.messages.at(-1).stopReason, 'error');
     assert.equal(readAuth()['openai-codex'].access, token('main'));
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+test('native Pi: picker makes the current fallback main without a request or a later unwanted return', { timeout: 20000 }, async () => {
+  const menus = [];
+  const f = await fixture({ select: async (_title, choices) => {
+    menus.push(choices);
+    return choices.find(choice => choice.includes('· work —'));
+  } });
+  try {
+    f.limited.add('main');
+    await f.session.prompt('fall back');
+    assert.deepEqual(readState().providers['openai-codex'], { active: 'work', preferred: 'main' });
+    const requests = f.requests.length;
+    const before = structuredClone(f.session.messages);
+    await f.session.prompt('/accounts');
+    assert.ok(menus[0].some(row => row.includes('· work — using now')));
+    assert.deepEqual(readState().providers['openai-codex'], { active: 'work' });
+    assert.equal(f.statuses.get('quota-router'), '· @work');
+    assert.equal(f.requests.length, requests);
+    assert.deepEqual(f.session.messages, before);
+    const state = readState();
+    state.cooldowns['openai-codex@main'].until = Date.now() - 1000;
+    writeFileSync(statePath, JSON.stringify(state));
+    await f.session.prompt('keep my new main');
+    assert.equal(f.requests.at(-1).account, 'work');
+    assert.deepEqual(readState().providers['openai-codex'], { active: 'work' });
+    // Short main command infers this session's provider and uses the selected credential.
+    await f.session.prompt('/accounts main main');
+    assert.equal(readAuth()['openai-codex'].accountId, 'main');
+    assert.deepEqual(readState().providers['openai-codex'], { active: 'main' });
+    assert.deepEqual(f.errors, []);
+  } finally { await f.close(); }
+});
+
+test('native Pi: skips a duplicate login and continues through two exhausted accounts in one turn', { timeout: 20000 }, async () => {
+  const f = await fixture();
+  try {
+    writeFileSync(authPath, JSON.stringify({ ...readAuth(), 'openai-codex@copy': credential('main'), 'openai-codex@home': credential('home') }));
+    f.limited.add('main');
+    f.limited.add('home');
+    await f.session.prompt('try available subscriptions');
+    assert.deepEqual(f.requests.map(request => request.account), ['main', 'home', 'work']);
+    assert.equal(f.session.messages.at(-1).stopReason, 'stop');
+    assert.equal(f.session.messages.filter(message => message.role === 'user').length, 1);
+    assert.equal(failedMessages(f.events).length, 2);
+    assert.deepEqual(readState().providers['openai-codex'], { active: 'work', preferred: 'main' });
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
 });

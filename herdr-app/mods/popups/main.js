@@ -5,6 +5,8 @@
 //   popups.review         tuicr on the focused agent's changes (bin/herdr-review)
 //   popups.review-branch  the same for its whole branch (herdr-review --branch)
 //   popups.scrollback     the focused terminal's history in $EDITOR
+//   popups.pr-review      asks for a pull request's link, then starts its /rho audit
+//                         in a Space of its own (bin/review)
 //
 // Each popup is an hc terminal without Herdr's space/tab labels (so it shows in
 // no tab), drawn in a dialog under a small bar of this mod (props { bar }).
@@ -79,6 +81,9 @@ export default class Popups extends View {
         title: `Scrollback of ${address}`, cwd: f.cwd || home(), width: 0.95, height: 0.9,
         env: {}, argv: ["/bin/sh", "-c", script, "sh", address],
       });
+    }
+    if (command === "pr-review") {
+      return this.open({ title: "Review a pull request", cwd: home(), width: 0.6, height: 120, env: {}, argv: [`${home()}/.local/bin/review`] });
     }
     throw new Error(`unknown command ${command}`);
   }

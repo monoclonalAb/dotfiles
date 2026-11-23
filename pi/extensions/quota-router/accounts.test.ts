@@ -141,7 +141,7 @@ describe("AccountStore", () => {
       slots: [{ label: "main", active: true, cooldown: undefined }, { label: "home", active: false, cooldown: undefined }, { label: "work", active: false, cooldown: undefined }],
     });
     expect(await store.summary("google")).toEqual({ provider: "google", active: undefined, slots: [] });
-    expect(await store.providers()).toEqual(["openai-codex"]);
+    expect(await store.providers()).toEqual(["anthropic", "openai-codex"]);
     expect(await store.next("openai-codex")).toBe("home");
     store.markCooldown("openai-codex", "home", T0 + 1000, "usage limit");
     expect(await store.next("openai-codex")).toBe("work");
@@ -202,6 +202,57 @@ describe("AccountStore", () => {
     expect(backend.data.get("openai-codex@work")).toEqual(cred("work"));
     await expect(store.activate("openai-codex", "nope")).rejects.toThrow("no parked account labelled nope");
     await expect(store.activate("openai-codex", "bad label")).rejects.toThrow("Invalid label");
+  });
+
+  test("choosing the active fallback as main clears the old preference without moving tokens", async () => {
+    const { store, backend, state } = makeStore({ "openai-codex": cred("main"), "openai-codex@work": cred("work") });
+    await store.activate("openai-codex", "work", { preferred: "main" });
+    const moves = backend.log.length;
+    expect(await store.activate("openai-codex", "work", { preferred: null })).toBeUndefined();
+    expect(state.state.providers["openai-codex"]).toEqual({ active: "work" });
+    expect(backend.log).toHaveLength(moves);
+  });
+
+  test("a main account in cooldown is scheduled without activating it or clearing its limit", async () => {
+    const { store, backend, state } = makeStore({ "openai-codex": cred("main"), "openai-codex@work": cred("work") });
+    store.markCooldown("openai-codex", "work", T0 + 60_000, "usage limit");
+    expect(await store.activate("openai-codex", "work", { preferred: null, whenReady: true })).toBeUndefined();
+    expect(state.state.providers["openai-codex"]).toEqual({ active: "main", preferred: "work" });
+    expect(backend.log).toEqual([]);
+    expect(store.cooldown("openai-codex", "work")).toBeDefined();
+  });
+
+  test("fallback skips duplicate logins, prefers main, and rechecks a stale plan", async () => {
+    const { store, backend, state } = makeStore({
+      "openai-codex": cred("main"), "openai-codex@duplicate": cred("other-token", "main"),
+      "openai-codex@home": cred("home"), "openai-codex@work": cred("work"),
+    });
+    expect(await store.next("openai-codex")).toBe("home");
+    store.setPreferred("openai-codex", "work");
+    expect(await store.next("openai-codex")).toBe("work");
+    store.markCooldown("openai-codex", "work", T0 + 1000, "usage limit");
+    expect(await store.activate("openai-codex", "work", { fallbackFrom: "main" })).toBeUndefined();
+    await store.activate("openai-codex", "home", { preferred: null });
+    expect(await store.activate("openai-codex", "duplicate", { fallbackFrom: "main" })).toBeUndefined();
+    expect(await store.recordLimit("openai-codex", "main", T0 + 1000, "usage limit")).toBe(false);
+    expect(state.state.cooldowns["openai-codex@main"]).toBeUndefined();
+    expect(backend.data.get("openai-codex")).toEqual(cred("home"));
+    expect(state.state.providers["openai-codex"]).toEqual({ active: "home" });
+  });
+
+  test("a stale automatic return cannot overwrite a newer main selection", async () => {
+    const { store, backend } = makeStore({ "openai-codex": cred("main"), "openai-codex@work": cred("work") });
+    await store.activate("openai-codex", "work", { preferred: "main" });
+    await store.activate("openai-codex", "work", { preferred: null });
+    expect(await store.activate("openai-codex", "main", { preferred: null, returnToMain: true })).toBeUndefined();
+    expect(backend.data.get("openai-codex")).toEqual(cred("work"));
+  });
+
+  test("fallback rejects matching OAuth tokens even without a Codex identity", async () => {
+    const value = { type: "oauth", access: "token", refresh: "refresh", expires: T0 + 1000 } as Credential;
+    const { store } = makeStore({ anthropic: value, "anthropic@copy": { ...value }, "anthropic@work": cred("work") });
+    expect(await store.next("anthropic")).toBe("work");
+    expect(await store.activate("anthropic", "copy", { fallbackFrom: "main" })).toBeUndefined();
   });
 
   test("activate re-parks a credential Pi refreshed between the read and the swap", async () => {
@@ -334,7 +385,7 @@ describe("runtime backend against the installed Pi credential store", () => {
       // Pi's own store on the same file sees the same data.
       expect(codingAgent.readStoredCredential("openai-codex", authPath)).toEqual(cred("main"));
       const clone = loginClone(fake as any, "openai-codex@x");
-      expect(clone.auth).toBe(fake.auth);
+      expect(clone.auth.oauth?.login).toBe(fake.auth.oauth.login);
       expect(clone.getModels()[0].provider).toBe("openai-codex@x");
     } finally {
       rmSync(root, { recursive: true, force: true });

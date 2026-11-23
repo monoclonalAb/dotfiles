@@ -101,13 +101,6 @@
                       "content": {
                         "mod": "files"
                       }
-                    },
-                    {
-                      "id": "brief",
-                      "type": "block",
-                      "content": {
-                        "mod": "brief"
-                      }
                     }
                   ],
                   "active": "sidebar"
@@ -200,7 +193,7 @@
   "titlebar": "none",
   "traffic_lights": [
     12,
-    16
+    6
   ],
   "preview": "mods/spaces-tree/.layout-preview.svg",
   "terminal_opacity": 0

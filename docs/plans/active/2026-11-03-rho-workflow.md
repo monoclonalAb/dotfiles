@@ -35,8 +35,8 @@ model's review, CI, and a per-repository merge rule.
 - [`pi/extensions/README.md`](../../../pi/extensions/README.md) forbids
   extensions that add tools or instructions to every turn, so helper agents run
   through `bin/pi-agent` instead.
-- `/rho` ships through [`pi/prompts/pr.md`](../../../pi/prompts/pr.md) rather
-  than its own PR rules.
+- `/rho` ships through the [`pr` skill](../../../pi/skills/pr/SKILL.md) (which
+  `/pr` also runs) rather than its own PR rules.
 
 ## Acceptance criteria
 
