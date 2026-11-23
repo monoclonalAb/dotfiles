@@ -63,6 +63,10 @@ cask "tailscale-app"          # tailnet access; needs a Privacy & Security appro
 # it has no glyphs, and every icon in lualine/telescope/blink renders as tofu.
 cask "font-jetbrains-mono-nerd-font"
 cask "font-symbols-only-nerd-font"
+# herdr-app/layouts/eric.json asks for "Maple Mono NF": handwriting-style italics,
+# Nerd Font icons included. The Herdr app takes one font, so italics can't come
+# from a second family.
+cask "font-maple-mono-nf"
 
 ###############################################################################
 # Daily drivers — not required by any config, safe to trim                    #

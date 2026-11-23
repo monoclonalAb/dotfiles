@@ -352,6 +352,13 @@ make it less see-through, raise those alpha suffixes; `ff` is solid. The app
 re-reads a theme file when its theme changes or when it starts. `herdr-app shot`
 draws the app without the desktop, so it cannot show this effect.
 
+The terminal font is Maple Mono NF, set by `font` in
+[`layouts/eric.json`](../herdr-app/layouts/eric.json) and installed by the
+[`Brewfile`](../Brewfile), for its handwriting-style italics (Neovim comments,
+Pi's "Thinking"). The app takes one font for everything, so the italics can't
+come from a second family. Without the font installed, the app falls back to
+JetBrains Mono. A newly installed font shows after the app restarts.
+
 ## Moving the terminal Herdr session
 
 `herdr-import` reads `~/.config/herdr/session.json` and makes each workspace a

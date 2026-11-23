@@ -183,6 +183,7 @@
   ],
   "background": "canvas",
   "window_blur": true,
+  "font": "Maple Mono NF",
   "terminal_padding": [
     14,
     12
