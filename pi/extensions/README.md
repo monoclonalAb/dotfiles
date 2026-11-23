@@ -44,13 +44,8 @@ Display-only extensions (no approval needed, but keep them that way):
   model when that is missing or fails; it costs provider usage. Titles
   stay in memory and nothing is written to the session. When naming fails, the
   timestamped reason goes to the pane's display-only `task_summary_error` token
-  (no files); a successful title or a new empty session clears it. In the Herdr
-  app only, [`brief.ts`](herdr-task-summary/brief.ts) also writes a one- or
-  two-sentence summary of the whole conversation for the Brief panel (`hc`
-  labels `task_brief`, `task_brief_pending`, `task_brief_error`). It is a
-  second request of the same kind, after each new user request and when a
-  conversation opens or reloads. It holds the conversation's user text only (its
-  first request and up to 11 latest ones), never replies or tool output.
+  (no files); a successful title or a new empty session clears it. It only
+  generates titles; there is no separate conversation-summary request.
 - `token-speed/` shows output tokens per second in the footer and reports
   session and per-model averages through `/tps`. While a reply streams it shows
   a `~` estimate (streamed characters ÷ 4, Pi's own heuristic, over time since

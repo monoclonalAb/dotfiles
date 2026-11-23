@@ -187,7 +187,6 @@
     "ctrl-a b": "pane-keys.panel:sidebar",
     "cmd-b": "pane-keys.panel:sidebar",
     "ctrl-a f": "pane-keys.panel:files",
-    "ctrl-a i": "pane-keys.panel:brief",
 
     "ctrl-a g": "pane-keys.worktree:open",
     "ctrl-a shift-g": "pane-keys.worktree:new",

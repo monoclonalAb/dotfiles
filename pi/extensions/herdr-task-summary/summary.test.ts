@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { registerHerdrTaskSummary } from "./index.ts";
+import registerExtension, { registerHerdrTaskSummary } from "./index.ts";
 import {
   EMPTY_SESSION_SUMMARY,
   HERDR_SUMMARY_ERROR_TOKEN,
@@ -724,6 +724,50 @@ test("in the Herdr app the title is an hc label; pending and failures are labels
     ["hc", "label", "t7", "task_summary_error=", "task_summary_pending=", "task_summary=Fix login"],
   ]);
   assert.equal(await reportTaskSummary("x", app, async () => { throw new Error("no hc"); }), false);
+});
+
+test("the default entry point makes only title requests and publishes only title labels", async (t) => {
+  const handlers = new Map<string, Array<(...args: any[]) => any>>();
+  const labels: string[][] = [];
+  const calls: any[][] = [];
+  const entries = [user("Fix the login redirect")];
+  const ctx = {
+    model: { provider: "test", id: "selected" },
+    modelRegistry: registry(async (...args: any[]) => { calls.push(args); return response("Repair login redirect"); }),
+    sessionManager: { getBranch: () => entries },
+  };
+  registerExtension({
+    on(name: string, handler: (...args: any[]) => any) {
+      handlers.set(name, [...(handlers.get(name) ?? []), handler]);
+    },
+    async exec(command: string, args: string[]) {
+      assert.equal(command, "hc");
+      labels.push(args);
+      return { code: 0, stdout: "", stderr: "", killed: false };
+    },
+  } as never, { HC_TERMINAL_ID: "t7" }, { debounceMs: 0, timeoutMs: 1000 });
+  const emit = async (name: string, event = {}) => {
+    for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
+  };
+  t.after(() => emit("session_shutdown"));
+  assert.deepEqual([...handlers.keys()].sort(), [
+    "message_end", "model_select", "session_shutdown", "session_start", "session_tree",
+  ]);
+  assert.ok([...handlers.values()].every((list) => list.length === 1), "no second set of summary hooks");
+  await emit("session_start");
+  await until(() => labels.at(-1)?.includes("task_summary=Repair login redirect") === true);
+  assert.equal(calls.length, 1, "opening the conversation only requests a title");
+  await emit("message_end", user("Also fix the signup redirect"));
+  await until(() => calls.length === 2 && labels.at(-1)?.includes("task_summary_pending=") === true);
+  await emit("message_end", { message: { role: "assistant", content: "Fixed both redirects." } });
+  await emit("session_shutdown");
+  assert.equal(calls.length, 2, "one title request per distinct prompt, no conversation summaries");
+  assert.ok(calls.every(([, request]) => Array.isArray(JSON.parse(request.messages[0].content).recentUserRequests)));
+  assert.ok(labels.length > 0);
+  for (const args of labels) {
+    assert.deepEqual(args.slice(0, 2), ["label", "t7"]);
+    assert.ok(args.slice(2).every((arg) => /^task_summary(?:_pending|_error)?=/.test(arg)));
+  }
 });
 
 test("in the Herdr app a pending title is one mark, not animation frames", async () => {

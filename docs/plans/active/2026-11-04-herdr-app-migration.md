@@ -95,6 +95,12 @@ Herdr session (Spaces, tabs, splits, Pi conversations) in the app.
   Changes, and without per-Space panel memory (a sidebar click on a Space
   would otherwise swap the sidebar for that Space's view).
 
+- [x] Retired Brief (2026-11-17, user request): removed the `C-a i` panel and
+  its separate background conversation-summary generation. The right-hand panel
+  now has sidebar and Files only. Titles, attention and navigation stay.
+  See [retirement plan](../completed/2026-11-17-retire-herdr-brief.md) for this change's checks;
+  the earlier Brief and panel checks below are historical.
+
 ## Decisions
 
 - **Terminal Herdr stays as a backup:** its config, plugins, patch and the
