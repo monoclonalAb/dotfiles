@@ -36,7 +36,7 @@ Use temporary directories outside the repository for generated output.
 | Pi extensions (Node native) | `node --test pi/extensions/<name>/*.test.mjs` | Real Pi SDK sessions with isolated HOME and synthetic providers. Applies to `agent-stuff`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route`, `token-speed` |
 | Pi always-on and `/skill` skills (`selective-skills.ts`) | `node --test pi/extensions/selective-skills.test.mjs` | Real Pi SDK sessions with isolated HOME, fixture skills and a faux provider: the always-on `pr` reaches the model in new and older sessions, `/skill list`, `on`, `off` and `clear`, the footer count, and a `pr` outside `~/.pi/agent/skills/` stays optional. Does not read the real `pr` skill or render the TUI picker |
 | Pi agent-stuff public API | `node pi/extensions/agent-stuff/typecheck.mjs` | Installed `tsc` and Pi public types |
-| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `theme-sync` and `quota-footer` (which also covers `compact-ui`) |
+| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `theme-sync`, `quota-router` (account picker/main selection) and `quota-footer` (which also covers `compact-ui`) |
 
 Run Pi suites as separate commands: some install module mocks for the installed
 Pi packages. None make real provider requests, so they do not prove provider
