@@ -1,0 +1,272 @@
+#!/usr/bin/python3
+"""Start a /rho audit of a GitHub pull request in its own Herdr app Space.
+
+The Space opens in a local clone of the pull request's repository (rho reads
+the change in its own /tmp worktree), is named after the pull request
+("#482 Fix login redirect") and does not take you there. Its Pi terminal is
+labelled review.pr=<link>; the sidebar (herdr-app/mods/spaces-tree) lists
+Spaces with that label under Reviews instead of in the Spaces tree. The Space
+joins the Personal/Work environment of a Space that already shows that
+repository (in its folder or one of its terminals'), else the one most Spaces
+showing that owner's repositories are in, else the one you are in. A link that
+already has a review Space is not started twice.
+
+C-a R in the Herdr app (herdr-app/mods/popups) runs this in a popup, which
+asks for the link and closes itself a moment after the review starts.
+"""
+
+import argparse
+from collections import Counter
+import json
+import os
+from pathlib import Path
+import re
+import select
+import shlex
+import shutil
+import subprocess
+import sys
+
+LABEL = "review.pr"
+LINK = re.compile(r"^https?://(?:www\.)?github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)(?:[/?#]\S*)?$", re.IGNORECASE)
+REMOTE = re.compile(r"github\.com[:/]+([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", re.IGNORECASE)
+# Where clones are looked for besides the folders of open Spaces: (root, depth).
+ROOTS = (("Desktop/projects", 3), ("", 1))
+SKIP = {"node_modules", ".git", ".venv", "venv", "target", "dist", "build"}
+
+
+class ReviewError(Exception):
+    pass
+
+
+def search_path(env):
+    # Hotkey commands get the app's environment, not a login shell.
+    return f"{env.get('HOME', str(Path.home()))}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def parse_link(text):
+    """A pull request link as {owner, repo, number, link, url}: link without
+    extra parts (/files, #comment), url also lower-cased so one pull request
+    always gets the same label. None for anything else."""
+    m = LINK.match((text or "").strip())
+    if not m:
+        return None
+    owner, repo, number = m.group(1), m.group(2), int(m.group(3))
+    link = f"https://github.com/{owner}/{repo}/pull/{number}"
+    return {"owner": owner, "repo": repo, "number": number, "link": link, "url": link.lower()}
+
+
+def remote_repo(url):
+    """owner/repo (lower case) of a GitHub remote URL, else None."""
+    m = REMOTE.search(url.strip())
+    return f"{m.group(1)}/{m.group(2)}".lower() if m else None
+
+
+def run(args, env, cwd=None, timeout=30):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return subprocess.CompletedProcess(args, 127, "", str(error))
+
+
+class Clones:
+    """Which GitHub repository a folder belongs to, and its main checkout."""
+
+    def __init__(self, env):
+        self.env, self.seen = env, {}
+
+    def of(self, folder):
+        """(main checkout, {owner/repo of its GitHub remotes}) or None."""
+        if folder in self.seen:
+            return self.seen[folder]
+        found = None
+        common = run(["git", "-C", folder, "rev-parse", "--path-format=absolute", "--git-common-dir"], self.env)
+        if common.returncode == 0 and common.stdout.strip().endswith("/.git"):
+            root = common.stdout.strip()[:-5]
+            remotes = run(["git", "-C", root, "remote", "-v"], self.env)
+            repos = {remote_repo(line.split()[1]) for line in remotes.stdout.splitlines() if len(line.split()) > 1}
+            found = (root, repos - {None})
+        self.seen[folder] = found
+        return found
+
+
+def scan(home):
+    """Folders holding a .git directory or file under the ROOTS."""
+    for root, depth in ROOTS:
+        start = Path(home, root)
+        stack = [(start, 0)]
+        while stack:
+            folder, level = stack.pop()
+            try:
+                entries = sorted(os.scandir(folder), key=lambda e: e.name)
+            except OSError:
+                continue
+            if any(e.name == ".git" for e in entries):
+                yield str(folder)
+            if level < depth:
+                stack.extend((Path(e.path), level + 1) for e in reversed(entries)
+                             if e.is_dir(follow_symlinks=False) and e.name not in SKIP and not e.name.startswith("."))
+
+
+class App:
+    def __init__(self, env):
+        self.env = env
+
+    def call(self, args):
+        done = run(["herdr-app", *args], self.env)
+        try:
+            reply = json.loads(done.stdout)
+        except ValueError:
+            reply = None
+        if done.returncode != 0 or not isinstance(reply, dict) or "error" in reply:
+            detail = reply.get("error") if isinstance(reply, dict) else None
+            raise ReviewError(f"herdr-app {' '.join(args[:2])}: {detail or done.stderr.strip() or 'no reply'}")
+        return reply
+
+    def do(self, command, **args):
+        return self.call(["do", command, json.dumps(args)])
+
+
+def space_folders(space, env):
+    """Where a Space is: the folder it was made in, then where its terminals are now."""
+    folders = [space["folder"]] if space.get("folder") else []
+    for tab in space.get("tabs", []):
+        for t in tab.get("terminals", []):
+            got = run(["hc", "get", t.get("terminal", ""), "--json"], env)
+            try:
+                info = json.loads(got.stdout) if got.returncode == 0 else {}
+            except ValueError:
+                info = {}
+            cwd = (info.get("foreground") or {}).get("cwd") or info.get("cwd")
+            if cwd and cwd not in folders:
+                folders.append(cwd)
+    return folders
+
+
+def environment_of(space_id, env):
+    """The Personal/Work environment the spaces-env mod gave a Space, or None."""
+    home = env.get("HERDR_APP_HOME") or f"{env['HOME']}/.config/herdr-app"
+    try:
+        shared = json.loads(Path(home, "shared.json").read_text())
+        value = shared["spaces-env"]["assign"][space_id]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return value if value in ("personal", "work") else None
+
+
+def plan(link, env, app):
+    """Everything a review needs, without changing anything."""
+    pr = parse_link(link)
+    if not pr:
+        raise ReviewError(f"not a GitHub pull request link: {link.strip() or '(empty)'}")
+    want = f"{pr['owner']}/{pr['repo']}".lower()
+
+    listing = run(["hc", "ls", "--json", "--label", f"{LABEL}={pr['url']}"], env)
+    if listing.returncode != 0:
+        raise ReviewError(f"hc ls: {listing.stderr.strip() or 'failed'}")
+    existing = [t["address"] for t in json.loads(listing.stdout).get("terminals", []) if t.get("state") == "live"]
+
+    view = run(["gh", "pr", "view", pr["link"], "--json", "number,title"], env, timeout=60)
+    if view.returncode != 0:
+        detail = (view.stderr or view.stdout).strip().splitlines()
+        raise ReviewError(f"gh pr view: {detail[0] if detail else 'failed'}")
+    title = json.loads(view.stdout).get("title") or ""
+
+    clones = Clones(env)
+    folder = environment = None
+    owners = Counter()  # environments of Spaces showing the owner's repositories
+    for space in app.call(["ls"]).get("spaces", []):
+        if space.get("machine"):
+            continue
+        found = [f for f in map(clones.of, space_folders(space, env)) if f]
+        repos = set().union(*(r for _, r in found))
+        here = environment_of(space["id"], env)
+        if want in repos:
+            folder = folder or next(root for root, r in found if want in r)
+            environment = environment or here
+        if here and any(r.split("/", 1)[0] == want.split("/", 1)[0] for r in repos):
+            owners[here] += 1
+    environment = environment or next((e for e, _ in owners.most_common(1)), None)
+    if not folder:
+        folder = next((found[0] for f in scan(env["HOME"]) if (found := clones.of(f)) and want in found[1]), None)
+    if not folder:
+        raise ReviewError(f"no local clone of {pr['owner']}/{pr['repo']}; clone it first (gh repo clone {pr['owner']}/{pr['repo']})")
+
+    agent = env.get("REVIEW_PI") or "pi"
+    message = f"/rho audit {pr['link']}"
+    # Pi in a login shell, as when typed, and that shell again once Pi quits.
+    argv = ["/bin/zsh", "-lic", f'{shlex.quote(agent)} -- "$1"; exec /bin/zsh -l', "review", message]
+    name = f"#{pr['number']} {title}".strip()
+    return {"pr": pr, "name": name, "folder": folder, "environment": environment, "argv": argv, "existing": existing}
+
+
+def start(p, app, env):
+    made = app.do("space.new", name=p["name"], folder=p["folder"], argv=p["argv"], focus=False)
+    terminal = made.get("terminal")
+    if not terminal:
+        raise ReviewError(f"herdr-app space.new made no terminal ({json.dumps(made)})")
+    labelled = run(["hc", "label", terminal, f"{LABEL}={p['pr']['url']}"], env)
+    if labelled.returncode != 0:
+        raise ReviewError(f"started in Space {made.get('space')} but could not label it: {labelled.stderr.strip()}")
+    warning = None
+    if p["environment"]:
+        try:
+            app.do(f"spaces-env.assign:{made['space']}={p['environment']}")
+        except ReviewError as error:
+            warning = f"not put in {p['environment'].title()}: {error}"
+    return warning
+
+
+def linger(asked, seconds=2.5):
+    """In the C-a R popup, which closes when this exits: leave the result on
+    screen a moment (Enter closes it at once)."""
+    if asked and sys.stdin.isatty():
+        print("Closing…", end="", flush=True)
+        select.select([sys.stdin], [], [], seconds)
+
+
+def main(argv=None, env=None):
+    env = dict(os.environ if env is None else env)
+    env.setdefault("HOME", str(Path.home()))
+    env["PATH"] = search_path(env)
+    parser = argparse.ArgumentParser(prog="review", description="Start a /rho audit of a pull request in its own Herdr app Space.")
+    parser.add_argument("link", nargs="?", help="the pull request's GitHub link (asked for when left out)")
+    parser.add_argument("--dry-run", action="store_true", help="say what would happen; change nothing")
+    args = parser.parse_args(argv)
+    asked = args.link is None
+    try:
+        if asked:
+            if not sys.stdin.isatty():
+                raise ReviewError("give a pull request link")
+            args.link = input("Paste a pull request link (Enter starts it, Ctrl-C cancels):\n> ")
+        app = App(env)
+        p = plan(args.link, env, app)
+        if args.dry_run:
+            print(json.dumps({k: p[k] for k in ("name", "folder", "environment", "argv", "existing")} | {"label": f"{LABEL}={p['pr']['url']}"}, indent=2))
+            return 0
+        if p["existing"]:
+            print(f"Already reviewing {p['name']}\nIt is under Reviews in the sidebar ({', '.join(p['existing'])}).")
+            linger(asked)
+            return 0
+        warning = start(p, app, env)
+        where = f"in {p['environment'].title()}" if p["environment"] else "in the sidebar"
+        print(f"Reviewing {p['name']}\n{Path(p['folder']).name} · under Reviews {where}")
+        if warning:
+            print(f"review: {warning}", file=sys.stderr)
+        linger(asked)
+        return 0
+    except (KeyboardInterrupt, EOFError):
+        return 130
+    except ReviewError as error:
+        print(f"review: {error}", file=sys.stderr)
+        if asked and sys.stdin.isatty():
+            # In the C-a R popup, which closes when this exits.
+            try:
+                input("Press Enter to close. ")
+            except (KeyboardInterrupt, EOFError):
+                pass
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -28,6 +28,17 @@ interface SkillsState {
   enabledPaths: string[];
 }
 
+// Skills every session loads, wherever it starts, from Pi's own skills folder
+// (~/.pi/agent/skills) only, so a project's skill of the same name never takes
+// its place. /skill lists them as "always" and cannot turn them off; the
+// footer count includes them.
+const ALWAYS_ON_SKILLS = ["pr"];
+
+function isAlwaysOn(skill: Skill): boolean {
+  return ALWAYS_ON_SKILLS.includes(skill.name)
+    && isInside(skill.filePath, join(getAgentDir(), "skills"));
+}
+
 // Skills tied to one folder. A new session started anywhere inside the folder
 // begins with them on (/skill can still turn them off). Outside the folder,
 // /skill does not offer them at all. A linked Git worktree, such as a Herdr
@@ -185,11 +196,14 @@ function discoverSkills(ctx: ExtensionContext): Skill[] {
 
 export default function selectiveSkills(pi: ExtensionAPI) {
   let candidates: Skill[] = [];
+  let alwaysOn: Skill[] = [];
   let enabledPaths = new Set<string>();
   let current: ExtensionContext | undefined;
 
   function refreshCandidates(ctx: ExtensionContext): void {
-    candidates = discoverSkills(ctx);
+    const skills = discoverSkills(ctx);
+    alwaysOn = skills.filter(isAlwaysOn);
+    candidates = skills.filter((skill) => !isAlwaysOn(skill));
     const availablePaths = new Set(candidates.map((skill) => skill.filePath));
     enabledPaths = new Set([...enabledPaths].filter((path) => availablePaths.has(path)));
   }
@@ -197,9 +211,10 @@ export default function selectiveSkills(pi: ExtensionAPI) {
   // Styled like the other footer statuses: a dim bar to separate it from the
   // quota percentages, a bold number in its own palette colour (blue, between
   // quota's mauve and token-speed's teal), then a dim unit: "| 1 skill".
+  // It counts every loaded skill: the always-on ones and the /skill choices.
   function updateStatus(ctx: ExtensionContext): void {
     current = ctx;
-    const count = enabledPaths.size;
+    const count = alwaysOn.length + enabledPaths.size;
     const theme = ctx.ui.theme;
     ctx.ui.setStatus(
       STATUS_KEY,
@@ -264,7 +279,7 @@ export default function selectiveSkills(pi: ExtensionAPI) {
 
   pi.on("resources_discover", (_event, ctx) => {
     refreshCandidates(ctx);
-    return { skillPaths: [...enabledPaths] };
+    return { skillPaths: [...alwaysOn.map((skill) => skill.filePath), ...enabledPaths] };
   });
 
   pi.registerCommand("skill", {
@@ -286,13 +301,16 @@ export default function selectiveSkills(pi: ExtensionAPI) {
       const argument = args.trim();
 
       if (argument === "list") {
-        if (candidates.length === 0) {
+        if (candidates.length === 0 && alwaysOn.length === 0) {
           ctx.ui.notify("No skills found", "info");
           return;
         }
-        const lines = candidates.map((skill) =>
-          `${enabledPaths.has(skill.filePath) ? "on " : "off"}  ${skill.name}`,
-        );
+        const lines = [
+          ...alwaysOn.map((skill) => `always  ${skill.name}`),
+          ...candidates.map((skill) =>
+            `${enabledPaths.has(skill.filePath) ? "on    " : "off   "}  ${skill.name}`,
+          ),
+        ];
         ctx.ui.notify(lines.join("\n"), "info");
         return;
       }
@@ -315,6 +333,10 @@ export default function selectiveSkills(pi: ExtensionAPI) {
         }
 
         const [, requestedState, name] = match;
+        if (alwaysOn.some((skill) => skill.name === name)) {
+          ctx.ui.notify(`${name} is always on`, "info");
+          return;
+        }
         const skill = findCandidate(name);
         if (!skill) {
           ctx.ui.notify(`Unknown or ambiguous skill: ${name}`, "error");
