@@ -19,13 +19,27 @@ interface CredentialStoreLike {
  * only inside the private runtime so `runtime.login(key)` runs the real login and persists
  * under that key.
  */
-export function loginClone(base: Provider, id: string): Provider {
+export function loginClone(base: Provider, id: string, callerSignal?: AbortSignal): Provider {
   return {
     id,
     name: `${base.name} (${id})`,
     baseUrl: base.baseUrl,
     headers: base.headers,
-    auth: base.auth,
+    auth: base.auth.oauth ? {
+      ...base.auth,
+      oauth: {
+        ...base.auth.oauth,
+        async refresh(credential, signal) {
+          // Pi may use its own refresh signal instead of forwarding getAuth's signal.
+          const combined = callerSignal ? AbortSignal.any([signal, callerSignal]) : signal;
+          combined.throwIfAborted();
+          const next = await base.auth.oauth!.refresh(credential, combined);
+          // Reject a late result before it reaches Pi's locked credential writer.
+          combined.throwIfAborted();
+          return next;
+        },
+      },
+    } : base.auth,
     getModels: () => base.getModels().map((model) => ({ ...model, provider: id })),
     stream: (model, context, options) => base.stream(model, context, options),
     streamSimple: (model, context, options) => base.streamSimple(model, context, options),
@@ -103,10 +117,10 @@ export function createRuntimeBackend(options: RuntimeBackendOptions): AccountsBa
       signal.throwIfAborted();
       if ((await credentials.read(key))?.type !== "oauth") return undefined;
       signal.throwIfAborted();
-      if (!registered.has(key)) {
-        created.registerNativeProvider(loginClone(base, key));
-        registered.add(key);
-      }
+      // This private runtime never streams; rebinding the clone safely associates
+      // each refresh with its caller even when Pi does not forward cancellation.
+      created.registerNativeProvider(loginClone(base, key, signal));
+      registered.add(key);
       return created.getAuth(key, { signal });
     },
     async login(provider, key, interaction) {

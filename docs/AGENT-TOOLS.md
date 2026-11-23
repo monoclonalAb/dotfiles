@@ -67,7 +67,7 @@ context.
 
 | Extension | Adds |
 | --- | --- |
-| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
+| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) skill is on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows it as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
 | `session-controls.ts` | `/clear` and `/drop` |
 | `copy-prompt.ts` | `alt+shift+c` copies the draft |
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
@@ -75,14 +75,14 @@ context.
 | `long-context` | `/long-context` switches GPT-5.6 / GPT-6 Astra to the 1.05M window (long-context pricing above 272K) |
 | [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
-| [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` and `/route`: park a second login and continue on it when one hits a usage limit |
+| [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` picker: switch logins, choose main, manage saved accounts and automation; `/route` controls fallback when a login hits a limit |
 | [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and an `MCP: N/M` footer |
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`theme-sync`](../pi/extensions/theme-sync/README.md) | Follows the shared Catppuccin flavour ([`THEME.md`](THEME.md)) |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
 | [`gemini-thinking-tidy`](../pi/extensions/gemini-thinking-tidy/README.md) | Gemini 4 Carbon thinking blocks show only the summaries, not the summariser's working notes (display only) |
 | [`readable-transcript`](../pi/extensions/readable-transcript/README.md) | Frames thinking blocks behind a `│` rail and tidies `codemode` and multi-line `bash` script rows (display only) |
-| `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task; see [`HERDR.md`](HERDR.md#agent-state)); in the Herdr app also a conversation summary for the [Brief panel](HERDR-APP.md#brief) (a second small request) |
+| `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task; see [`HERDR.md`](HERDR.md#agent-state)); titles only, no background conversation summaries |
 | [`omp-anthropic-route`](../pi/extensions/omp-anthropic-route/README.md) | Sends Claude OAuth requests in OMP's reviewed shape (below) |
 
 **Claude via OMP.** The first direct Claude OAuth request after starting Pi or
@@ -119,8 +119,13 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
   starts itself. Its MIT licence is in
   [`pi/prompts/tutor/`](../pi/prompts/tutor/LICENSE.md).
 - `/domain-first [scope]`, `/test-sweep [scope]`, `/feedback [correction]`.
-- `/pr [notes]`: commit, push, and open or update a draft PR with a short
-  description (screenshots only when asked).
+- `/pr [notes]`: commit, push, and open or update a draft PR by following the
+  [`pr` skill](../pi/skills/pr/SKILL.md). The skill holds the rules: it
+  reads the whole branch diff, writes a short description in the style of your
+  recent PRs, checks each sentence against the diff (with a fresh reader from
+  `pi-agent` above about 300 changed lines), and attaches screenshots only
+  when asked. It is on in every Pi session, so "open a draft PR" or "update the
+  PR" in plain words follows the same rules; OMP loads it from the same folder.
 - `/ship [notes]`: commit this task's changes and push straight to the current
   branch, even the default branch, with no PR. For changes small enough to skip
   review.
@@ -163,7 +168,7 @@ restates the goal, writes a done check that can fail, follows a short checklist
 [`pi/prompts/rho/`](../pi/prompts/rho/), refactor, speed or a measured number,
 and multi-PR plan), proves the result on real data,
 gets a second opinion from the other model family, and ships a small PR through
-`/pr`'s rules. It merges its own PR without asking only where
+the `pr` skill. It merges its own PR without asking only where
 [`rho-may-merge`](../bin/rho-may-merge) says yes (your own GitHub repositories
 under `~/Desktop/projects/personal/`, worktrees included), CI passed and the
 review found nothing proven. `/rho` overrides repository rules against
@@ -393,7 +398,7 @@ trace lookup.
   non-recursive, one level below `skills/`, and need `name` and `description`
   frontmatter.
 - **Skill scope:** keep only cross-repository skills in `pi/skills/`:
-  `agent-handoff`, `llm-eval`, `omp-repo-setup`, `repo-recon`,
+  `agent-handoff`, `llm-eval`, `omp-repo-setup`, `pr`, `repo-recon`,
   `secret-sast-sweep` and `visual-verify`. Repository-specific skills live in
   [`pi/scoped-skills/`](../pi/scoped-skills/) (`~/.pi/agent/scoped-skills/`),
   which neither harness auto-discovers; link each into the repositories it

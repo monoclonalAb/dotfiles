@@ -154,6 +154,7 @@
     "ctrl-9": "spaces-env.select:9",
 
     "ctrl-a t": "popups.task",
+    "ctrl-a shift-r": "popups.pr-review",
     "ctrl-a v": "popups.review",
     "ctrl-a shift-v": "popups.review-branch",
     "ctrl-a e": "popups.scrollback",
@@ -186,7 +187,6 @@
     "ctrl-a b": "pane-keys.panel:sidebar",
     "cmd-b": "pane-keys.panel:sidebar",
     "ctrl-a f": "pane-keys.panel:files",
-    "ctrl-a i": "pane-keys.panel:brief",
 
     "ctrl-a g": "pane-keys.worktree:open",
     "ctrl-a shift-g": "pane-keys.worktree:new",

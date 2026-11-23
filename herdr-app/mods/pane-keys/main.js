@@ -7,7 +7,7 @@
 //   pane-keys.agent:<n>         the n-th conversation in the Spaces tree (C-a M-1..9)
 //   pane-keys.worktree:<action> the worktree dialog: new, open or remove (C-a G / g / C-g)
 //   pane-keys.panel:<id>        the right-hand panel on that view, or closed if it shows it
-//                               (C-a b: the sidebar, C-a f: Files, C-a i: Brief; one
+//                               (C-a b: the sidebar, C-a f: Files; one
 //                               area on the right, so each replaces the other)
 //   pane-keys.resize:<direction> move the focused pane's edge that way by 5% of its split,
 //                               as tmux's resize-pane does (see resizePlan); then H/J/K/L
