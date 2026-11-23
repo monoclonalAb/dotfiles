@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { registerConversationBrief } from "./brief.ts";
 import {
   EMPTY_SESSION_SUMMARY,
   failureNote,
@@ -191,8 +190,5 @@ export function registerHerdrTaskSummary(
   });
 }
 
-// Titles everywhere Herdr runs; the conversation brief in the Herdr app only.
-export default function registerHerdrSummaries(pi: ExtensionAPI) {
-  registerHerdrTaskSummary(pi);
-  registerConversationBrief(pi);
-}
+// The default entry point only publishes conversation titles.
+export default registerHerdrTaskSummary;

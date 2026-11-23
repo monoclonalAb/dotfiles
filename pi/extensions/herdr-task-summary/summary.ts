@@ -147,7 +147,7 @@ export function failureNote(reason: string, now = new Date()): string {
 }
 
 /**
- * Writes titles and briefs whatever model the conversation uses: quick, cheap,
+ * Writes titles whatever model the conversation uses: quick, cheap,
  * and still working while that model's provider is down or its login expired.
  */
 export const SUMMARY_MODEL = { provider: "openai-codex", id: "gpt-6-luna" } as const;
