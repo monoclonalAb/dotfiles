@@ -146,9 +146,9 @@ animates only a change. So each mod draws it shut, then redraws it 32 ms later.
 ## Keys
 
 The prefix is `C-a`, as in terminal Herdr and tmux. These need the `eric`
-layout; the rest of [HERDR.md's keys](HERDR.md#keys) work everywhere, except
-`C-a H/J/K/L`: they resize panes here, so they no longer change tabs or move
-worktrees.
+layout, except the resize keys; the rest of [HERDR.md's keys](HERDR.md#keys)
+work everywhere, except `C-a H/J/K/L`: they resize panes here, so they no longer
+change tabs or move worktrees.
 
 | Key | Action |
 | --- | --- |
@@ -164,7 +164,7 @@ worktrees.
 | `C-a v` / `C-a V` | Review the agent's changes / whole branch in tuicr |
 | `C-a e` | This terminal's history in `$EDITOR` |
 | `C-a h/j/k/l`, `Cmd+Alt+arrows` | The pane in that direction; in a zoomed tab, unzooms first |
-| `C-a H/J/K/L` | [Resize](#resizing-panes): move the pane's edge left / down / up / right; `H/J/K/L` alone repeat |
+| `C-a H/J/K/L`, `Ctrl+Alt+arrows` | [Resize](#resizing-panes): move the pane's edge left / down / up / right; after `C-a H/J/K/L`, `H/J/K/L` alone repeat |
 | `` C-a ` ``, `C-a Tab` / `C-a S-Tab` | Last pane, next / previous pane in this tab |
 | `C-a M-1..9` | The n-th conversation in the sidebar |
 | `C-a g` / `C-a G` / `C-a C-g` | Open / new / remove worktree (the app's dialog) |
@@ -187,28 +187,30 @@ Example, a tab with `fix login` and `migrate store` split side by side:
 
 ### Resizing panes
 
-The app has no resize command, so `pane-keys` changes the split sizes in the
-layout herdr-core keeps for the app (its `herdr-app` document), and the app
-redraws. Each press moves one edge by 5% of its split, as tmux's `resize-pane`
-does. Example, `fix login` and `migrate store` side by side at 50/50:
+`C-a H/J/K/L` and `Ctrl+Alt+arrows` run the app's own `pane.resize` (Herdr app
+0.1.17 or later). Each press moves the edge nearest the focused pane by 40 px
+(about 4 columns) in the key's direction, the same as dragging it, as tmux's
+`resize-pane` does.
+Example, `fix login` and `migrate store` side by side:
 
-1. Focus is in `fix login`, on the left. `C-a L` moves its right edge right: 55/45.
+1. Focus is in `fix login`, on the left. `C-a L` moves its right edge right:
+   `fix login` grows.
 2. Focus is in `migrate store`, the last pane. It has no right edge, so `C-a L`
-   moves its left edge right: `migrate store` shrinks to 45%.
+   moves its left edge right: `migrate store` shrinks.
 3. `C-a H` moves the same edges back. `C-a J` / `C-a K` do the same for the
    nearest top/bottom split.
 
-After a resize key, `H`, `J`, `K` and `L` alone keep resizing, as tmux's
-`bind -r` does: `C-a H H H H` moves an edge four steps. The repeat ends 500 ms
-after the last press, or at any other key, which is then not typed (`Esc` just
-ends it). Meanwhile `pane-keys` holds the keyboard, so the pane's focus border
-goes until it ends. Presses that arrive while one is being saved are saved
-together, so holding or spamming a key does not queue up.
+`Ctrl+Alt+arrows` do the same; hold one to keep resizing. They work in every
+layout, and so does `C-a H/J/K/L`, one step per press.
 
-A pane stops shrinking at 10% of its split. Dragging an edge still works. The
-layout document is undocumented, so an app update may change it; the key then
-shows a `pane-keys resize` error and changes nothing (see
-[Troubleshooting](#troubleshooting)).
+In the `eric` layout, after `C-a H/J/K/L`, `H`, `J`, `K` and `L` alone keep
+resizing, as tmux's `bind -r` does: `C-a H H H H` moves an edge four steps. The
+repeat ends 500 ms after the last press, or at any other key, which is then not
+typed (`Esc` just ends it). Meanwhile `pane-keys` holds the keyboard, so the
+pane's focus border goes until it ends.
+
+A pane stops where dragging would stop it. In a zoomed tab, or with no split in
+that direction, nothing moves. Dragging an edge still works.
 
 ## Conversation picker
 
@@ -381,7 +383,8 @@ To move one workspace at a time instead: copy `session.json`, close that
 workspace in terminal Herdr, then `herdr-import --from <copy> --workspace w3`.
 `--shells-only` rehearses without resuming anything.
 
-Lost in the move: split sizes (all come back even; drag to resize), scrollback,
+Lost in the move: split sizes (all come back even; drag or
+[resize](#resizing-panes)), scrollback,
 and programs other than Pi.
 
 ## What the app cannot do
@@ -389,9 +392,9 @@ and programs other than Pi.
 Terminal Herdr settings with no app equivalent:
 
 - **Copy mode, resize mode (`C-a Space`), pane rename:** the app has no command
-  for them. Select with the mouse and `Cmd+C`. Resize one step per press with
-  [`C-a H/J/K/L`](#resizing-panes), or drag a pane's edge. There is no
-  copy-on-select.
+  for them. Select with the mouse and `Cmd+C`. Resize with
+  [`Ctrl+Alt+arrows` or `C-a H/J/K/L`](#resizing-panes), or drag a pane's
+  edge. There is no copy-on-select.
 - **Dimmed or coloured panes:** mods do not draw terminals, so unfocused panes
   are not faded and borders are not red or peach. The pane header carries the
   colour instead.
@@ -413,7 +416,7 @@ Terminal Herdr settings with no app equivalent:
 | Symptom | Cause and fix |
 | --- | --- |
 | An edit here does nothing | The app did not see it: `touch -h` the link under `~/.config/herdr-app/`, then `herdr-app status` |
-| `C-a H/J/K/L` shows a `pane-keys resize` error | The app changed how it stores splits (herdr-core's `herdr-app` document). Drag edges meanwhile; compare that document with `resizePlan` in [`pane-keys`](../herdr-app/mods/pane-keys/main.js) |
+| `C-a H/J/K/L` or `Ctrl+Alt+arrows` move nothing | The tab is zoomed (`C-a z` unzooms), there is no split that way, or the pane is as small as dragging allows. On an app older than 0.1.17 (`herdr-app --version`) `pane.resize` does not exist |
 | `C-a u`, `C-a ;` or `C-a t` does nothing | Another layout is showing (`herdr-app status` → `layout`): `herdr-app do layout.switch --name eric` |
 | `herdr-app status` lists `resolves outside the application directory` | A mod imports another file; mods must be one `main.js` (see above) |
 | The sidebar shows every Space | spaces-env is not loaded: the status bar has no `Personal | Work` pill. Switch to `eric` |

@@ -7,8 +7,8 @@ it. For each workspace it makes a Space in the running Herdr app with the same
 name, tabs and splits, every pane in its folder, and Pi panes resuming their
 conversation (`pi --session <file>`). The Space then joins its Personal/Work
 environment (martinro.spaces-env's state) through the app's spaces-env mod.
-Split sizes come back even (the app has no pane resize command), and terminal
-output and other running programs are not carried over.
+Split sizes come back even (the app can move a border, not set a split's
+sizes), and terminal output and other running programs are not carried over.
 
 Two Pi processes on one session file can corrupt it, so conversations are never
 resumed for a workspace the running terminal Herdr server still has open

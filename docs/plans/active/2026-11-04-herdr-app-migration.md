@@ -53,7 +53,8 @@ Herdr session (Spaces, tabs, splits, Pi conversations) in the app.
 - [x] pr-status: linked worktree rows show `#123 title` and the state icon and colour.
 - [x] Worktree Spaces reorder within their repository: dragging. `C-a K` / `C-a J`
       did too until 2026-11-06, when they became resize keys.
-- [x] `C-a H/J/K/L` resize the focused pane, 5% of its split per press.
+- [x] `C-a H/J/K/L` resize the focused pane (since 2026-11-24 the app's
+      `pane.resize`, 40 px per press; `Ctrl+Alt+arrows` too).
 - [x] `C-a t` opens Pi Tasks in a dialog and starts Pi in a new worktree Space.
 - [x] `C-a v` / `C-a V` review the focused agent in tuicr and send comments with `hc`.
 - [x] `C-a e`, `` C-a ` ``, `C-a Tab`, `C-a M-1..9`, `C-a g/G/C-g`, `C-a o` (latest needing you).
@@ -117,6 +118,13 @@ Herdr session (Spaces, tabs, splits, Pi conversations) in the app.
   (dragging remains). Terminal Herdr keeps its keys. `H/J/K/L` alone repeat
   for 500 ms, as tmux's `bind -r` (user request): the mod takes the keyboard
   meanwhile, and presses queued during a save go in one write.
+- **Resize with the app's command (2026-11-24, user request):** Herdr app
+  0.1.17 added `pane.resize {direction, pane?, px?}` (herdr-app #1087), so
+  `pane-keys` runs it instead of editing the `herdr-app` document; it keeps
+  the `H/J/K/L` repeat. Steps are the app's default 40 px instead of 5% of the
+  split; limits and zoom are the app's. `Ctrl+Alt+arrows` (the release note's
+  example, next to `Cmd+Alt` go and swap) and, outside `eric`, `C-a H/J/K/L`
+  bind `pane.resize` directly in `global`. Supersedes the decision above.
 - **Mod keys in `layout:eric`:** they override `global` only while that layout
   shows, so the shipped layouts keep working keys.
 - **Ported, not shared, plugin rules:** the mods re-implement `next_agent.py`,
@@ -251,6 +259,16 @@ All on 2026-11-04, repository root, unless noted.
   `herdr-app shot` 120 ms after `herdr-app do pane-keys.resize:left` showed
   the focused pane without its focus border; 1 s later it was back on the same
   pane. Not exercised: physical `H/J/K/L` repeats (no way to send keys here).
+- 2026-11-24, resize through `pane.resize` (app 0.1.17): `node --test
+  lib/herdr-app-mods/*.test.mjs` passed, 97 (the five layout-document tests
+  removed, one new for the resize keys); `herdr-app check` passed on
+  `pane-keys`; after `touch -h` of its link and `keys.json`, `herdr-app status`
+  showed no errors and there was no `keys.error`. Live, on this session's own
+  tab (two panes, 137/137 columns): `herdr-app do pane.resize --direction left`
+  on the right pane gave 133/142, `right` restored 137/137, `up` (no split that
+  way) changed nothing; `herdr-app do pane-keys.resize:left` gave 133/142 and
+  focus was on the same pane afterwards, `:right` restored it. Not exercised:
+  physical `C-a H/J/K/L`, their repeat and `Ctrl+Alt+arrows` presses.
 - Not verified: macOS Notification Center delivery by the app; the `home` machine;
   a real reboot.
 
@@ -261,10 +279,6 @@ All on 2026-11-04, repository root, unless noted.
   returns to the shipped layout.
 - Running one Pi conversation in both apps at once can corrupt its history: the
   import refuses those while terminal Herdr has them open.
-- `C-a H/J/K/L` rely on the undocumented `herdr-app` core document: after an app
-  update they may show a `pane-keys resize` error and change nothing; dragging
-  still resizes. Each press rewrites that whole document (changing two
-  weights), so a bug there could damage the app's Spaces and tabs.
 - App updates replace shipped mods; `spaces-tree` and `attention-pane` are copies
   of 0.1.12's `spaces` and `pane`, and `tab-bar` of 0.1.13's `tabs`; they may
   need re-basing on a new release.

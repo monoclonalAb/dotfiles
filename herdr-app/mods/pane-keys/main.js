@@ -1,5 +1,5 @@
-// Pane keys: terminal Herdr keys the app has no command for. Lives in the
-// status bar (0 px), where its key commands always arrive.
+// Pane keys: terminal Herdr keys the app's commands alone don't give. Lives in
+// the status bar (0 px), where its key commands always arrive.
 //
 //   pane-keys.last              the pane focused before this one (C-a `)
 //   pane-keys.next / .prev      cycle the panes of this tab (C-a Tab / C-a S-Tab)
@@ -9,9 +9,9 @@
 //   pane-keys.panel:<id>        the right-hand panel on that view, or closed if it shows it
 //                               (C-a b: the sidebar, C-a f: Files; one
 //                               area on the right, so each replaces the other)
-//   pane-keys.resize:<direction> move the focused pane's edge that way by 5% of its split,
-//                               as tmux's resize-pane does (see resizePlan); then H/J/K/L
-//                               alone repeat it for 500 ms, as tmux's `bind -r` does
+//   pane-keys.resize:<direction> the app's pane.resize on the focused pane (C-a H/J/K/L);
+//                               then H/J/K/L alone repeat it for 500 ms, as tmux's
+//                               `bind -r` does
 //
 // Also keeps shared "pane-keys.recent": conversations (agent terminal addresses)
 // by last visit, most recent first, for the conversation picker (C-a w).
@@ -21,7 +21,7 @@
 // sidebar click), so typing went to a pane you could not see; see zoomFix.
 
 import { View, div } from "gpui-kit";
-import { focused, panes, agents, spaces, run, notify, openOverlay, shared, setShared, layout, nextCommand, exec } from "herdr";
+import { focused, panes, agents, spaces, run, notify, openOverlay, shared, setShared, layout, nextCommand } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -63,74 +63,12 @@ export function zoomFix(seen, now) {
   return ["pane.zoom", { pane: now.zoomed }];
 }
 
-// Resizing. The app has no command for it (0.1.12), but herdr-core keeps each
-// machine's spaces, tabs and splits in one JSON document, "herdr-app"
-// (doc.get / doc.set over `hc connect`), and the app redraws when it changes.
-// A split there is a row or column whose children carry { size: { weight } }:
-// shares of the split, 1 when missing. The format is undocumented, so an app
-// update may change it; resizePlan then reports an error instead of guessing.
-export const LAYOUT_DOC = "herdr-app";
-const RESIZE_STEP = 0.05; // of the split, per press
-const MIN_SHARE = 0.1; // a pane never shrinks below this share of its split
-
-// The splits from `node` down to the block `id`: [{ node, index }], nearest last.
-function splitsTo(node, id, path) {
-  if (node?.id === id) return path;
-  const children = Array.isArray(node?.children) ? node.children : [];
-  for (let i = 0; i < children.length; i++) {
-    const found = splitsTo(children[i], id, [...path, { node, index: i }]);
-    if (found) return found;
-  }
-  return null;
-}
-
-// A copy of layout document `doc` with pane `pane`'s edge moved `direction`
-// ("left", "right", "up" or "down") by `step` of its split, as tmux's
-// resize-pane does: in the nearest row (left/right) or column (up/down) holding
-// the pane, its right or bottom edge, or its left or top edge when it is last.
-// Returns { doc }, null when there is no such split or the edge is at its
-// limit, or { error } when the document is not shaped as expected.
-export function resizePlan(doc, pane, direction, step = RESIZE_STEP) {
-  const kind = direction === "left" || direction === "right" ? "row" : "column";
-  const copy = JSON.parse(JSON.stringify(doc ?? null));
-  let path = null;
-  for (const space of copy?.spaces ?? []) {
-    for (const tab of space?.tabs ?? []) if (!path) path = splitsTo(tab?.root, pane, []);
-  }
-  if (!path) return { error: "The focused pane is not in Herdr's layout document" };
-  let at = null;
-  for (let i = path.length - 1; i >= 0 && !at; i--) {
-    if (path[i].node.type === kind && path[i].node.children.length > 1) at = path[i];
-  }
-  if (!at) return null;
-  const children = at.node.children;
-  const weights = children.map((c) => (c?.size == null ? 1 : c.size.weight));
-  if (!weights.every((w) => Number.isFinite(w) && w > 0)) return { error: "This split's sizes are not weights" };
-  const total = weights.reduce((a, b) => a + b, 0);
-  const first = Math.min(at.index, children.length - 2); // the edge between first and first + 1
-  const [grow, shrink] = direction === "right" || direction === "down" ? [first, first + 1] : [first + 1, first];
-  const delta = Math.min(step * total, weights[shrink] - MIN_SHARE * total);
-  if (delta <= total * 1e-6) return null;
-  const round = (w) => Math.round(w * 1e4) / 1e4;
-  children[grow].size = { weight: round(weights[grow] + delta) };
-  children[shrink].size = { weight: round(weights[shrink] - delta) };
-  return { doc: copy };
-}
-
-// resizePlan for several presses in order (they came while one was being
-// saved): { doc }, null when none moves an edge, or the first { error }.
-export function resizeSteps(doc, pane, directions) {
-  let current = doc;
-  for (const direction of directions) {
-    const plan = resizePlan(current, pane, direction);
-    if (plan?.error) return plan;
-    if (plan) current = plan.doc;
-  }
-  return current === doc ? null : { doc: current };
-}
-
-// After a resize key, H/J/K/L alone keep resizing until REPEAT_MS pass
-// without one, as tmux's `bind -r` with its default repeat-time.
+// Resizing is the app's pane.resize (0.1.17): it moves the border nearest the
+// pane in that direction by 40 px, as dragging it would (same limits), whichever
+// side of the border the pane is on, as tmux's resize-pane does. Without a split
+// that way, or in a zoomed tab, nothing moves. After a resize key, H/J/K/L alone
+// keep resizing until REPEAT_MS pass without one, as tmux's `bind -r` with its
+// default repeat-time.
 const REPEAT_MS = 500;
 const REPEAT_KEYS = { h: "left", j: "down", k: "up", l: "right" };
 
@@ -139,18 +77,6 @@ export function repeatDirection(event) {
   const m = event?.modifiers ?? {};
   if (!m.shift || m.control || m.alt || m.platform || m.function) return null;
   return REPEAT_KEYS[String(event?.key ?? "").toLowerCase()] ?? null;
-}
-
-// One JSON-RPC call to herdr-core. Mods' exec has no stdin, so sh pipes it in.
-const RPC = 'PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"; printf "%s\\n" "$1" | hc connect';
-async function rpc(method, params) {
-  const r = await exec("/bin/sh", ["-c", RPC, "sh", JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })]);
-  for (const line of r.stdout.split("\n")) {
-    let message = null;
-    try { message = JSON.parse(line); } catch { continue; }
-    if (message?.id === 1) return message;
-  }
-  throw new Error(r.stderr.trim() || `hc connect answered nothing (exit ${r.code})`);
 }
 
 const DIRECTIONS = ["left", "right", "up", "down"];
@@ -166,8 +92,6 @@ export default class PaneKeys extends View {
     this.fixing = null; // the state a zoom fix was sent for
     this.keys = cx.focus_handle(); // holds the keyboard while H/J/K/L repeat
     this.repeat = null; // { pane, until } while they do
-    this.presses = []; // resize presses not saved yet: { pane, direction }
-    this.saving = false;
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
@@ -234,10 +158,9 @@ export default class PaneKeys extends View {
     throw new Error(`unknown command ${raw}`);
   }
 
-  // A resize press: queue it, and take the keyboard so H/J/K/L alone repeat it.
+  // A resize press: resize, and take the keyboard so H/J/K/L alone repeat it.
   press(pane, direction, cx) {
-    this.presses.push({ pane, direction });
-    this.save();
+    run("pane.resize", { direction, pane });
     this.repeat = { pane, until: Date.now() + REPEAT_MS };
     if (!this.keys.is_focused()) this.keys.focus();
     cx.timer.after(REPEAT_MS, () => {
@@ -250,44 +173,6 @@ export default class PaneKeys extends View {
     const repeat = this.repeat;
     this.repeat = null;
     if (repeat && this.keys.is_focused()) run("pane.focus", { pane: repeat.pane });
-  }
-
-  // Save queued presses, one write per run of presses on the same pane.
-  async save() {
-    if (this.saving) return;
-    this.saving = true;
-    try {
-      while (this.presses.length) {
-        const pane = this.presses[0].pane;
-        let n = 1;
-        while (n < this.presses.length && this.presses[n].pane === pane) n++;
-        await this.resize(pane, this.presses.splice(0, n).map((p) => p.direction));
-      }
-    } catch (e) {
-      this.presses = [];
-      notify({ title: "pane-keys resize", body: String(e?.message ?? e), level: "error" });
-    } finally {
-      this.saving = false;
-    }
-  }
-
-  // Read pane `id`'s layout document, move its edges, and write it back unless
-  // something changed it meanwhile (then read it again).
-  async resize(id, directions) {
-    // Another machine's pane is "machine/p…" here and "p…" in its own document.
-    const slash = id.indexOf("/");
-    const on = slash < 0 ? null : id.slice(0, slash), pane = id.slice(slash + 1);
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const got = await rpc("doc.get", { name: LAYOUT_DOC, on });
-      if (got.error) throw new Error(`doc.get: ${got.error.message}`);
-      const plan = resizeSteps(got.result.value, pane, directions);
-      if (!plan) return;
-      if (plan.error) throw new Error(plan.error);
-      const set = await rpc("doc.set", { name: LAYOUT_DOC, on, value: plan.doc, version: got.result.version });
-      if (!set.error) return;
-      if (set.error.data?.kind !== "conflict") throw new Error(`doc.set: ${set.error.message}`);
-    }
-    throw new Error("The layout kept changing; press again");
   }
 
   // The focused pane and its tab's zoomed pane, for zoomFix.
