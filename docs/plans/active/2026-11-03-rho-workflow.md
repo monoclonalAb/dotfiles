@@ -45,10 +45,11 @@ model's review, CI, and a per-repository merge rule.
 - [x] `pi-agent -m other` reviews with the other model family.
 - [ ] One week of real use; corrections and merged-PR count compared with the
       private baseline.
-- [x] `/rho-verify` exists to build a project's verify skill.
-- [ ] The first customer repository has a verify skill (built with
-      `/rho-verify`) that runs a workflow on a case with every external write
-      blocked and saves the evidence.
+- [x] `/rho-verify` exists to give a project its own way to prove a change.
+- [ ] The first customer repository has its own command, named in its guide,
+      that runs a workflow on a case with every external write blocked and
+      prints the evidence (added by `/rho` during a task, or with
+      `/rho-verify`).
 - [x] A merge rule names where the agent may merge its own green, reviewed
       PR: `bin/rho-may-merge` (owner, 2026-11-03: the personal folder).
 - [ ] Several `/rho` tasks run in parallel Herdr worktrees and overnight under
@@ -189,14 +190,44 @@ without the interactive interface.
 - [x] Three more pstack playbooks ported as checklists `/rho` reads by path
       (owner, 2026-11-03): refactor, speed or a measured number (Perf issue
       and Hillclimb together), and multi-PR plan, in `pi/prompts/rho/`.
-- [ ] Step 2 onward.
+- [x] Review findings must survive real data (owner, 2026-11-16): after the
+      rerun, step 6 asks whether real input reaches the bug, how often it has
+      happened in production, and how bad it would be. Seen: fix. Unseen and
+      serious: cheapest safe fix. Otherwise drop, listed with evidence. Prompted
+      by Codex and audit P1s on a customer PR that real data showed never occur.
+- [x] Verification round (2026-11-17), from Anthropic's
+      [How the Claude Code team thinks about verification](https://claude.dev/blog/how-the-claude-code-team-thinks-about-verification/)
+      and a review of the two weeks of sessions and PRs since `/rho` began
+      (private, `~/.local/share/rho/findings-2026-11-17.md`). `rho.md` gained a
+      PR review checklist (over half of `/rho` uses, and it had none); review
+      rounds that carry the earlier findings, stop at three and use one
+      reviewer; review rules read from the base branch; a ledger line per code
+      task saying how it was proved and reviewed; three attempts on a failing
+      check, then stop; no weakened checks; and a port's intended differences
+      listed first. The merge rule now needs the last round to have read the
+      merged code and leaves PRs that change their own checks to the owner.
+- [x] Verification built into `/rho`, with no separate skill (owner,
+      2026-11-17): step 5 proves a change the way the project itself says to.
+      Where the project has no way to run what the task changed, `/rho` adds
+      one to the project by reading `rho-verify.md`: a command beside the
+      existing ones, a safe mode in the code and a line in the project's guide.
+- [ ] Step 2 onward. The review found `/rho` in 17 of 234 sessions, one active
+      project whose guide names no way to prove a change, and merged PRs a day
+      unchanged from the baseline.
 
 **Open questions for the owner.**
 
-1. The first customer repository's verify script: may it read live customer
-   data with every write blocked, or only saved cases?
-2. Private personal repositories cannot be protected on GitHub Free. Pay for
+1. Private personal repositories cannot be protected on GitHub Free. Pay for
    GitHub Pro to protect them, or keep them off the spare Mac?
+2. One reviewer a round is now the default, where recent PRs had a helper
+   review, the GitHub review bot and an extra audit together. Keep the default,
+   or name the repositories that should always get more?
+3. The ledger is a private file. The blog stamps each commit instead (a
+   trailer such as `Verified: by-hand`), which colleagues would see. Stay
+   private, or stamp commits in personal repositories?
+4. `/rho` splits big work into small PRs, and the owner twice asked for one PR
+   per ticket instead. Add "one ticket, one PR unless asked" for repositories
+   that work from tickets?
 
 ## Decisions
 
@@ -222,13 +253,43 @@ without the interactive interface.
   confused).
 - **Second opinion from the other model family** (`pi-agent -m other`), so
   review never comes from the model that wrote the change.
+- **PR review checklist inline, not a file** (2026-11-17): 11 of 20 `/rho`
+  uses in two weeks were reviews, the same reason the first three stay inline.
+- **Verification is built into `/rho` and fitted to each project** (owner,
+  2026-11-17). `/rho-verify` ran 0 times in two weeks although `/rho`
+  suggested it in 10 sessions, so a separate command went unused. Step 5 now
+  adds what the task needs and commits it before the change. Kept from the
+  separate command: the write block is proved before anything that can write
+  is driven, and where it cannot be, the change is proved below the write;
+  nothing is added for a question, a docs-only change or someone else's PR;
+  work found on another branch is reused, not written twice. `/rho-verify`
+  stays for filling a project's gaps on purpose.
+- **No separate verify skill: the project speaks for itself** (owner,
+  2026-11-17; replaces `.agents/skills/verify/`). The way to prove a change
+  lives in the project's own places: its check command, its scripts and saved
+  cases, a safe mode in the code, and a line in its guide saying what done
+  means. In the two weeks reviewed, the two projects whose guide names one
+  check command had it run before the first commit in all 16 committing
+  sessions. The project whose guide names none had one of its real-run
+  commands used before the first commit in 5 of 29.
+- **The first customer repository's proof runs may read live customer data,
+  with every write blocked** (owner, 2026-11-17). `/rho` still proves the
+  block before driving anything, and still asks in other repositories.
+- **Replies on a review bot's threads on the owner's own PR need no
+  permission** (owner, 2026-11-17). Comments on someone else's PR and replies
+  to a person stay on the always-ask list.
+- **The AI decision checklist stays inline** (owner, 2026-11-17), although no
+  `/rho` task used it in the two weeks reviewed.
+- **Ledger outside the repository, not a commit trailer** (2026-11-17,
+  provisional; open question 3): private, and nothing appears in customer
+  history. It records `none` too, so unproved work can be counted.
+- **Property tests only where a generator exists** (2026-11-17): the blog
+  recommends generated inputs, but findings must survive real data, so an
+  always-true rule is checked on every real case first.
 - **Left out from pstack** (owner): "explain the number" and "attack the
   premise", as well as model panels, the 23 playbooks (three later ported, see
   above), orchestration, PR-stack babysitting, formal verification and
   pstack's writing rules.
-- **Verify skills live at `.agents/skills/verify/`** in each project: a
-  harness-neutral folder Pi's `/skill` and other agents already search, and the
-  path `/rho` reads.
 - **Merge rule = own GitHub repositories under `~/Desktop/projects/personal/`**
   (owner chose the personal folder). The script also requires the GitHub owner
   to be the owner's account, because that folder also holds an organisation's
@@ -295,6 +356,40 @@ All on 2026-11-03, from `~/dotfiles` unless noted.
   speed run measured first, found the script already takes about 20 ms, and
   proposed asking rather than changing code. No files changed.
 - Not run: an interactive `/rho` task with real changes (needs the owner).
+
+2026-11-17, verification round:
+
+- `git diff --check` passed. The `rho-may-merge` tests passed, 7 tests (the
+  script did not change). `bin/dotfiles-link check` listed nothing from this
+  change: no file was added, so the linked prompts were live at once.
+- Dry runs with the other model family (`pi-agent -m other -r`, the expanded
+  `rho.md`, no tools). A fourth audit of an own PR with new bot threads: it
+  chose the review checklist, read the earlier rounds first, added no reviewer,
+  asked for no further round, and wanted the count on real data before calling
+  anything a problem. A bug fix whose CI still fails after three attempts, with
+  a test that passes on some reruns: it stopped after the third attempt,
+  refused to edit the CI file or an old expected value, did not merge although
+  `rho-may-merge` said yes, and wrote a six-field ledger line.
+- That first round raised three contradictions: what counts as a round, review
+  after fixes against the limit of three, and posting replies against the
+  always-ask list. After the fixes, a second round given those points found all
+  three fixed and nothing new.
+- After the owner allowed replies on a review bot's threads, a third dry run
+  (same setup): it would post a reply on the bot's thread without asking, and
+  draft and wait for a reply to a person on the same PR, a comment on someone
+  else's PR, and an email to a customer.
+- After verification moved into `/rho` without a separate skill, a dry run
+  (same setup, with `rho-verify.md` inlined, three cases). A static website
+  whose guide names its check command: it added nothing, ran that command and
+  looked at the page, and logged `project`. A backend that emails and writes
+  to a customer's system, whose guide names no way to prove a change, owner
+  away: it would extend an existing run script, add a saved case beside the
+  fixtures, block writes in the clients, name the command in the guide's
+  testing section, use saved cases and not trust the log-only flag. An audit
+  of someone else's PR: it added nothing and called its proof improvised.
+- Not run: `/rho` adding a real proof command to a real project.
+- Not run: a real `/rho` review or code task with the new text, so the ledger
+  file has not been written by a real task yet.
 
 ## Risks and recovery
 
