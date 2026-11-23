@@ -11,7 +11,8 @@
 // - Each Space lists its conversations with the next-agent dot: ◆ blocked,
 //   ● finished and not reviewed, ◐ working, ○ idle (shared "next-agent.dots").
 //   Click a Space's counts to fold its conversations, a repository's chevron to
-//   fold its worktrees.
+//   fold its worktrees. A Pi conversation not written in yet ("New
+//   conversation") stays out until it starts.
 // - A linked worktree whose branch has a GitHub pull request shows as
 //   "#123 title" with its state (gh pr view in the checkout; open green, draft
 //   grey, merged purple, closed red).
@@ -109,6 +110,18 @@ export function conversationTitle({ summary, pending, title, address, cwd, space
   if (pending) return { text: "Naming…", strong: false };
   if (tabNamed && tabName) return { text: tabName, strong: false };
   return { text: program || "agent", strong: false };
+}
+
+// herdr-task-summary's title for a Pi conversation with no request yet (its
+// EMPTY_SESSION_SUMMARY). Naming the first request marks the title pending; a
+// failed naming keeps this title but sets task_summary_error.
+export const EMPTY_SUMMARY = "New conversation";
+
+// Whether the sidebar leaves a conversation out: a Pi conversation nobody has
+// written in yet, sitting idle. `labels`: its terminal's; `dot`: its dot.
+export function unstarted(labels, dot) {
+  return dot === "idle" && labels?.task_summary === EMPTY_SUMMARY
+    && labels?.task_summary_pending !== "1" && !labels?.task_summary_error;
 }
 
 // What a Space row says after its name: its repository, unless the name says
@@ -766,17 +779,23 @@ export default class SpacesTree extends View {
       .opacity(on ? 1 : 0).transition("opacity", FADE);
   }
 
+  // The conversations the sidebar lists: every agent but unstarted ones.
+  listed() {
+    const labels = new Map((this.terminalList ?? terminals()).map((x) => [x.address, x.labels]));
+    return agents().filter((a) => !unstarted(labels.get(a.address), this.dotOf(a)));
+  }
+
   agentsOf(w) {
-    return (this.agentList ?? agents()).filter((a) => a.space === w.id);
+    return (this.agentList ?? this.listed()).filter((a) => a.space === w.id);
   }
 
   // Due and running conversations across `shown` (including folded repositories
-  // and folded Spaces), while stamping state-change times across every live agent
+  // and folded Spaces), while stamping state-change times across every listed agent
   // so toggling Personal/Work keeps ages intact.
   activity(shown, opts = {}) {
     this.since ??= {};
     this.prs ??= {};
-    const list = opts.agents ?? this.agentList ?? agents();
+    const list = opts.agents ?? this.agentList ?? this.listed();
     const ps = opts.panes ?? this.paneList ?? panes();
     const all = opts.terminals ?? this.terminalList ?? terminals();
     const dots = opts.dots ?? shared("next-agent.dots") ?? {};
@@ -1222,9 +1241,9 @@ export default class SpacesTree extends View {
     if (changed) setShared("space.colors", kept);
 
     // One read of each live list per render.
-    this.agentList = agents();
-    this.paneList = panes();
     this.terminalList = terminals();
+    this.agentList = this.listed();
+    this.paneList = panes();
     const { full, shown, reviews } = this.ordered();
     const order = full.map((r) => r.w.id);
     if (!same(order, shared("spaces-tree.order"))) setShared("spaces-tree.order", order);

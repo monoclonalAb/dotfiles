@@ -88,7 +88,9 @@ layout if a file breaks the window.
   (`.config  dotfiles · main`); a worktree named after its branch, or showing
   its pull request, leaves them out. Only the active environment's Spaces
   show, plus the one you are in. Click a Space's counts (`◆1 ●2`) to fold its
-  conversations, a repository's chevron to fold its worktrees. It has no
+  conversations, a repository's chevron to fold its worktrees. A Pi
+  conversation you have not written in yet (`New conversation`) is left out
+  until you send it something, and gets no `C-a M-1..9` number. It has no
   buttons: `C-a s` or `Cmd+N` makes a Space. At the bottom, **Reviews** lists
   [pull request reviews](#pull-request-reviews) instead of the tree.
 - **Tab bar:** only the tabs, with room on the left for the window buttons. New
