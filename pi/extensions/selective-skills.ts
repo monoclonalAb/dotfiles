@@ -19,6 +19,7 @@ import {
   Text,
   type AutocompleteItem,
 } from "@earendil-works/pi-tui";
+import { THEME_APPLIED_EVENT } from "./theme-sync/events.ts";
 
 const STATE_TYPE = "selective-skills-state";
 const STATUS_KEY = "selective-skills";
@@ -197,6 +198,7 @@ export default function selectiveSkills(pi: ExtensionAPI) {
   let candidates: Skill[] = [];
   let alwaysOn: Skill[] = [];
   let enabledPaths = new Set<string>();
+  let current: ExtensionContext | undefined;
 
   function refreshCandidates(ctx: ExtensionContext): void {
     const skills = discoverSkills(ctx);
@@ -206,11 +208,28 @@ export default function selectiveSkills(pi: ExtensionAPI) {
     enabledPaths = new Set([...enabledPaths].filter((path) => availablePaths.has(path)));
   }
 
-  // Counts every loaded skill: the always-on ones and the /skill choices.
+  // Styled like the other footer statuses: a dim bar to separate it from the
+  // quota percentages, a bold number in its own palette colour (blue, between
+  // quota's mauve and token-speed's teal), then a dim unit: "| 1 skill".
+  // It counts every loaded skill: the always-on ones and the /skill choices.
   function updateStatus(ctx: ExtensionContext): void {
+    current = ctx;
     const count = alwaysOn.length + enabledPaths.size;
-    ctx.ui.setStatus(STATUS_KEY, count > 0 ? `skills: ${count}` : undefined);
+    const theme = ctx.ui.theme;
+    ctx.ui.setStatus(
+      STATUS_KEY,
+      count > 0
+        ? theme.fg("dim", "| ") +
+            theme.fg("mdLink", theme.bold(String(count))) +
+            theme.fg("dim", count === 1 ? " skill" : " skills")
+        : undefined,
+    );
   }
+
+  // Status text stores the palette's ANSI codes, so repaint on a flavour change.
+  pi.events?.on(THEME_APPLIED_EVENT, () => {
+    if (current) updateStatus(current);
+  });
 
   function persistState(): void {
     pi.appendEntry<SkillsState>(STATE_TYPE, {
