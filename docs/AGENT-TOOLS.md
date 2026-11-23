@@ -44,15 +44,17 @@ updating the entry, see the
 
 Gemini 4 Neon (`google-vertex/gemini-4-neon`, built into Pi since 1.6.0) is in
 the `Ctrl+P` cycle, in Gemini 4 Carbon's former place, and starts at medium
-reasoning (xhigh is its highest). It goes through Vertex AI, not a Gemini API
-key, because Google for Startups Cloud credits sit on a Cloud billing account
-and cover Gemini on Vertex; whether they cover AI Studio API-key usage is unclear. Sign
-in with `/login google-vertex`, choose Application Default Credentials, and
-enter a project linked to the credited billing account with location `global`.
-The project ID is stored in `~/.pi/agent/auth.json`, not here. Gemini 4 Carbon
+reasoning. High is the highest level that works: Pi 1.6.0 also offers xhigh but
+stops with "Unsupported Google thinking level mapping" before sending. It goes
+through Vertex AI, not a Gemini API key, because Google for Startups Cloud
+credits sit on a Cloud billing account and cover Gemini on Vertex; whether they
+cover AI Studio API-key usage is unclear. Sign in with `/login google-vertex`,
+choose Application Default Credentials, and enter a project linked to the
+credited billing account with location `global`. The project ID is stored in
+`~/.pi/agent/auth.json`, not here. Gemini 4 Carbon
 (`google-vertex/gemini-4-carbon`) is also built in and stays available from
-`/model`; its thinking blocks arrive as Google's summariser's working notes
-("Thinking Process: 1. Analyze the Request…"), and
+`/model`, also starting at medium; its thinking blocks arrive as Google's
+summariser's working notes ("Thinking Process: 1. Analyze the Request…"), and
 [`gemini-thinking-tidy`](../pi/extensions/gemini-thinking-tidy/README.md) shows
 only the summary at the end of each note.
 
