@@ -50,6 +50,15 @@ default, and Alacritty logs a harmless missing-import error to
 
 New windows read the state on startup.
 
+## One accent colour
+
+The flavour's mauve marks where you are: the focused pane's border and the
+cursor in the Herdr app ([`herdr-app/themes/`](../herdr-app/themes/)), Herdr's
+`accent`, Pi's accent, and the shell prompt's folder and `>`
+([`zsh/p10k.zsh`](../zsh/p10k.zsh)). Other colours mean a state: red for a failed
+command, the agent status colours, and git's green and yellow. A shell picks its
+prompt colour when it starts, so after `theme cycle` open a new one.
+
 ## Rules that are easy to break
 
 **Keep theme-driven keys out of `alacritty.toml`.** Alacritty merges the
