@@ -20,7 +20,12 @@ memory and applies it with `ctx.ui.setTheme()` when it changes. Nothing is writt
 - After each successful apply it emits `theme-sync:applied` on Pi's extension
   event bus, so display-only extensions can repaint stored theme-coloured text;
   `token-speed` uses it for its footer status.
-- Opacity stays with the terminal; tool panels are opaque, muted surfaces.
+- Opacity stays with the terminal; tool panels are opaque, muted surfaces. The
+  exception is the Herdr app, whose window is frosted glass
+  ([`docs/HERDR-APP.md`](../../../docs/HERDR-APP.md#theme)): there pending and
+  settled tool panels and extension messages have no fill, so the glass shows
+  through. Your own messages and failed tools keep theirs. Pi applies this as
+  `catppuccin-<flavour>-glass`.
 - Print, JSON and RPC modes do nothing.
 
 After deploying, `/reload` existing idle sessions once; later hotkey changes apply

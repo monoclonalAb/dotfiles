@@ -37,10 +37,13 @@ default, and Alacritty logs a harmless missing-import error to
    popup (`C-a t`) reads the same colours each time it opens.
 4. The [Herdr app](HERDR-APP.md#theme) gets `theme` (`catppuccin-<flavour>`) and
    `appearance` in its `settings.json`, which it applies at once. Its theme files
-   are [`herdr-app/themes/`](../herdr-app/themes/). Opacity does not apply there.
+   are [`herdr-app/themes/`](../herdr-app/themes/). Opacity does not apply there;
+   the app's own see-through look is fixed in those files (see
+   [Herdr app theme](HERDR-APP.md#theme)).
 5. tmux runs `source-file`.
 6. Every running Neovim updates over RPC, with a `FocusGained` fallback. Below
-   1.0 opacity Neovim turns on `transparent_background`.
+   1.0 opacity, and always inside the Herdr app, Neovim turns on
+   `transparent_background`.
 7. Pi's [theme-sync extension](../pi/extensions/theme-sync/README.md) polls the
    same state and follows within about half a second. It overrides Pi's
    `/settings` theme in memory without rewriting it.

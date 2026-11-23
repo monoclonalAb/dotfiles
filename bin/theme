@@ -425,7 +425,8 @@ apply() {
   # and only its theme and appearance keys change here. The theme files are
   # herdr-app/themes/catppuccin-*.json, linked by dotfiles-link. The app applies
   # settings.json edits live; a layout's own theme or a theme picked in the app's
-  # picker still wins. Opacity has no equivalent: the app window is opaque.
+  # picker still wins. Opacity has no equivalent: the app's see-through look is
+  # fixed in those theme files (docs/HERDR-APP.md#theme).
   local appearance=dark
   if [ "$FLAVOUR" = latte ]; then appearance=light; fi
   if [ ! -d "$HERDR_APP_HOME" ]; then

@@ -9,7 +9,10 @@ const root = join(execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim
   "@earendil-works/pi-coding-agent");
 const nativeTheme = await import(pathToFileURL(join(root, "dist/modes/interactive/theme/theme.js")).href);
 mock.module("@earendil-works/pi-coding-agent", () => ({ Theme: nativeTheme.Theme }));
-const { catppuccinTheme, parseFlavour, registerThemeSync } = await import("./index.ts");
+const { catppuccinTheme, inHerdrApp, parseFlavour, registerThemeSync } = await import("./index.ts");
+// The suite often runs inside the Herdr app; the lifecycle tests below expect the
+// ordinary (non-glass) theme unless a test sets this itself.
+delete process.env.__CFBundleIdentifier;
 const { THEME_APPLIED_EVENT } = await import("./events.ts");
 const { ToolExecutionComponent } = await import(pathToFileURL(join(root,
   "dist/modes/interactive/components/tool-execution.js")).href);
@@ -148,6 +151,38 @@ test("startup and file changes follow every flavour; duplicate/partial/missing s
     await until(() => f.applied.length === count + 1);
     expect(f.warnings).toEqual([]);
   } finally { f.dispose(); }
+});
+
+test("in the Herdr app, tool and extension panels show the glass; your messages and errors keep their fill", () => {
+  expect(inHerdrApp({ __CFBundleIdentifier: "dev.herdr.app" })).toBe(true);
+  expect(inHerdrApp({ __CFBundleIdentifier: "org.alacritty" })).toBe(false);
+  expect(inHerdrApp({})).toBe(false);
+  for (const flavour of flavours) {
+    const solid = catppuccinTheme(flavour, "truecolor");
+    const glass = catppuccinTheme(flavour, "truecolor", true);
+    expect(glass.name).toBe(`catppuccin-${flavour}-glass`);
+    for (const token of ["toolPendingBg", "toolSuccessBg", "customMessageBg"] as const) {
+      expect(glass.getBgAnsi(token)).toBe("\x1b[49m");
+      expect(solid.getBgAnsi(token)).not.toBe("\x1b[49m");
+    }
+    for (const token of ["userMessageBg", "toolErrorBg", "selectedBg"] as const)
+      expect(glass.getBgAnsi(token)).toBe(solid.getBgAnsi(token));
+  }
+});
+
+test("inside the Herdr app the glass theme is applied once and not re-applied every poll", async () => {
+  process.env.__CFBundleIdentifier = "dev.herdr.app";
+  const f = fixture();
+  try {
+    f.write("latte");
+    f.start();
+    expect(f.applied.map((t) => t.name)).toEqual(["catppuccin-latte-glass"]);
+    await Bun.sleep(150);
+    expect(f.applied).toHaveLength(1);
+  } finally {
+    f.dispose();
+    delete process.env.__CFBundleIdentifier;
+  }
 });
 
 test("absent state is read-only and first creation works; shared choice repairs Pi's saved-theme restore", async () => {

@@ -49,7 +49,19 @@ function tint(background: string, foreground: string): string {
   }).join("");
 }
 
-export function catppuccinTheme(flavour: Flavour, mode: ColorMode): Theme {
+// The Herdr app's window is frosted glass (herdr-app/layouts/eric.json), and a
+// terminal cell can't be partly transparent. So there, tool and extension panels
+// take the terminal's default background ("") and the glass shows through; your
+// own messages and failed tools keep their fill so they still stand out.
+export function inHerdrApp(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.__CFBundleIdentifier === "dev.herdr.app";
+}
+
+export function themeName(flavour: Flavour, glass = false): string {
+  return `catppuccin-${flavour}${glass ? "-glass" : ""}`;
+}
+
+export function catppuccinTheme(flavour: Flavour, mode: ColorMode, glass = false): Theme {
   const p = palettes[flavour];
   return new Theme({
     accent: p.mauve,
@@ -105,13 +117,13 @@ export function catppuccinTheme(flavour: Flavour, mode: ColorMode): Theme {
     selectedBg: p.surface1,
     searchMatchBg: p.surface1,
     userMessageBg: p.surface0,
-    customMessageBg: p.mantle,
+    customMessageBg: glass ? "" : p.mantle,
     // No bright green/red slabs: settled tools sit below the terminal's base
     // colour; pending tools use base and errors get only a subtle red tint.
-    toolPendingBg: p.base,
-    toolSuccessBg: p.mantle,
+    toolPendingBg: glass ? "" : p.base,
+    toolSuccessBg: glass ? "" : p.mantle,
     toolErrorBg: tint(p.mantle, p.red),
-  }, mode, { name: `catppuccin-${flavour}` });
+  }, mode, { name: themeName(flavour, glass) });
 }
 
 export function registerThemeSync(
@@ -138,9 +150,10 @@ export function registerThemeSync(
       }
       // `theme` currently truncates then writes flavour. Ignore partial or
       // invalid state instead of briefly flashing Latte in a dark terminal.
-      if (!next || ctx.ui.theme.name === `catppuccin-${next}`) return;
+      const glass = inHerdrApp();
+      if (!next || ctx.ui.theme.name === themeName(next, glass)) return;
       try {
-        const result = ctx.ui.setTheme(catppuccinTheme(next, ctx.ui.theme.getColorMode()));
+        const result = ctx.ui.setTheme(catppuccinTheme(next, ctx.ui.theme.getColorMode(), glass));
         if (!result.success) throw new Error(result.error ?? "Theme rejected");
         pi.events?.emit(THEME_APPLIED_EVENT, undefined);
       } catch {

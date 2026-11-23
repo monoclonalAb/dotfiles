@@ -22,8 +22,8 @@
     "#a5adce"
   ],
   "colors": {
-    "canvas": "#232634",
-    "chrome": "#292c3c",
+    "canvas": "#23263473",
+    "chrome": "#292c3c74",
     "border": "#414559",
     "input": "#51576d",
     "selected": "#414559",
@@ -34,6 +34,7 @@
     "working": "#8caaee",
     "blocked": "#e78284",
     "done": "#ef9f76",
-    "idle": "#737994"
+    "idle": "#737994",
+    "background": "#3034468b"
   }
 }

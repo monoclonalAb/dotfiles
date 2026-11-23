@@ -333,8 +333,24 @@ agents (OMP) come back as shells.
 
 `theme set <flavour>`, `theme cycle` and the Alacritty hotkeys also set `theme`
 and `appearance` in `~/.config/herdr-app/settings.json`, which the app applies at
-once. `theme status` shows the app's line. Opacity does not apply: the window is
-opaque. A theme picked in the app's own theme menu wins over this until reset.
+once. `theme status` shows the app's line. `theme`'s opacity does not apply here.
+A theme picked in the app's own theme menu wins over this until reset.
+
+The window is frosted glass instead. `window_blur` in
+[`layouts/eric.json`](../herdr-app/layouts/eric.json) blurs the desktop behind it,
+and each Catppuccin theme file gives three colours some transparency: `canvas`
+(behind everything, `73` = 45%), `chrome` (the tab bar and sidebar, `74` = 45%)
+and `background` (the panes, `8b` = 55%). They stack, so panes end up about 75%
+solid, the tab bar 70%, the sidebar 84% and the gaps 45%. A terminal cell can't be
+partly see-through, so boxes that programs paint stay solid unless the program
+drops their fill: Pi does for tool output inside the app
+([theme-sync](../pi/extensions/theme-sync/README.md)). How strongly the desktop is
+blurred is macOS's choice; Herdr 0.1.16 only has blur on or off, and off makes the
+window solid. Neovim turns off its own
+background inside the app ([`nvim/lua/theme.lua`](../nvim/lua/theme.lua)). To
+make it less see-through, raise those alpha suffixes; `ff` is solid. The app
+re-reads a theme file when its theme changes or when it starts. `herdr-app shot`
+draws the app without the desktop, so it cannot show this effect.
 
 ## Moving the terminal Herdr session
 

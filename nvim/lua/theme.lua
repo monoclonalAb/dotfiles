@@ -60,8 +60,11 @@ function M.apply(flavour, opacity)
     -- Below 1.0 the terminal shows through, so let it. At 1.0 nvim paints its
     -- own background. Changing this option re-hashes catppuccin's config and
     -- triggers a recompile of its cache — a one-off sub-second hitch.
+    -- The Herdr app's panes are frosted glass (window_blur and translucent colours
+    -- in herdr-app/), so there nvim always lets the pane show through; a solid
+    -- background would sit in it as an opaque block.
     require("catppuccin").setup({
-        transparent_background = opacity < 1.0,
+        transparent_background = opacity < 1.0 or vim.env.__CFBundleIdentifier == "dev.herdr.app",
     })
     vim.cmd.colorscheme("catppuccin-" .. flavour)
 

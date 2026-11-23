@@ -182,6 +182,7 @@
     }
   ],
   "background": "canvas",
+  "window_blur": true,
   "terminal_padding": [
     14,
     12
