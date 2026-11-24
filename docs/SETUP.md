@@ -76,8 +76,9 @@ npm install -g @earendil-works/pi-coding-agent typescript@5
 
 `PROFILE=/dev/null` keeps nvm's installer from appending to a shell file. The
 global packages are Pi itself (the [`pi`](../bin/pi) wrapper execs it) and the
-TypeScript fallback that [`lsp.json`](../omp/lsp.json) points at. Install them with
-nvm's npm, not Homebrew's.
+`tsc` that the Pi agent-stuff typecheck runs. Install them with nvm's npm, not
+Homebrew's. OMP's TypeScript LSP falls back to the TypeScript in Mason's
+`typescript-language-server` package (see [Neovim](#8-set-up-each-tool)).
 
 Most of Neovim's Mason LSPs are npm packages, and the `pwa-node` debug adapter
 runs `node`. `.zshrc` already has a guarded `NVM_DIR` block.
