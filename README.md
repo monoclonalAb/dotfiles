@@ -42,19 +42,16 @@ these only when asked, never as a check.
 
 ### Set up a new Mac
 
-The repository is private, so sign in to GitHub first. In a new Terminal:
+The repository is public, so cloning needs no GitHub sign-in. In a new Terminal:
 
 ```sh
 xcode-select --install      # wait for the installer to finish
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-/opt/homebrew/bin/brew install gh
-/opt/homebrew/bin/gh auth login                  # choose HTTPS and "authenticate Git"
-/opt/homebrew/bin/gh repo clone monoclonalAb/dotfiles ~/dotfiles
+git clone https://github.com/monoclonalAb/dotfiles.git ~/dotfiles
 ~/dotfiles/bin/dotfiles-bootstrap
 ```
 
 [`dotfiles-bootstrap`](bin/dotfiles-bootstrap) installs whatever is missing:
-Homebrew packages, Rust, Node, Pi, the links, the theme, tmux's plugin manager,
+Homebrew (it asks for your password) and its packages, Rust, Node, Pi, the links, the theme, tmux's plugin manager,
 and the patched Herdr with its plugins. It never upgrades packages and stops at a
 link conflict. Rerun it after fixing a failure. `dotfiles-bootstrap --check` only
 reports.
