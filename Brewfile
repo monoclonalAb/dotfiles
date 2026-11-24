@@ -89,7 +89,6 @@ brew "ffmpeg"
 brew "sevenzip"
 brew "llvm"
 brew "node"                    # npx: required by every stdio MCP server and Mason's node-based LSPs
-brew "marksman"                # markdown LSP; omp auto-detects the `marksman` binary
 brew "texlab"                  # LaTeX LSP; omp auto-detects the `texlab` binary
 brew "difftastic"              # `difft`: structural diffs the agent can read instead of line noise
 brew "hyperfine"               # benchmark claims instead of asserting them

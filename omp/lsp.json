@@ -28,6 +28,9 @@
       "args": ["server"],
       "fileTypes": [".py", ".pyi"],
       "rootMarkers": ["pyproject.toml", "setup.py", "setup.cfg", ".git"]
+    },
+    "marksman": {
+      "command": "/Users/eric/.local/share/nvim/mason/bin/marksman"
     }
   }
 }

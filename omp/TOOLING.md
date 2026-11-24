@@ -26,6 +26,7 @@ state remains in `~/.omp/plugins/` and is not managed by the repository.
 
 - List, test, enable, disable, or reload MCP servers: `/mcp list`, `/mcp test <name>`, `/mcp enable <name>`, `/mcp disable <name>`, `/mcp reload`.
 - Complete OAuth setup after enabling a vendor server with `/mcp reauth <name>`.
+- Markdown LSP (`marksman`) comes from Neovim's Mason, which installs it on the first `nvim` launch; `lsp.json` points OMP at it. Homebrew's formula needs end-of-life .NET 9.
 - Install the approved OMP-native plugins: `omp plugin install pi-lens @plannotator/pi-extension @upstash/context7-pi`.
 - Reload plugin skills and commands with `/reload-plugins`; restart OMP for new tools/extensions.
 - TypeScript LSP uses Homebrew's `typescript-language-server`. Homebrew's TypeScript 7 has no `tsserver`, so `lsp.json`'s `fallbackPath` points at the TypeScript inside Neovim Mason's `typescript-language-server` package, which Mason installs on the first `nvim` launch. The path does not change with the Node version.
