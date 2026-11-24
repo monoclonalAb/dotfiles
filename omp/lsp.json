@@ -7,7 +7,7 @@
       "rootMarkers": ["package.json", "tsconfig.json", "jsconfig.json", ".git"],
       "initOptions": {
         "tsserver": {
-          "fallbackPath": "/Users/eric/.nvm/versions/node/v24.19.0/lib/node_modules/typescript/lib"
+          "fallbackPath": "/Users/eric/.local/share/nvim/mason/packages/typescript-language-server/node_modules/typescript/lib"
         }
       }
     },

@@ -28,7 +28,7 @@ state remains in `~/.omp/plugins/` and is not managed by the repository.
 - Complete OAuth setup after enabling a vendor server with `/mcp reauth <name>`.
 - Install the approved OMP-native plugins: `omp plugin install pi-lens @plannotator/pi-extension @upstash/context7-pi`.
 - Reload plugin skills and commands with `/reload-plugins`; restart OMP for new tools/extensions.
-- TypeScript LSP uses Homebrew's `typescript-language-server` plus `npm install -g typescript@5` as its fallback runtime because the current Homebrew TypeScript 7 package is incompatible. After changing the nvm Node version, update the `typescript-language-server.initOptions.tsserver.fallbackPath` in `lsp.json`.
+- TypeScript LSP uses Homebrew's `typescript-language-server`. Homebrew's TypeScript 7 has no `tsserver`, so `lsp.json`'s `fallbackPath` points at the TypeScript inside Neovim Mason's `typescript-language-server` package, which Mason installs on the first `nvim` launch. The path does not change with the Node version.
 
 `serena` requires `uv tool install -p 3.13 serena-agent`, then `serena init`, before enabling. `postgres` and `grafana` read credentials from the shell through the env-var-name indirection in `mcp.json`. Supabase's `read_only=true` is the vendor-documented read-only mode. Atlassian remains SSE: its `/v1/mcp` endpoint returned Cloudflare 403 unauthenticated, while `/v1/sse` returned clean 401.
 
