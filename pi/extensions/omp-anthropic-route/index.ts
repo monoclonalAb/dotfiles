@@ -39,6 +39,14 @@ function safeError(error: unknown): string {
     .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted]").replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
     .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[redacted email]").slice(0, 800);
 }
+function probeRecovery(message: string): string {
+  // Pi keeps core modules in memory across /reload. An npm update can replace
+  // the lazily imported chunks on disk while this process still references them.
+  const missingPiChunk = /^Cannot find module ['"][^\r\n]*[\\/]@earendil-works[\\/]pi-coding-agent[\\/]dist[\\/]bundle[\\/]chunks[\\/][\w-]+\.js['"]/.test(message);
+  return missingPiChunk
+    ? "Quit Pi and reopen this conversation with pi --resume; /reload does not restart Pi. If a fresh process also fails, check the Pi installation."
+    : "Fix the cause, then /reload.";
+}
 function modelKey(model: Model<Api>): string { return `${model.api}:${model.baseUrl}:${model.id}`; }
 /** Stop waiting when the caller aborts, without cancelling or poisoning the
  * shared work (an OMP update or model probe) that other requests reuse. */
@@ -128,7 +136,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
         } catch (error) {
           current.state = "failed";
           current.error = safeError(error);
-          throw new Error(`Claude preflight test failed for ${model.id}: ${current.error}. Fix the cause, then /reload; no automatic retry or native fallback.`);
+          throw new Error(`Claude preflight test failed for ${model.id}: ${current.error}. ${probeRecovery(current.error)} No automatic retry or native fallback.`);
         }
       })();
     }
@@ -193,9 +201,9 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
         "Credential source: Pi's selected request login; OMP's saved login is not used.",
         `Live model test (last request): ${probe?.state ?? "not run"}${probe?.servedModel ? `; served ${probe.servedModel}; ${probe.outputTokens} output tokens` : ""}`,
         ...(compatibility?.error ? [compatibility.error] : []),
-        ...(probe?.error ? [probe.error] : []),
+        ...(probe?.error ? [probe.error, probeRecovery(probe.error)] : []),
         "Policy: first direct Claude OAuth request tries to update OMP to latest stable using the reviewed formula recipe; update failures warn and keep the installed CLI. Wire code stays pinned. One bounded probe per model/credential/runtime; no fallback on probe failure.",
-        "This is the last request's snapshot, not a fresh account check. This command does not update, resolve credentials or send a test. /reload resets the checks; the next Claude request verifies its selected credential (and may use quota).",
+        "This is the last request's snapshot, not a fresh account check. This command does not update, resolve credentials or send a test. After a restart or /reload, the next Claude request runs preflight again (and may use quota).",
       ].join("\n"), model && probe?.state !== "passed" ? "warning" : "info");
     },
   });

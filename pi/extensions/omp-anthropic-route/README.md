@@ -83,6 +83,13 @@ reported cause, `/reload`, and resend. There is no hidden native, model or OMP
 account fallback. If quota-router selects another signed-in Pi account after a
 limit, that credential must pass its own probe.
 
+If the error names a missing module under Pi's `dist/bundle/chunks/`, the Pi
+package may have been upgraded while that session was open. `/reload` resets
+extensions but keeps Pi's core running. In the affected session, use `/quit`,
+then run `pi --resume` from the same directory and select the conversation.
+Resend the prompt. If a fresh Pi process also reports a missing chunk, check
+Pi's npm installation rather than changing Claude credentials or OMP.
+
 ## Login and rate-limit recovery
 
 - `OAuth refresh failed for anthropic` / `invalid_grant` is a **Pi login** problem.

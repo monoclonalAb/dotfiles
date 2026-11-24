@@ -172,6 +172,7 @@ async function fixture(options = {}) {
     rmSync(join(root, ".local/state/pi/quota-router"), { recursive: true, force: true });
   }
   const models = await sdk.ModelRuntime.create({ ...(options.router ? { authPath } : { credentials }), modelsPath: fixtureModelsPath, modelsStore: new ai.InMemoryModelsStore(), allowModelNetwork: false, refreshOnCreate: false });
+  if (options.streamSimple) models.registerNativeProvider({ ...anthropicProvider(), streamSimple: options.streamSimple });
   const model = options.otherProvider ? models.getModels("openai")[0]
     : { ...models.getModel("anthropic", options.id ?? baseModel.id), ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}) };
   const settings = sdk.SettingsManager.inMemory({ retry: { enabled: options.retry ?? false, maxRetries: 3, baseDelayMs: 10, provider: { maxRetries: 0, timeoutMs: 5000 } }, compaction: { enabled: false } });
@@ -384,11 +385,33 @@ for (const mode of ["reject", "wrong-model", "bad-reply"]) test(`failed prefligh
     await f.session.prompt("Do not send this after a failed preflight");
     assert.equal(f.session.messages.at(-1).stopReason, "error");
     assert.match(f.session.messages.at(-1).errorMessage, /preflight test failed/);
+    assert.match(f.session.messages.at(-1).errorMessage, /Fix the cause, then \/reload/);
     assert.equal(lines(requestLog).length, before + 1);
     await f.session.prompt("Still blocked without another probe");
     assert.equal(f.session.messages.at(-1).stopReason, "error");
     assert.equal(lines(requestLog).length, before + 1);
   } finally { await f.close(); writeFileSync(probeModeFile, "pass"); }
+});
+
+test("missing Pi bundle chunk tells the user to restart Pi without retry or fallback", async () => {
+  const dir = "/test/Node Install/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks";
+  const before = lines(requestLog).length;
+  let attempts = 0;
+  const f = await fixture({ streamSimple: model => ai.lazyStream(model, async () => {
+    attempts++;
+    throw new Error(`Cannot find module '${dir}/anthropic-messages-ABC.js' imported from ${dir}/chunk-DEF.js`);
+  }) });
+  try {
+    for (const prompt of ["Probe this model", "Do not retry the failed probe"]) {
+      await f.session.prompt(prompt);
+      assert.equal(f.session.messages.at(-1).stopReason, "error");
+      assert.match(f.session.messages.at(-1).errorMessage, /Quit Pi.*pi --resume; \/reload does not restart Pi/);
+    }
+    await f.session.prompt("/omp-anthropic-route");
+    assert.match(f.notices.at(-1).message, /Quit Pi.*pi --resume/);
+    assert.equal(attempts, 1);
+    assert.equal(lines(requestLog).length, before);
+  } finally { await f.close(); }
 });
 
 test("first Claude prompt auto-upgrades a newer stable CLI before probing; wire source stays unchanged", async () => {
