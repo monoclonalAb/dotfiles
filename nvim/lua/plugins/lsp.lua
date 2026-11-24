@@ -35,7 +35,8 @@ return {
 			-- typescript-tools.nvim uses Mason's typescript-language-server package
 			-- as a tsserver provider. Keep mason-lspconfig from starting a second,
 			-- competing ts_ls client for the same JavaScript/TypeScript buffer.
-			automatic_enable = { exclude = { "ts_ls" } },
+			-- marksman is installed for OMP; Neovim does not run it.
+			automatic_enable = { exclude = { "ts_ls", "marksman" } },
 		})
 
 		vim.lsp.config("clangd", {

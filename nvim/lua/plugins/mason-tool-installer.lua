@@ -18,6 +18,10 @@ return {
             -- DAP packages configured in dap.lua.
             "codelldb",
             "debugpy",
+
+            -- OMP's Markdown LSP (omp/lsp.json). Mason installs upstream's
+            -- standalone binary; Homebrew's needs end-of-life .NET 9.
+            "marksman",
         }
 
         -- These packages invoke npm.  Skipping them until Node is available
