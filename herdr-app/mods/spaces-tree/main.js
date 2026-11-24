@@ -15,6 +15,12 @@
 //   Click a Space's counts to fold its conversations, a repository's chevron to
 //   fold its worktrees. A Pi conversation not written in yet ("New
 //   conversation") stays out until it starts.
+// - A Space's Neovim panes (isEditor) list among its conversations, tab by tab
+//   (byTab: tab 2's conversations and editors together): the Neovim logo in
+//   green instead of a dot and the name in the terminal font, so an editor
+//   never reads as a conversation. Click one to go there. They have no state, so
+//   they stay out of the activity band and the agent order; a folded Space
+//   shows how many (the logo and a number).
 // - A linked worktree whose branch has a GitHub pull request shows as
 //   "#123 title" with its state (gh pr view in the checkout; open green, draft
 //   grey, merged purple, closed red).
@@ -40,7 +46,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, agents, terminals, run, openOverlay, exec, hc, theme, shared, setShared, setAgentOrder, watchFolder, window, layout, nextCommand, notify, appHome, readTextFile, writeTextFile } from "herdr";
+import { spaces, machines, panes, agents, terminals, focused, run, openOverlay, exec, hc, theme, settings, shared, setShared, setAgentOrder, watchFolder, window, layout, nextCommand, notify, appHome, readTextFile, writeTextFile } from "herdr";
 
 // --- Rules (pure; tested by lib/herdr-app-mods) ------------------------------
 // Pure helpers for the tree below: pull-request lookups (the rules of
@@ -114,6 +120,45 @@ export function conversationTitle({ summary, pending, title, address, cwd, space
   if (pending) return { text: "Naming…", strong: false };
   if (tabNamed && tabName) return { text: tabName, strong: false };
   return { text: program || "agent", strong: false };
+}
+
+// Editors: panes whose program is Neovim now (the app's program table follows
+// what runs in the terminal, so a shell becomes one when it starts nvim and
+// stops being one when nvim quits). The conversation picker keeps a copy.
+export const EDITORS = ["nvim"];
+
+export function isEditor(p) {
+  return Boolean(p?.terminal) && EDITORS.includes(p.program?.key) && !p.program?.agent;
+}
+
+// What an editor row says: the file Neovim's title names (with its `title`
+// option on: "main.js + (~/src) - Nvim"), else the pane's name, a named tab,
+// then its folder. `address`: the app titles an untitled terminal by it.
+export function editorTitle({ title, address, name, tabName, tabNamed, cwd }) {
+  let file = (title ?? "").trim()
+    .replace(/\s+-\s+n?vim$/i, "") // " - Nvim"
+    .replace(/\s+\([^()]*\)$/, "") // " (~/src)"
+    .replace(/\s+[-+=]+$/, "") // modified marks
+    .trim();
+  if (/^[~/]/.test(file)) file = base(file);
+  if (file && file !== address && !/^n?vim$/i.test(file)) return file;
+  if (name) return name;
+  if (tabNamed && tabName) return tabName;
+  return base(cwd ?? "") || "Neovim";
+}
+
+// A Space's sidebar rows ({ tab, pane }) in tab order, then pane order within a
+// tab, so each tab's conversations and editors sit together: tab 1's, then tab
+// 2's. `tabIds`: the Space's tabs in order; `paneIds`: every pane in order
+// (panes()). Anything not found keeps its place after the rest.
+export function byTab(rows, tabIds, paneIds) {
+  const tabAt = new Map(tabIds.map((id, i) => [id, i]));
+  const paneAt = new Map(paneIds.map((id, i) => [id, i]));
+  const at = (map, key) => map.get(key) ?? Number.MAX_SAFE_INTEGER;
+  return rows
+    .map((row, i) => ({ row, i }))
+    .sort((x, y) => at(tabAt, x.row.tab) - at(tabAt, y.row.tab) || at(paneAt, x.row.pane) - at(paneAt, y.row.pane) || x.i - y.i)
+    .map(({ row }) => row);
 }
 
 // herdr-task-summary's title for a Pi conversation with no request yet (its
@@ -315,6 +360,11 @@ const sym = (ch) => div().flex_none().font_family(MARK_FONT).child(ch);
 // A mark and its count, as in a Space's row (\u25c6 2).
 const tally = (ch, n, color) => h_flex().flex_none().gap(1).items_center().text_color(color).child(sym(ch)).child(String(n));
 const fade = (hex, alpha) => (/^#[0-9a-f]{6}$/i.test(hex ?? "") ? hex + alpha : hex);
+// An editor's mark: its program's logo (Neovim's, from the app's icons) in the
+// theme's green, where a conversation has its dot.
+const editorLogo = (p, size, t) => svg(p?.program?.icon ?? "icons/nvim.svg").size(size).flex_none().text_color(t.ansi2);
+// Editor names are in the terminal's font, as file names are.
+const monoFont = () => settings()?.font_family ?? "JetBrains Mono";
 
 // GitHub's pull-request state icons (Lucide). svg() only loads files inside the
 // app's folder and this mod's files are links into the dotfiles repository, so
@@ -803,6 +853,12 @@ export default class SpacesTree extends View {
     return (this.agentList ?? this.listed()).filter((a) => a.space === w.id);
   }
 
+  // A Space's Neovim panes, in tab and pane order.
+  editorsOf(w) {
+    const tabs = new Set((w.tabs ?? []).map((x) => x.id));
+    return (this.paneList ?? panes()).filter((p) => tabs.has(p.tab) && isEditor(p));
+  }
+
   // Due and running conversations across `shown` (including folded repositories
   // and folded Spaces), while stamping state-change times across every listed agent
   // so toggling Personal/Work keeps ages intact.
@@ -1034,18 +1090,25 @@ export default class SpacesTree extends View {
       .children(reviews.map((r) => this.reviewRow(r, t, !folded)));
   }
 
-  // A Space's conversations (and their helpers); shut while folded, so folding
-  // slides them away.
+  // A Space's conversations (and their helpers) and editors, tab by tab (byTab);
+  // shut while folded, so folding slides them away.
   conversations({ w, tree, hidden }, t) {
     const open = !hidden && !this.foldedSpaces.has(w.id);
     const list = this.agentsOf(w);
-    if (!list.length) return [];
+    const editors = this.editorsOf(w);
+    if (!list.length && !editors.length) return [];
     const ps = this.paneList ?? panes();
     const all = this.terminalList ?? terminals();
     const byAddress = new Map(all.map((x) => [x.address, x]));
     const indent = tree ? 44 : 22;
     const several = (w.tabs ?? []).length > 1;
-    return list.flatMap((a) => {
+    const here = focused()?.pane;
+    const rows = byTab([
+      ...list.map((a) => ({ tab: a.tab, pane: a.pane, agent: a })),
+      ...editors.map((p) => ({ tab: p.tab, pane: p.pane, editor: p })),
+    ], (w.tabs ?? []).map((x) => x.id), ps.map((p) => p.pane));
+    return rows.flatMap(({ agent: a, editor }) => {
+      if (editor) return [this.editorRow(editor, w, { indent, several, open, here }, t)];
       const term = byAddress.get(a.address);
       const tab = (w.tabs ?? []).find((x) => x.id === a.tab);
       const pane = ps.find((p) => p.pane === a.pane);
@@ -1089,10 +1152,34 @@ export default class SpacesTree extends View {
     });
   }
 
+  // A Neovim pane among its Space's conversations: the logo instead of a dot,
+  // the name in the terminal font. Click: go there.
+  editorRow(p, w, { indent, several, open, here }, t) {
+    const tab = (w.tabs ?? []).find((x) => x.id === p.tab);
+    const text = editorTitle({ title: p.title, address: p.terminal, name: p.name, tabName: tab?.name, tabNamed: tab?.named, cwd: p.cwd });
+    const on = p.pane === here;
+    return this.grow(h_flex(), `edit-${p.pane}`, 24, open)
+      .flex_none()
+      .relative()
+      .pl(indent)
+      .pr(8)
+      .gap(7)
+      .items_center()
+      .rounded(8)
+      .cursor_pointer()
+      .child(this.tint(`edit-tint-${p.pane}`, t.input, on))
+      .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
+      .on_click(() => run("pane.focus", { pane: p.pane }))
+      .child(h_flex().w(12).flex_none().justify_center().child(editorLogo(p, 11, t)))
+      .child(div().flex_1().min_w(0).truncate().font_family(monoFont()).text_size(11.5).text_color(on ? t.foreground : t.muted).child(text))
+      .when(several && Boolean(tab), (el) => el.child(div().flex_none().max_w(70).truncate().text_size(11).text_color(t.dim).child(tab.name)));
+  }
+
   // After a Space's name: its conversations' counts (click: fold them).
   counts(w, t) {
     const list = this.agentsOf(w);
-    if (!list.length) return null;
+    const editors = this.editorsOf(w).length;
+    if (!list.length && !editors) return null;
     const dots = list.map((a) => this.dotOf(a));
     const folded = this.foldedSpaces.has(w.id);
     const blocked = dots.filter((d) => d === "blocked").length;
@@ -1121,7 +1208,10 @@ export default class SpacesTree extends View {
       .when(blocked > 0, (el) => el.child(tally(GLYPH.blocked, blocked, t.blocked)))
       .when(review > 0, (el) => el.child(tally(GLYPH.review, review, t.done)))
       .when(saved > 0, (el) => el.child(tally(GLYPH.saved, saved, t.accent)))
-      .when(folded && !blocked && !review && !saved, (el) => el.child(tally(GLYPH[top], list.length, t[TONE[top]])));
+      .when(folded && !blocked && !review && !saved && list.length > 0, (el) => el.child(tally(GLYPH[top], list.length, t[TONE[top]])))
+      // Folded editors: the logo and how many.
+      .when(folded && editors > 0, (el) => el.child(h_flex().flex_none().gap(2).items_center().text_color(t.ansi2)
+        .child(editorLogo(null, 10, t)).child(String(editors))));
   }
 
   // A repository's fold chevron, on its main checkout's row.

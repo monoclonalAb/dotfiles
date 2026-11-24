@@ -5,13 +5,16 @@
 //
 // Type a few letters of a conversation's title, Space, branch, named tab,
 // program, machine or environment. Every agent in every Space is searched,
-// Personal and Work alike; plain shells are left out. Each typed word must match
-// somewhere; title matches rank first, and among equals the one visited last.
-// The best match is the "Top hit" and is selected, so Enter goes straight to it.
+// Personal and Work alike, and so is every Neovim pane (an "editor", shown with
+// the Neovim logo instead of a dot, its name in the terminal font); plain shells
+// are left out. Each typed word must match somewhere; title matches rank first,
+// and among equals the one visited last. The best match is the "Top hit" and is
+// selected, so Enter goes straight to it; the other matches follow under
+// "Conversations", then "Editors".
 //
-// With nothing typed the list is "Recent": conversations by last visit (shared
-// "pane-keys.recent", kept by pane-keys), the one you are in last, so `C-a w`
-// then Enter goes back to the previous conversation.
+// With nothing typed the list is "Recent": conversations and editors by last
+// visit (shared "pane-keys.recent", kept by pane-keys), the one you are in last,
+// so `C-a w` then Enter goes back to the previous one.
 //
 // The right half previews the selection: its title, where it lives, and the last
 // lines of its screen (`hc read`, every 2 s while open; nothing is typed into or
@@ -67,6 +70,27 @@ export function conversationTitle({ summary, pending, title, address, cwd, space
   return { text: program || "agent", strong: false };
 }
 
+// Editors: spaces-tree's isEditor and editorTitle, copied for the same reason
+// (lib/herdr-app-mods checks the copies agree). A pane whose program is Neovim
+// now; named by the file in Neovim's title, else the pane's name, a named tab,
+// then its folder.
+export const EDITORS = ["nvim"];
+export function isEditor(p) {
+  return Boolean(p?.terminal) && EDITORS.includes(p.program?.key) && !p.program?.agent;
+}
+export function editorTitle({ title, address, name, tabName, tabNamed, cwd }) {
+  let file = (title ?? "").trim()
+    .replace(/\s+-\s+n?vim$/i, "")
+    .replace(/\s+\([^()]*\)$/, "")
+    .replace(/\s+[-+=]+$/, "")
+    .trim();
+  if (/^[~/]/.test(file)) file = base(file);
+  if (file && file !== address && !/^n?vim$/i.test(file)) return file;
+  if (name) return name;
+  if (tabNamed && tabName) return tabName;
+  return base(cwd ?? "") || "Neovim";
+}
+
 // Every agent with a pane, as the search sees it, in the sidebar's Space order
 // (`order`: shared "spaces-tree.order"), then the app's. `env`: shared
 // "spaces-env" (null: no environments).
@@ -91,6 +115,7 @@ export function conversations({ agentList, paneList, spaceList, terminalList, or
         title: a.title, address: a.address, cwd: pane.cwd, spaceName, tabName: tab?.name, tabNamed: tab?.named, program: a.program?.name,
       });
       return {
+        kind: "agent",
         address: a.address,
         pane: a.pane,
         title: text,
@@ -106,6 +131,41 @@ export function conversations({ agentList, paneList, spaceList, terminalList, or
         icon: a.program ?? null,
         status: a.status,
         here: a.address === here,
+      };
+    });
+}
+
+// Every editor, as the search sees it (the fields of `conversations`, `kind`
+// "editor"), in the sidebar's Space order, then the app's.
+export function editors({ paneList, spaceList, order, env, here }) {
+  const home = new Map();
+  for (const space of spaceList) for (const tab of space.tabs ?? []) home.set(tab.id, { space, tab });
+  const rank = new Map((Array.isArray(order) ? order : []).map((id, i) => [id, i]));
+  const at = (p) => rank.get(home.get(p.tab).space.id) ?? Infinity;
+  return paneList
+    .filter((p) => isEditor(p) && home.has(p.tab))
+    .map((p, i) => ({ p, i }))
+    .sort((x, y) => at(x.p) - at(y.p) || x.i - y.i)
+    .map(({ p }) => {
+      const { space, tab } = home.get(p.tab);
+      return {
+        kind: "editor",
+        address: p.terminal,
+        pane: p.pane,
+        title: editorTitle({ title: p.title, address: p.terminal, name: p.name, tabName: tab.name, tabNamed: tab.named, cwd: p.cwd }),
+        strong: false,
+        space: space.name ?? "",
+        spaceId: space.id,
+        branch: p.branch ?? space.branch ?? "",
+        tab: tab.named ? tab.name : "",
+        folder: p.cwd ? base(p.cwd) : "",
+        machine: space.machine ?? "",
+        env: env?.assign ? (env.assign[space.id] ?? "personal") : "",
+        program: p.program?.name ?? "Neovim",
+        aka: "nvim vim editor",
+        icon: p.program ?? null,
+        status: null,
+        here: p.terminal === here,
       };
     });
 }
@@ -143,7 +203,8 @@ export function wordScore(word, text) {
 }
 
 // What each field of a conversation is worth when a word matches it.
-export const FIELDS = [["title", 1], ["space", 0.7], ["branch", 0.6], ["tab", 0.6], ["program", 0.5], ["folder", 0.5], ["machine", 0.5], ["env", 0.4]];
+// `aka`: what else an editor answers to ("nvim", "editor").
+export const FIELDS = [["title", 1], ["space", 0.7], ["branch", 0.6], ["tab", 0.6], ["program", 0.5], ["aka", 0.5], ["folder", 0.5], ["machine", 0.5], ["env", 0.4]];
 
 // A conversation's score for `query`: each word's best field, added up, plus a
 // bonus when the whole query starts or is in the title. Null when a word matches
@@ -166,19 +227,25 @@ export function matchScore(query, c) {
 
 // The results in order. Nothing typed: by last visit (`recent`: addresses, most
 // recent first), never-visited ones in sidebar order, the one you are in last.
-// Typed: the matches by score, then the one you are in last, then by last visit.
+// Typed: the matches by score, then the one you are in last, then by last visit;
+// after the top hit, conversations before editors.
 export function rank(list, query, recent) {
   const visit = new Map((Array.isArray(recent) ? recent : []).map((address, i) => [address, i]));
   const last = (c) => visit.get(c.address) ?? Infinity;
   const rows = list.map((c, i) => ({ c, i, s: matchScore(query, c) }));
   const byVisit = (a, b) => a.c.here - b.c.here || last(a.c) - last(b.c) || a.i - b.i;
   if (!query.trim()) return rows.sort(byVisit).map((r) => r.c);
-  return rows.filter((r) => r.s).sort((a, b) => b.s - a.s || byVisit(a, b)).map((r) => r.c);
+  const [top, ...rest] = rows.filter((r) => r.s).sort((a, b) => b.s - a.s || byVisit(a, b)).map((r) => r.c);
+  if (!top) return [];
+  return [top, ...rest.filter((c) => c.kind !== "editor"), ...rest.filter((c) => c.kind === "editor")];
 }
 
 // Where the list's headings and results go: "Recent" over everything with
-// nothing typed; else "Top hit" over the first and "Conversations" over the rest.
-export function listLayout(count, query) {
+// nothing typed; else "Top hit" over the first, then "Conversations" and
+// "Editors" over the rest. `results`: rank's list (a number: that many
+// conversations).
+export function listLayout(results, query) {
+  const kinds = typeof results === "number" ? Array(results).fill("agent") : results.map((c) => (c?.kind === "editor" ? "editor" : "agent"));
   const items = [];
   const typed = Boolean(query.trim());
   let y = 0;
@@ -186,9 +253,9 @@ export function listLayout(count, query) {
     items.push({ kind: "head", text, top: y });
     y += HEAD;
   };
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < kinds.length; i++) {
     if (i === 0) head(typed ? "Top hit" : "Recent");
-    if (typed && i === 1) head("Conversations");
+    else if (typed && (i === 1 || kinds[i] !== kinds[i - 1])) head(kinds[i] === "editor" ? "Editors" : "Conversations");
     items.push({ kind: "row", index: i, top: y });
     y += ROW;
   }
@@ -249,6 +316,14 @@ function mark(d, t) {
     : div().w(12).flex_none().text_size(11).font_family(MARK_FONT).text_color(t[TONE[d]] ?? t.dim).child(GLYPH[d] ?? GLYPH.idle);
 }
 
+// An editor's mark, as in the sidebar: Neovim's logo in the theme's green where
+// a conversation has its dot; its name is in the terminal's font.
+const isEditorResult = (c) => c?.kind === "editor";
+const editorMark = (c, t) => h_flex().w(12).flex_none().justify_center()
+  .child(svg(c.icon?.icon ?? "icons/nvim.svg").size(11).flex_none().text_color(t.ansi2));
+const monoFont = () => settings().font_family ?? "JetBrains Mono";
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 export default class ConversationPicker extends View {
   init(_props, cx) {
     this.query = "";
@@ -257,7 +332,7 @@ export default class ConversationPicker extends View {
     this.screens = {}; // address: screen text, or null when it could not be read
     this.reading = new Set();
     this.handle = cx.focus_handle();
-    this.input = InputState.new({ placeholder: "Go to a conversation" });
+    this.input = InputState.new({ placeholder: "Go to a conversation or editor" });
     this.input.on("change", (_e, cx) => {
       this.query = this.input.value();
       this.pick = null;
@@ -275,14 +350,14 @@ export default class ConversationPicker extends View {
 
   model() {
     const here = focused()?.terminal ?? null;
-    const list = conversations({
-      agentList: agents(), paneList: panes(), spaceList: spaces(), terminalList: terminals(),
-      order: shared("spaces-tree.order"), env: shared("spaces-env"), here,
-    });
+    const paneList = panes(), spaceList = spaces(), order = shared("spaces-tree.order"), env = shared("spaces-env");
+    const talks = conversations({ agentList: agents(), paneList, spaceList, terminalList: terminals(), order, env, here });
+    const edits = editors({ paneList, spaceList, order, env, here });
+    const list = [...talks, ...edits];
     const results = rank(list, this.query, shared(RECENT));
     let at = this.pick ? results.findIndex((c) => c.address === this.pick) : 0;
     if (at < 0) at = 0;
-    return { total: list.length, results, at, selected: results[at] ?? null };
+    return { total: list.length, editors: edits.length, results, at, selected: results[at] ?? null };
   }
 
   // The selected conversation's screen; a read already running for it skips.
@@ -314,7 +389,8 @@ export default class ConversationPicker extends View {
   }
 
   row(c, selected, activeEnv, t) {
-    const d = dotOf(c);
+    const editor = isEditorResult(c);
+    const d = editor ? null : dotOf(c);
     const away = activeEnv && c.env && c.env !== activeEnv;
     return h_flex()
       .size_full()
@@ -325,20 +401,23 @@ export default class ConversationPicker extends View {
       .cursor_pointer()
       .when(!selected, (el) => el.hover((s) => s.bg(t.hover)))
       .on_click(() => this.go(c))
-      .child(mark(d, t))
+      .child(editor ? editorMark(c, t) : mark(d, t))
       .child(v_flex()
         .flex_1()
         .min_w(0)
         .gap(1)
-        .child(div().truncate().text_size(13).text_color(selected || c.strong ? t.foreground : t.muted).when(selected, (el) => el.font_semibold()).child(c.title))
-        .child(div().truncate().text_size(11).text_color(t.dim).child(where(c) || c.program)))
+        .child(div().truncate().text_size(editor ? 12 : 13).when(editor, (el) => el.font_family(monoFont()))
+          .text_color(selected || c.strong ? t.foreground : t.muted).when(selected, (el) => el.font_semibold()).child(c.title))
+        .child(div().truncate().text_size(11).text_color(t.dim)
+          .child(editor ? [c.program, where(c) || c.folder].filter(Boolean).join(" \u00b7 ") : where(c) || c.program)))
       .when(d === "blocked" || d === "review" || d === "saved", (el) => el.child(div().flex_none().text_size(11).text_color(t[TONE[d]]).child(SAYS[d])))
       .when(c.here, (el) => el.child(div().flex_none().text_size(11).text_color(t.accent).child("here")))
       .when(Boolean(away), (el) => el.child(div().flex_none().px(6).py(1).rounded(5).border(1).border_color(t.border).text_size(10.5).text_color(t.dim).child(capital(c.env))));
   }
 
   preview(c, t) {
-    const d = dotOf(c);
+    const editor = isEditorResult(c);
+    const d = editor ? null : dotOf(c);
     const screen = this.screens[c.address];
     const lines = screen === undefined ? [] : screen === null ? null : tail(screen, 60);
     const pic = icon(c.icon, 13, t.muted);
@@ -352,8 +431,9 @@ export default class ConversationPicker extends View {
       .border_l(1)
       .border_color(t.border)
       .child(h_flex().gap(8).items_start()
-        .child(div().pt(2).child(mark(d, t)))
-        .child(div().flex_1().min_w(0).text_size(14.5).font_semibold().text_color(t.foreground).child(c.title)))
+        .child(div().pt(2).child(editor ? editorMark(c, t) : mark(d, t)))
+        .child(div().flex_1().min_w(0).text_size(editor ? 13.5 : 14.5).when(editor, (el) => el.font_family(monoFont()))
+          .font_semibold().text_color(t.foreground).child(c.title)))
       .child(div().truncate().text_size(12).text_color(t.muted).child(where(c) || c.folder || "\u2014"))
       .child(h_flex().gap(6).items_center().text_size(11.5).text_color(d === "blocked" || d === "review" || d === "saved" ? t[TONE[d]] : t.dim)
         .when(Boolean(pic), (el) => el.child(pic))
@@ -370,7 +450,7 @@ export default class ConversationPicker extends View {
         .bg(t.background)
         .justify_end()
         .overflow_hidden()
-        .font_family(settings().font_family ?? "JetBrains Mono")
+        .font_family(monoFont())
         .text_size(FONT)
         .text_color(t.muted)
         .when(lines === null, (el) => el.child(div().text_color(t.dim).child("Screen unavailable")))
@@ -381,14 +461,15 @@ export default class ConversationPicker extends View {
     const t = theme();
     const m = this.model();
     const q = this.query.trim();
-    const lay = listLayout(m.results.length, q);
+    const lay = listLayout(m.results, q);
     const body = m.results.length ? Math.min(Math.max(lay.height, MIN_BODY), MAX_BODY) : EMPTY;
     this.scroll = Math.min(Math.max(0, this.scroll), Math.max(0, lay.height - body));
     const sel = lay.items.find((it) => it.kind === "row" && it.index === m.at);
     const shown = lay.items.filter((it) => it.top + ROW > this.scroll - body && it.top < this.scroll + 2 * body);
     const activeEnv = shared("spaces-env")?.active ?? null;
-    const empty = !m.total ? "No conversations are running." : `No conversation matches \u201c${q}\u201d.`;
-    const count = q ? `${m.results.length} of ${m.total} conversations` : `${m.total} conversation${m.total === 1 ? "" : "s"}`;
+    const empty = !m.total ? "No conversations or editors are open." : `Nothing matches \u201c${q}\u201d.`;
+    const kinds = [plural(m.total - m.editors, "conversation"), m.editors ? plural(m.editors, "editor") : ""].filter(Boolean).join(" \u00b7 ");
+    const count = q ? `${m.results.length} of ${m.total} ${m.editors ? "conversations and editors" : "conversations"}` : kinds;
 
     return v_flex()
       .id("conversation-picker")

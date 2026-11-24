@@ -13,8 +13,9 @@
 //                               then H/J/K/L alone repeat it for 500 ms, as tmux's
 //                               `bind -r` does
 //
-// Also keeps shared "pane-keys.recent": conversations (agent terminal addresses)
-// by last visit, most recent first, for the conversation picker (C-a w).
+// Also keeps shared "pane-keys.recent": conversations and Neovim panes (their
+// terminal addresses) by last visit, most recent first, for the conversation
+// picker (C-a w).
 //
 // And keeps a zoomed tab's shown pane and focused pane the same, as tmux does.
 // The app moves focus onto a pane its zoom hides (pane.focus, agent.next, a
@@ -50,6 +51,17 @@ export function remember(list, address, cap = 40) {
   const prev = Array.isArray(list) ? list : [];
   if (!address || prev[0] === address) return prev;
   return [address, ...prev.filter((x) => typeof x === "string" && x !== address)].slice(0, cap);
+}
+
+// The terminal a focus counts as a visit to, else null: an agent's, or a Neovim
+// pane's (spaces-tree's isEditor), as the conversation picker lists both.
+// `f`: focused().
+export function visitOf(f, agentList, paneList) {
+  const address = f?.terminal;
+  if (!address) return null;
+  if (agentList.some((a) => a.address === address)) return address;
+  const pane = paneList.find((p) => p.terminal === address);
+  return pane?.program?.key === "nvim" && !pane.program.agent ? address : null;
 }
 
 // What to run when the focused tab's zoom hides the focused pane, else null.
@@ -200,9 +212,9 @@ export default class PaneKeys extends View {
         if (later.pane === now.pane && later.zoomed === now.zoomed) run(...fix);
       });
     }
-    // A conversation visit: only agents count, and only a change is saved.
-    const address = focused()?.terminal;
-    if (address && agents().some((a) => a.address === address)) {
+    // A visit to a conversation or an editor; only a change is saved.
+    const address = visitOf(focused(), agents(), panes());
+    if (address) {
       const now = shared(RECENT);
       const next = remember(now, address);
       if (next !== now) setShared(RECENT, next);

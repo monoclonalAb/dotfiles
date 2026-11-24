@@ -68,6 +68,31 @@ vim.keymap.set("n", "<leader>vL", function()
 	end
 end, { desc = "Toggle virtual_lines diagnostics" })
 
+-- Name the terminal window or pane after the file being edited
+-- ("options.lua - Nvim"), or an Oil folder view after its folder ("lua/ - Nvim").
+-- Pickers and other scratch windows keep the last name. The Herdr app's sidebar
+-- and conversation picker name a Neovim pane by this title (editorTitle in
+-- herdr-app/mods/spaces-tree/main.js).
+vim.opt.title = true
+vim.opt.titlestring = "Nvim"
+vim.api.nvim_create_autocmd({ "BufEnter", "BufFilePost" }, {
+	group = vim.api.nvim_create_augroup("WindowTitle", { clear = true }),
+	callback = function(args)
+		local name = vim.api.nvim_buf_get_name(args.buf)
+		local folder = name:match("^oil://(.+)")
+		local shown
+		if folder then
+			shown = vim.fn.fnamemodify((folder:gsub("/+$", "")), ":t") .. "/"
+		elseif name ~= "" and (vim.bo[args.buf].buftype == "" or vim.bo[args.buf].buftype == "help") then
+			shown = vim.fn.fnamemodify(name, ":t")
+		end
+		if shown then
+			-- titlestring reads % as a format item, so a % in a name is doubled.
+			vim.o.titlestring = shown:gsub("%%", "%%%%") .. " - Nvim"
+		end
+	end,
+})
+
 -- set up undotree
 
 vim.opt.undodir = os.getenv("HOME") .. "/.vim/undodir"

@@ -86,6 +86,14 @@ layout if a file breaks the window.
   state. Click a row to jump there, or a heading to fold that section. A
   section with no rows is left out; the band hides when all are idle. Below
   it is one tree: repository, then its worktree Spaces (branch icon), then the conversations in each Space.
+  Each pane running Neovim has a row too, drawn differently: the green Neovim
+  logo instead of a dot, and its name in the terminal font. Rows go tab by tab,
+  so tab 2's conversations and Neovim panes sit together, in pane order. The
+  name is the file Neovim's title names (`options.lua`, or `lua/` for an Oil
+  folder view, set in [`nvim/lua/options.lua`](../nvim/lua/options.lua)), else
+  the pane's or a named tab's name, else its folder. Click it to go there. These rows have no
+  state, so the top band, the counts, `C-a u` and `C-a M-1..9` leave them out;
+  a folded Space shows how many (Neovim logo and a number).
   Each Space's row ends with its repository and branch, `main` included, so
   branches line up at the right edge; commits ahead or behind sit just left
   of them, and the fold chevron and counts follow the name
@@ -181,7 +189,7 @@ change tabs or move worktrees.
 
 | Key | Action |
 | --- | --- |
-| `C-a w`, `Cmd+P` | [Conversation picker](#conversation-picker): type part of a conversation's name, `Enter` goes there |
+| `C-a w`, `Cmd+P` | [Conversation picker](#conversation-picker): type part of a conversation's or Neovim pane's name, `Enter` goes there |
 | `C-a C-w` | [Mission control](#mission-control): every agent at once |
 | `C-a u` / `C-a U` | Next conversation needing you / back to where the jumps started |
 | `C-a m` | Save this conversation for later (sidebar's Saved) until you reply; again: unsave it, marked read |
@@ -253,11 +261,15 @@ keys. Example, five agents running:
    screen.
 3. `Enter`. You are in that pane, even if it is in another Space or in Work.
 4. 10:05: `C-a w`, then `Enter` with nothing typed. With nothing typed the list
-   is **Recent**, conversations by last visit, so this goes back to
-   `Build conversation picker`.
+   is **Recent**, conversations and Neovim panes by last visit, so this goes
+   back to `Build conversation picker`.
 
-- It searches every agent in every Space, Personal and Work alike; plain shells
-  are left out. A conversation from the other environment says so (`Work`).
+- It searches every agent and every Neovim pane in every Space, Personal and
+  Work alike; plain shells are left out. A conversation from the other
+  environment says so (`Work`).
+- A Neovim pane looks as in the sidebar (green logo, name in the terminal font)
+  and, when you type, is listed under **Editors**, after **Conversations**.
+  `nvim` or `editor` finds them all.
 - Each typed word has to match its title, Space, branch, named tab, program,
   machine or environment (`dot sync` finds `Theme sync` in `dotfiles`). Title
   matches rank first; between equals, the one you visited last.
