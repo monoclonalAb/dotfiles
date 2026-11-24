@@ -93,7 +93,7 @@ if [ -x /opt/homebrew/bin/brew ]; then
     ok "$(/opt/homebrew/bin/brew --version | head -n 1)"
 else
     todo 'Homebrew (asks for your password)'
-    $check || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    $check || { installer=$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh) && /bin/bash -c "$installer"; } || fail 'Homebrew install failed'
 fi
 
 step 'Rust (rustup)'
@@ -103,7 +103,7 @@ if [ -f "$HOME/.cargo/env" ]; then
     ok "$HOME/.cargo/env"
 else
     todo 'rustup'
-    $check || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+    $check || { installer=$(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs) && printf '%s\n' "$installer" | sh -s -- -y --no-modify-path; } || fail 'rustup install failed'
 fi
 
 step 'Brewfile'
@@ -125,13 +125,13 @@ if [ -s "$HOME/.nvm/nvm.sh" ]; then
     ok 'nvm'
 else
     todo 'nvm'
-    $check || curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | PROFILE=/dev/null bash
+    $check || { installer=$(curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh) && printf '%s\n' "$installer" | PROFILE=/dev/null bash; } || fail 'nvm install failed'
 fi
 if [ -s "$HOME/.nvm/nvm.sh" ] && nvm_run node --version >/dev/null 2>&1; then
     ok "node $(nvm_run node --version)"
 else
     todo 'Node LTS (nvm default)'
-    $check || NVM_DIR="$HOME/.nvm" bash -c '. "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default "lts/*"'
+    $check || NVM_DIR="$HOME/.nvm" bash -c '. "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default "lts/*"' || fail 'Node LTS install failed'
 fi
 for package in $npm_globals; do
     name=${package%@*}; [ -n "$name" ] || name=$package
@@ -139,7 +139,7 @@ for package in $npm_globals; do
         ok "npm -g $name"
     else
         todo "npm -g $package"
-        $check || nvm_run npm install -g "$package"
+        $check || nvm_run npm install -g "$package" || fail "npm install -g $package failed"
     fi
 done
 
@@ -168,7 +168,7 @@ if [ -d "$HOME/.config/tmux/plugins/tpm" ]; then
     ok 'tpm'
 else
     todo 'tpm'
-    $check || git clone --depth 1 https://github.com/tmux-plugins/tpm "$HOME/.config/tmux/plugins/tpm"
+    $check || git clone --depth 1 https://github.com/tmux-plugins/tpm "$HOME/.config/tmux/plugins/tpm" || fail 'tpm clone failed'
 fi
 
 step 'Herdr'
