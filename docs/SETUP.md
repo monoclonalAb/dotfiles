@@ -144,7 +144,9 @@ caches the `pyenv init` and `direnv hook` scripts in `~/.cache/zsh/` and runs
 `pyenv rehash` in the background. The cache refreshes when pyenv or direnv is
 upgraded or a pyenv plugin is added.
 
-**Terminal.** Alacritty uses `JetBrainsMono Nerd Font` from the Brewfile.
+**Terminal.** Setup does not install Alacritty: Homebrew disabled its cask on
+2026-09-01 because the app is unsigned. Its config stays linked for a Mac that
+already has it. There it uses `JetBrainsMono Nerd Font` from the Brewfile;
 **Cmd-click** a `file://` URL to open it in a new Neovim window
 (**Cmd+Shift-click** inside Herdr); web links open in the browser and
 **Ctrl+Shift+O** picks hints by keyboard. Pi's

@@ -112,7 +112,8 @@ dotfiles-link apply    # make the links; changes nothing while any conflict rema
 
 - **Herdr** (terminal workspaces) uses the `C-a` prefix. `C-a ?` shows every
   key; the custom ones are in [`docs/HERDR.md`](docs/HERDR.md#keys).
-- **Theme:** in Alacritty, `Ctrl+Shift+T` changes the colour flavour and
-  `Ctrl+Shift+B` the opacity. `theme status` shows the current state.
+- **Theme:** `theme cycle` changes the colour flavour and `theme opacity` the
+  opacity (`Ctrl+Shift+T` and `Ctrl+Shift+B` in Alacritty). `theme status` shows
+  the current state.
 - **Pi** is the main coding agent. After changing a Pi extension, prompt or MCP
   file, run `/reload` in idle Pi sessions.

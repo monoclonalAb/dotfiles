@@ -52,7 +52,7 @@ brew "can1357/tap/omp"       # OMP harness; Pi's omp-anthropic-route blocks Clau
 # Pi and OMP's gcloud / gcp-observability MCP servers shell out to `gcloud`.
 cask "gcloud-cli"
 
-cask "alacritty"
+# No alacritty: Homebrew disabled its cask on 2026-09-01 (unsigned app). alacritty/ stays linked for a Mac that has it.
 cask "herdr-app"              # Herdr desktop app (docs/HERDR-APP.md); updates itself. If installed by hand: brew install --cask --adopt herdr-app
 cask "wezterm"
 cask "aerospace"
