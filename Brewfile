@@ -26,7 +26,7 @@ brew "zsh-vi-mode"
 
 brew "neovim"                  # 0.11+ — lsp.lua uses vim.lsp.config()
 brew "herdr"                   # base install only; ~/.local/bin/herdr (install-herdr-focus) shadows it and owns the running config
-brew "zig"                     # install-herdr-focus requires Zig 0.16.0 for Herdr 0.9.5; rustup comes from docs/SETUP.md step 3, not Homebrew
+brew "zig@0.16"                # install-herdr-focus requires Zig 0.16.0 for Herdr 0.9.5; plain `zig` is 0.17. Keg-only. rustup comes from docs/SETUP.md step 3, not Homebrew
 brew "python@3.14"             # herdr-next-agent plugin runtime
 brew "tmux"
 brew "ripgrep"                 # telescope live_grep, todo-comments, trouble
@@ -52,7 +52,7 @@ brew "can1357/tap/omp"       # OMP harness; Pi's omp-anthropic-route blocks Clau
 # Pi and OMP's gcloud / gcp-observability MCP servers shell out to `gcloud`.
 cask "gcloud-cli"
 
-cask "alacritty"
+# No alacritty: Homebrew disabled its cask on 2026-09-01 (unsigned app). alacritty/ stays linked for a Mac that has it.
 cask "herdr-app"              # Herdr desktop app (docs/HERDR-APP.md); updates itself. If installed by hand: brew install --cask --adopt herdr-app
 cask "wezterm"
 cask "aerospace"

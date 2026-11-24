@@ -48,9 +48,11 @@ zsh startup prints `no such file or directory: /Users/you/.cargo/env`.
 ## 4. Clone the repository
 
 ```sh
-brew install gh && gh auth login     # the repository is private
-gh repo clone monoclonalAb/dotfiles ~/dotfiles
+git clone https://github.com/monoclonalAb/dotfiles.git ~/dotfiles
 ```
+
+The repository is public, so the clone needs no GitHub sign-in; sign in with
+`gh auth login` after linking (see **git** in step 8).
 
 Keep the clone at `~/dotfiles`: Pi and OMP MCP configuration refers to that path.
 A plain clone is correct; do **not** use `--recurse-submodules`. tpm installs the
@@ -142,7 +144,9 @@ caches the `pyenv init` and `direnv hook` scripts in `~/.cache/zsh/` and runs
 `pyenv rehash` in the background. The cache refreshes when pyenv or direnv is
 upgraded or a pyenv plugin is added.
 
-**Terminal.** Alacritty uses `JetBrainsMono Nerd Font` from the Brewfile.
+**Terminal.** Setup does not install Alacritty: Homebrew disabled its cask on
+2026-09-01 because the app is unsigned. Its config stays linked for a Mac that
+already has it. There it uses `JetBrainsMono Nerd Font` from the Brewfile;
 **Cmd-click** a `file://` URL to open it in a new Neovim window
 (**Cmd+Shift-click** inside Herdr); web links open in the browser and
 **Ctrl+Shift+O** picks hints by keyboard. Pi's
@@ -197,8 +201,9 @@ of every plugin.
 **git.** The `git` folder links [`~/.config/git/config`](../git/config) (name,
 email, `init.defaultBranch`) and the global `ignore` file. Keep `~/.gitconfig`
 absent: when it exists, `git config --global` writes there instead of the tracked
-file. Credentials use the system `osxkeychain` helper; `gh auth login` can add
-itself as GitHub's helper. Run `git lfs install` only if you need LFS; it records
+file. Git signs in to GitHub through gh (`gh auth git-credential`), so run
+`gh auth login` once; it then skips its "Authenticate Git" question and leaves
+the tracked file alone. Other hosts use the system `osxkeychain` helper. Run `git lfs install` only if you need LFS; it records
 its filter in the tracked config.
 
 **AeroSpace.** Launch it once and grant Accessibility in System Settings → Privacy
