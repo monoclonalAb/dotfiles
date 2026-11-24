@@ -199,8 +199,9 @@ of every plugin.
 **git.** The `git` folder links [`~/.config/git/config`](../git/config) (name,
 email, `init.defaultBranch`) and the global `ignore` file. Keep `~/.gitconfig`
 absent: when it exists, `git config --global` writes there instead of the tracked
-file. Credentials use the system `osxkeychain` helper; `gh auth login` can add
-itself as GitHub's helper. Run `git lfs install` only if you need LFS; it records
+file. Git signs in to GitHub through gh (`gh auth git-credential`), so run
+`gh auth login` once; it then skips its "Authenticate Git" question and leaves
+the tracked file alone. Other hosts use the system `osxkeychain` helper. Run `git lfs install` only if you need LFS; it records
 its filter in the tracked config.
 
 **AeroSpace.** Launch it once and grant Accessibility in System Settings → Privacy
