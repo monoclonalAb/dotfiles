@@ -48,9 +48,11 @@ zsh startup prints `no such file or directory: /Users/you/.cargo/env`.
 ## 4. Clone the repository
 
 ```sh
-brew install gh && gh auth login     # the repository is private
-gh repo clone monoclonalAb/dotfiles ~/dotfiles
+git clone https://github.com/monoclonalAb/dotfiles.git ~/dotfiles
 ```
+
+The repository is public, so the clone needs no GitHub sign-in; sign in with
+`gh auth login` after linking (see **git** in step 8).
 
 Keep the clone at `~/dotfiles`: Pi and OMP MCP configuration refers to that path.
 A plain clone is correct; do **not** use `--recurse-submodules`. tpm installs the
