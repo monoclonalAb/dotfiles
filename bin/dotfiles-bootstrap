@@ -93,7 +93,7 @@ if [ -x /opt/homebrew/bin/brew ]; then
     ok "$(/opt/homebrew/bin/brew --version | head -n 1)"
 else
     todo 'Homebrew (asks for your password)'
-    $check || { installer=$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh) && /bin/bash -c "$installer"; } || fail 'Homebrew install failed'
+    $check || { installer=$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh) && /bin/bash -c "$installer"; } || die 'Homebrew install failed; the linked shell needs it, so nothing was linked. Rerun after fixing it.'
 fi
 
 step 'Rust (rustup)'
@@ -103,7 +103,7 @@ if [ -f "$HOME/.cargo/env" ]; then
     ok "$HOME/.cargo/env"
 else
     todo 'rustup'
-    $check || { installer=$(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs) && printf '%s\n' "$installer" | sh -s -- -y --no-modify-path; } || fail 'rustup install failed'
+    $check || { installer=$(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs) && printf '%s\n' "$installer" | sh -s -- -y --no-modify-path; } || die 'rustup install failed; the linked ~/.zshenv sources ~/.cargo/env, so nothing was linked. Rerun after fixing it.'
 fi
 
 step 'Brewfile'

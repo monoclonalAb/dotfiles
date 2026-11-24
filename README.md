@@ -61,8 +61,9 @@ reports.
 
 It ends by printing the manual steps: sign-ins (`gh`, Pi `/login`, gcloud,
 Tailscale), AeroSpace's Accessibility permission, `C-a I` in tmux, and the first
-`nvim` launch. If an install step failed, it lists the failures after them and
-exits 1.
+`nvim` launch. If a later install step failed, it lists the failures after them
+and exits 1. Missing Command Line Tools, a failed Homebrew or Rust install and a
+link conflict stop the run before anything is linked.
 
 Keep the clone at `~/dotfiles`; Pi and OMP configs use that path. Credentials,
 SSH keys, app data and a few [machine-specific paths](docs/SETUP.md#personal-bits)
