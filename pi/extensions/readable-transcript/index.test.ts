@@ -28,7 +28,6 @@ mock.module("@earendil-works/pi-tui", () => tuiPackage);
 
 const { AssistantMessageComponent, getMarkdownTheme, ToolExecutionComponent } = codingAgent;
 const { visibleWidth } = tuiPackage;
-const { catppuccinTheme } = await import("../theme-sync/index.ts");
 const { tidyThinking } = await import("../gemini-thinking-tidy/index.ts");
 const {
   createReadableToolResolver,
@@ -41,8 +40,13 @@ const {
   summarizeCodemodeOutput,
 } = await import("./index.ts");
 
-function setupLatteTheme() {
-  const theme = catppuccinTheme("latte", "truecolor");
+// Pi's own built-in light theme, so these tests don't depend on a custom palette.
+function lightTheme() {
+  return nativeTheme.loadThemeFromPath(join(codingAgentRoot, "dist/modes/interactive/theme/light.json"), "truecolor");
+}
+
+function setupLightTheme() {
+  const theme = lightTheme();
   nativeTheme.setThemeInstance(theme);
   return theme;
 }
@@ -73,7 +77,7 @@ test("formatThinkingMarkdown frames reasoning in one continuous quote rail and l
 });
 
 test("AssistantMessageComponent renders framed thinking distinctly from reply text and composes with gemini-thinking-tidy", () => {
-  const theme = setupLatteTheme();
+  const theme = setupLightTheme();
   const transformers = [
     (md: string, ctx: { messageType: string; isStreaming: boolean }) =>
       ctx.messageType === "assistant-thinking" ? tidyThinking(md, ctx.isStreaming) : md,
@@ -121,7 +125,7 @@ test("AssistantMessageComponent renders framed thinking distinctly from reply te
 });
 
 test("nested codemode calls format paths, line ranges, shell snippets, truncated JSON and errors cleanly", () => {
-  const theme = setupLatteTheme();
+  const theme = setupLightTheme();
   const cwd = "/Users/example/dotfiles";
 
   expect(displayPath("/Users/example/dotfiles/pi/settings.json", cwd, "/Users/example")).toBe("pi/settings.json");
@@ -149,16 +153,16 @@ test("nested codemode calls format paths, line ranges, shell snippets, truncated
   const truncatedEdit = stripVTControlCharacters(formatNestedCall({
     id: "1/2",
     name: "edit",
-    args: '{"path":"/Users/example/dotfiles/pi/extensions/theme-sync/index.ts","edits":[{"oldText":"long...',
+    args: '{"path":"/Users/example/dotfiles/pi/extensions/token-speed/index.ts","edits":[{"oldText":"long...',
     status: "error",
     error: "Could not match oldText\nin target file",
   }, theme, cwd, false));
-  expect(truncatedEdit).toContain("✗ edit pi/extensions/theme-sync/index.ts");
+  expect(truncatedEdit).toContain("✗ edit pi/extensions/token-speed/index.ts");
   expect(truncatedEdit).toContain("↳ Could not match oldText");
 });
 
 test("codemode ToolExecutionComponent collapses boilerplate and JSON soup, and expands into readable sections", () => {
-  setupLatteTheme();
+  setupLightTheme();
   const resolver = createReadableToolResolver();
   const codemodeDef = resolver("codemode", () => undefined);
   const ui = { requestRender() {} };
@@ -207,11 +211,11 @@ test("codemode ToolExecutionComponent collapses boilerplate and JSON soup, and e
   expect(expanded).toContain("   M README.md");
 
   expect(summarizeCodemodeOutput("[1,2,3]")).toBe("returned [3 items]");
-  expect(stripVTControlCharacters(formatExpandedCodemodeOutput('{"count":2}', catppuccinTheme("latte", "truecolor")))).toContain('"count": 2');
+  expect(stripVTControlCharacters(formatExpandedCodemodeOutput('{"count":2}', lightTheme()))).toContain('"count": 2');
 });
 
 test("bash ToolExecutionComponent highlights and folds multi-line scripts while preserving native result output", () => {
-  setupLatteTheme();
+  setupLightTheme();
   const resolver = createReadableToolResolver();
   const nativeBashResult = (_result: any, _options: any, theme: any) => new tuiPackage.Text(theme.fg("toolOutput", "\nok-out"), 0, 0);
   const bashDef = resolver("bash", () => ({ renderResult: nativeBashResult }));

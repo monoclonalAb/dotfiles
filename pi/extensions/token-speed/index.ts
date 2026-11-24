@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { THEME_APPLIED_EVENT } from "../theme-sync/events.ts";
 
 /** One finished assistant reply and the timing Pi recorded for it. */
 export interface TimedResponse {
@@ -245,12 +244,6 @@ export function registerTokenSpeed(pi: ExtensionAPI, options: TokenSpeedOptions 
     if (liveTokensPerSecond(live, at) === undefined) return;
     live.shownAt = at;
     render(ctx, at);
-  });
-
-  // Status text stores the palette's ANSI codes, so a flavour change has to
-  // rebuild it; theme-sync announces each successful apply on the event bus.
-  pi.events?.on(THEME_APPLIED_EVENT, () => {
-    if (current) render(current);
   });
 
   pi.registerCommand("tps", {

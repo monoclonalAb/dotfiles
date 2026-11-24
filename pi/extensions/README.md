@@ -54,8 +54,7 @@ Display-only extensions (no approval needed, but keep them that way):
   message. It observes only read-only notifications (`message_start`,
   `message_update`, `tool_execution_start`, lifecycle), writes nothing to the
   session and adds nothing to model context. The number uses the theme's code
-  colour, so it stays distinct from the quota percentages, and repaints when
-  `theme-sync/` applies a flavour.
+  colour, so it stays distinct from the quota percentages.
 
 Herdr's official `herdr-agent-state.ts` is generated outside this repository by
 `herdr integration install pi` (see the [Herdr setup](../../docs/HERDR.md#install)).
@@ -76,7 +75,6 @@ This README is a development policy only. Pi does not load it into model context
 
 ## Runtime controls
 
-- [`theme-sync/`](theme-sync/README.md) applies the shared Catppuccin flavour through the public theme API. No settings are written.
 - [`compact-ui/`](compact-ui/README.md) replaces the quiet-startup header with one expandable line and shows a right-aligned `MCP: N/M` (enabled/total servers in Pi's `mcp.json` files) in the footer.
 - [`quota-footer/`](quota-footer/README.md) polls quota endpoints with Pi's own logins in interactive sessions and shows usage in the footer; `/usage` covers every saved account. Claude readings are cached privately per login outside Git.
 - `long-context/` adds `/long-context [on|off|status]` for direct OpenAI and OpenAI Codex GPT-5.6 Sol, Terra, Luna, and GPT-6 Astra. With no argument it toggles the active model between Pi's 272K default and the model's 1.05M window for the current session. It changes only the active model metadata, shows `ctx:1.05M` while enabled, and warns that requests above 272K may use long-context pricing; it does not alter conversation content or provider payloads.

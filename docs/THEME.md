@@ -1,9 +1,12 @@
 # Theme
 
-**Status:** Operator guide. Alacritty, Herdr, the Herdr app, tmux, Neovim and Pi share one
+**Status:** Operator guide. Alacritty, Herdr, the Herdr app, tmux and Neovim share one
 Catppuccin flavour and one terminal opacity. [`bin/theme`](../bin/theme) is the
 only writer of that choice. Flow and ownership:
 [`ARCHITECTURE.md`](ARCHITECTURE.md#2-shared-theme-orchestration).
+
+Pi does not follow it. Pi uses its own built-in theme, set with `/settings` and
+saved as `theme` in [`pi/settings.json`](../pi/settings.json).
 
 ## Use it
 
@@ -44,9 +47,6 @@ default, and Alacritty logs a harmless missing-import error to
 6. Every running Neovim updates over RPC, with a `FocusGained` fallback. Below
    1.0 opacity, and always inside the Herdr app, Neovim turns on
    `transparent_background`.
-7. Pi's [theme-sync extension](../pi/extensions/theme-sync/README.md) polls the
-   same state and follows within about half a second. It overrides Pi's
-   `/settings` theme in memory without rewriting it.
 
 New windows read the state on startup.
 
@@ -54,7 +54,7 @@ New windows read the state on startup.
 
 The flavour's mauve marks where you are: the focused pane's border and the
 cursor in the Herdr app ([`herdr-app/themes/`](../herdr-app/themes/)), Herdr's
-`accent`, Pi's accent, and the shell prompt's folder and `>`
+`accent`, and the shell prompt's folder and `>`
 ([`zsh/p10k.zsh`](../zsh/p10k.zsh)). Other colours mean a state: red for a failed
 command, the agent status colours, and git's green and yellow. A shell picks its
 prompt colour when it starts, so after `theme cycle` open a new one.

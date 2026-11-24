@@ -11,7 +11,6 @@ import tokenSpeed, {
   timedResponse,
   tokensPerSecond,
 } from "./index";
-import { THEME_APPLIED_EVENT } from "../theme-sync/events.ts";
 
 const PROVIDER = "lithosai";
 const MODEL = "deepseek-ai/DeepSeek-V4.1-Flash";
@@ -140,7 +139,7 @@ describe("extension wiring", () => {
     const statuses: (string | undefined)[] = [];
     const notifications: string[] = [];
     const branch: { type: string; message: unknown }[] = [];
-    let flavour = "latte";
+    const flavour = "latte";
     const ctx = {
       mode,
       sessionManager: { getBranch: () => branch },
@@ -155,12 +154,11 @@ describe("extension wiring", () => {
         notify: (text: string) => notifications.push(text),
       },
     };
-    return { ctx, branch, statuses, notifications, setFlavour: (next: string) => { flavour = next; } };
+    return { ctx, branch, statuses, notifications };
   }
 
   function load(register: typeof registerTokenSpeed = registerTokenSpeed, options?: TokenSpeedOptions) {
     const handlers: Record<string, Handler> = {};
-    const listeners = new Map<string, ((data: unknown) => void)[]>();
     let command: { description: string; handler: (argument: string, ctx: unknown) => unknown } | undefined;
     register({
       on: (name: string, handler: Handler) => {
@@ -169,17 +167,8 @@ describe("extension wiring", () => {
       registerCommand: (_name: string, definition: never) => {
         command = definition;
       },
-      events: {
-        on: (channel: string, listener: (data: unknown) => void) => {
-          listeners.set(channel, [...listeners.get(channel) ?? [], listener]);
-          return () => {};
-        },
-      },
     } as never, options);
-    const emit = (channel: string, data: unknown) => {
-      for (const listener of listeners.get(channel) ?? []) listener(data);
-    };
-    return { handlers, command: command!, emit };
+    return { handlers, command: command! };
   }
 
   test("observes only read-only notifications, never hooks that can change messages", () => {
@@ -278,33 +267,6 @@ describe("extension wiring", () => {
     branch.push({ type: "message", message: source(200, 2_000) });
     handlers.agent_end({ messages: [] }, ctx);
     expect(statuses.at(-1)).toBe(themed("100"));
-  });
-
-  test("repaints the footer in the new palette when theme-sync applies a flavour", () => {
-    const { handlers, emit } = load();
-    const { ctx, branch, statuses, setFlavour } = context();
-    branch.push({ type: "message", message: source(850, 10_000) });
-    handlers.session_start({}, ctx);
-    expect(statuses.at(-1)).toBe(themed("85", "latte"));
-
-    setFlavour("mocha");
-    emit(THEME_APPLIED_EVENT, undefined);
-    expect(statuses.at(-1)).toBe(themed("85", "mocha"));
-
-    // A streaming estimate repaints too.
-    handlers.message_start({ message: { role: "assistant", timestamp: Date.now() - 1_000 } }, ctx);
-    handlers.message_update({ assistantMessageEvent: { type: "text_delta", delta: "x".repeat(400) } }, ctx);
-    expect(statuses.at(-1)).toMatch(/^<mocha:dim>\| <\/mocha:dim><mocha:dim>~<\/mocha:dim>/);
-    setFlavour("macchiato");
-    emit(THEME_APPLIED_EVENT, undefined);
-    expect(statuses.at(-1)).toMatch(/^<macchiato:dim>\| <\/macchiato:dim><macchiato:dim>~<\/macchiato:dim><macchiato:mdCode>/);
-
-    // A cleared session must not publish through a stale context.
-    handlers.session_shutdown({}, ctx);
-    const after = statuses.length;
-    setFlavour("frappe");
-    emit(THEME_APPLIED_EVENT, undefined);
-    expect(statuses).toHaveLength(after);
   });
 
   test("ignores untimed entries and non-message entries", () => {

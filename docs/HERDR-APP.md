@@ -344,9 +344,8 @@ and each Catppuccin theme file gives three colours some transparency: `canvas`
 (behind everything, `73` = 45%), `chrome` (the tab bar and sidebar, `74` = 45%)
 and `background` (the panes, `8b` = 55%). They stack, so panes end up about 75%
 solid, the tab bar 70%, the sidebar 84% and the gaps 45%. A terminal cell can't be
-partly see-through, so boxes that programs paint stay solid unless the program
-drops their fill: Pi does for tool output inside the app
-([theme-sync](../pi/extensions/theme-sync/README.md)). How strongly the desktop is
+partly see-through, so boxes that programs paint stay solid, such as Pi's tool
+panels and your own messages. How strongly the desktop is
 blurred is macOS's choice; Herdr 0.1.16 only has blur on or off, and off makes the
 window solid. Neovim turns off its own
 background inside the app ([`nvim/lua/theme.lua`](../nvim/lua/theme.lua)). To

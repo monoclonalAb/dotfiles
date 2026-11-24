@@ -19,7 +19,6 @@ import {
   Text,
   type AutocompleteItem,
 } from "@earendil-works/pi-tui";
-import { THEME_APPLIED_EVENT } from "./theme-sync/events.ts";
 
 const STATE_TYPE = "selective-skills-state";
 const STATUS_KEY = "selective-skills";
@@ -225,11 +224,6 @@ export default function selectiveSkills(pi: ExtensionAPI) {
         : undefined,
     );
   }
-
-  // Status text stores the palette's ANSI codes, so repaint on a flavour change.
-  pi.events?.on(THEME_APPLIED_EVENT, () => {
-    if (current) updateStatus(current);
-  });
 
   function persistState(): void {
     pi.appendEntry<SkillsState>(STATE_TYPE, {

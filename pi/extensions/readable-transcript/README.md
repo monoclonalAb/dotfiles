@@ -9,7 +9,7 @@ so session entries, tool execution and model input are unchanged.
 ## What you see
 
 - **Thinking blocks:** rendered inside one continuous blockquote (`│` rail in
-  Catppuccin lavender from [`theme-sync`](../theme-sync/README.md)) under a bold
+  the theme's quote-border colour) under a bold
   `Thinking` (`Thinking…` while streaming) heading, keeping lists and code blocks
   visually inside the reasoning block rather than blending into the reply.
   Folding a block (left-click or `Ctrl+T`) shows `▸ Thinking · click to expand`.

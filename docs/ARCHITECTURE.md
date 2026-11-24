@@ -54,7 +54,7 @@ consumer; do not fix generated output or add a second writer.
 | Requested change | Start at source | Follow through / focused evidence |
 | --- | --- | --- |
 | Install or update the workstation | `Brewfile`, `links`, `bin/dotfiles-link`, `bin/dotfiles-bootstrap`, `bin/dotfiles-update` | Root README and `docs/SETUP.md` → `dotfiles-link check` preview; `dotfiles-bootstrap --check` for missing prerequisites; installs and updates have live side effects |
-| Theme, colour, opacity | `bin/theme` | Alacritty imports, Herdr base, tmux source, Neovim `lua/theme.lua` → generated output → live consumer; Pi `theme-sync` polls the flavour |
+| Theme, colour, opacity | `bin/theme` | Alacritty imports, Herdr base, tmux source, Neovim `lua/theme.lua` → generated output → live consumer; Pi is not a consumer |
 | Herdr attention glyphs or jumps | `herdr/plugins/next-agent/next_agent.py` | Lifecycle integration → attention ledger → theme metadata rows and pinned patch; ledger tests alone do not prove lifecycle delivery |
 | Personal/Work Space filtering | `herdr/plugins/spaces-env/spaces_env.py` | Runtime assignment state → sidebar/agent-view metadata; `test_spaces_env.py` |
 | Worktree pull-request names and state icons | `herdr/plugins/pr-status/pr_status.py` | Herdr events → `gh pr view` per linked worktree → `pr_*` Space tokens → pinned patch's Spaces tree; `test_pr_status.py`, then `pty-smoke.py` with the build |
@@ -133,8 +133,8 @@ Generated overlays use temporary files and rename so consumers do not observe
 partial configuration. Pushes to live applications are best-effort, while
 `theme status` provides the diagnostic path.
 
-Pi is a reader, not a push target: [`theme-sync`](../pi/extensions/theme-sync/README.md)
-polls the same `flavour` file and applies an in-memory theme. It writes nothing.
+Pi is not a consumer: it keeps its own built-in theme from `theme` in
+[`pi/settings.json`](../pi/settings.json).
 
 ### 3. Herdr source and plugin customisation
 

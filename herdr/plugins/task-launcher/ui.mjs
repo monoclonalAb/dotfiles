@@ -5,10 +5,9 @@ const EMPTY_PASTE = `${PASTE_START}\x1b[201~`;
 const IMAGE_MARKER = /\[img #(\d+)\]/g;
 const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
-// Colours from the shared Catppuccin palette (Herdr's generated [theme.custom]),
-// mapped the way the theme-sync Pi extension maps them: mauve accent, subtext
-// for secondary text, overlay for chrome, and Pi's thinking-level colours for
-// the editor border. Without a palette, fall back to the terminal's ANSI colours.
+// Colours from the shared Catppuccin palette (Herdr's generated [theme.custom]):
+// mauve accent, subtext for secondary text, overlay for chrome, and one colour
+// per thinking level for the editor border, as Pi does. Without a palette, fall back to the terminal's ANSI colours.
 export function themeStyles(palette = {}) {
   const rgb = (value) => /^#[0-9a-f]{6}$/i.test(value ?? "")
     ? [1, 3, 5].map((index) => Number.parseInt(value.slice(index, index + 2), 16)).join(";") : undefined;

@@ -8,7 +8,6 @@ import {
   type ExtensionCommandContext,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { THEME_APPLIED_EVENT } from "../theme-sync/events.ts";
 import { ACCOUNTS_CHANGED_EVENT, AccountStore, accountIdentity, type Activation, parkedKey } from "./accounts.ts";
 import { createRuntimeBackend, createStateStore, stateDirectory } from "./backend.ts";
 import {
@@ -349,12 +348,6 @@ export function registerQuotaRouter(pi: ExtensionAPI, options: RouterOptions = {
   pi.on("agent_settled", async (_event, ctx) => {
     await tryReturn(ctx);
     updateStatus(ctx);
-  });
-
-  // Footer text carries the palette's ANSI code, so theme-sync's flavour changes must repaint it.
-  pi.events?.on(THEME_APPLIED_EVENT, () => {
-    const ctx = statusContext;
-    if (ctx?.hasUI) ctx.ui.setStatus(STATUS_KEY, statusText(ctx));
   });
 
   function loginInteraction(ctx: ExtensionContext, signal: AbortSignal): AuthInteraction {

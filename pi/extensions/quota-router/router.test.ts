@@ -6,7 +6,6 @@ import type { Credential } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type * as Accounts from "./accounts.ts";
 import type * as Router from "./router.ts";
-import { THEME_APPLIED_EVENT } from "../theme-sync/events.ts";
 
 // Pi aliases "@earendil-works/pi-ai" for extensions to the installed compat entry point;
 // resolve the same installed modules here instead of duplicating Pi's retry policy.
@@ -185,8 +184,7 @@ function harness(options: {
   const statuses: Array<string | undefined> = [];
   const timers: Array<{ delay: number; fire: () => void; cancelled: boolean }> = [];
   const opened: string[] = [];
-  const listeners = new Map<string, Array<(payload: unknown) => void>>();
-  let palette = "latte";
+  const palette = "latte";
   const commands = new Map<string, any>();
   const oauth = new Set(options.oauthProviders ?? ["openai-codex", "anthropic"]);
   const accounts = memoryAccounts(
@@ -201,11 +199,6 @@ function harness(options: {
       commands.set(name, value);
     },
     events: {
-      on(name: string, listener: (payload: unknown) => void) {
-        const list = listeners.get(name) ?? [];
-        list.push(listener);
-        listeners.set(name, list);
-      },
       emit() {},
     },
     setModel: async () => {
@@ -248,12 +241,6 @@ function harness(options: {
   const start = () => handlers.get("session_start")!({ type: "session_start", reason: "startup" }, ctx);
   return {
     handlers, ctx, notifications, statuses, timers, opened, accounts, start,
-    setPalette: (value: string) => {
-      palette = value;
-    },
-    emitEvent: (name: string, payload?: unknown) => {
-      for (const listener of listeners.get(name) ?? []) listener(payload);
-    },
     command: (name: string, argument = "") => commands.get(name).handler(argument, ctx),
     completions: (name: string, prefix: string) => commands.get(name).getArgumentCompletions(prefix),
     setModel: (m: ActiveModel) => {
@@ -322,16 +309,6 @@ describe("router lifecycle", () => {
     expect(h.accounts.data.get("openai-codex@work")).toEqual(cred("work"));
     expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@main");
     expect(h.notifications.at(-1)?.message).toContain("back on account main");
-  });
-
-  test("theme-sync flavour changes repaint the account marker", async () => {
-    const h = harness();
-    await h.start();
-    await failTurn(h, CODEX_LIMIT);
-    expect(h.statuses.at(-1)).toBe("<latte:dim>· </latte:dim>@work (main: main)");
-    h.setPalette("mocha");
-    h.emitEvent(THEME_APPLIED_EVENT);
-    expect(h.statuses.at(-1)).toBe("<mocha:dim>· </mocha:dim>@work (main: main)");
   });
 
   test("Anthropic 429 is already retryable: no replacement; with no parked account the error is left alone once", async () => {
