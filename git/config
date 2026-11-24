@@ -5,3 +5,11 @@
 [init]
 	# Apple's Command Line Tools git sets this system-wide; Homebrew git does not.
 	defaultBranch = main
+# What `gh auth login` writes when it authenticates Git. Kept here, gh sees
+# itself as the helper and leaves this linked file alone.
+[credential "https://github.com"]
+	helper =
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/opt/homebrew/bin/gh auth git-credential
