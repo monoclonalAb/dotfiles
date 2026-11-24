@@ -60,6 +60,9 @@ step() { printf '\n==> %s\n' "$1"; }
 ok() { printf '    ok: %s\n' "$1"; }
 todo() { printf '    %s: %s\n' "$($check && echo missing || echo installing)" "$1"; pending=$((pending + 1)); }
 warn() { printf '    warning: %s\n' "$1" >&2; }
+failed=''
+fail() { warn "$1"; failed="$failed    $1
+"; }
 die() { printf 'dotfiles-bootstrap: %s\n' "$1" >&2; exit 1; }
 
 nvm_run() { # Run a command with nvm's default Node; nvm.sh is not set -u safe.
@@ -111,7 +114,7 @@ elif brew bundle check --file="$repo/Brewfile" >/dev/null 2>&1; then
 else
     todo "$(brew bundle check --file="$repo/Brewfile" --verbose 2>&1 | grep -c '^→') Brewfile entries"
     if ! $check; then
-        brew bundle install --file="$repo/Brewfile" || warn 'brew bundle reported failures; rerun after fixing them'
+        brew bundle install --file="$repo/Brewfile" || fail 'brew bundle reported failures; rerun after fixing them'
     fi
 fi
 
@@ -157,7 +160,7 @@ if [ -f "$HOME/.local/state/theme/flavour" ]; then
     ok "$(cat "$HOME/.local/state/theme/flavour") (existing choice kept)"
 else
     todo 'theme latte 0.6'
-    $check || "$repo/bin/theme" set latte 0.6 || warn 'theme set failed; run it by hand'
+    $check || "$repo/bin/theme" set latte 0.6 || fail 'theme set failed; run it by hand'
 fi
 
 step 'tmux plugin manager'
@@ -174,7 +177,7 @@ if [ -x "$herdr" ] && "$herdr" --version 2>/dev/null | grep -q 'dotfiles\.'; the
     ok "$("$herdr" --version)"
 else
     todo 'patched Herdr (install-herdr-focus builds for several minutes)'
-    $check || "$repo/bin/install-herdr-focus" || warn 'install-herdr-focus failed; the Homebrew herdr stays in use until it succeeds'
+    $check || "$repo/bin/install-herdr-focus" || fail 'install-herdr-focus failed; the Homebrew herdr stays in use until it succeeds'
 fi
 [ -x "$herdr" ] || herdr=$(command -v herdr || true)
 if [ -z "$herdr" ]; then
@@ -186,7 +189,7 @@ else
             ok "plugin $plugin"
         else
             todo "plugin $plugin"
-            $check || "$herdr" plugin link "$HOME/.config/herdr/plugins/$plugin" --enabled || warn "herdr plugin link $plugin failed"
+            $check || "$herdr" plugin link "$HOME/.config/herdr/plugins/$plugin" --enabled || fail "herdr plugin link $plugin failed"
         fi
     done
     for agent in $herdr_integrations; do
@@ -194,7 +197,7 @@ else
         case $state in
             ''|'not installed'*|outdated*)
                 todo "$agent integration (${state:-unknown})"
-                $check || "$herdr" integration install "$agent" || warn "herdr integration install $agent failed"
+                $check || "$herdr" integration install "$agent" || fail "herdr integration install $agent failed"
                 ;;
             *) ok "$agent integration: $state" ;;
         esac
@@ -214,7 +217,7 @@ else
         ok 'Herdr app theme'
     else
         todo 'Herdr app theme'
-        $check || theme apply >/dev/null 2>&1 || warn 'theme apply failed; run it by hand'
+        $check || theme apply >/dev/null 2>&1 || fail 'theme apply failed; run it by hand'
     fi
     layout=$(herdr-app status 2>/dev/null | jq -r '.layout // empty' 2>/dev/null || true)
     if [ "$layout" = eric ]; then
@@ -223,7 +226,7 @@ else
         todo 'Herdr app layout eric (open the app, then rerun)'
     else
         todo "Herdr app layout eric (showing ${layout})"
-        $check || herdr-app do layout.switch --name eric >/dev/null || warn 'herdr-app layout.switch failed'
+        $check || herdr-app do layout.switch --name eric >/dev/null || fail 'herdr-app layout.switch failed'
     fi
 fi
 
@@ -245,3 +248,7 @@ Manual steps (sign-ins and permissions are never automated):
 Host-local files to recreate by hand: ~/.ssh keys, ~/.config/mcp/mcp.json
 (Linear/Notion/Penpot), and anything under "Personal bits" in docs/SETUP.md.
 EOF
+if [ -n "$failed" ]; then
+    printf '\nFailed; fix these and rerun dotfiles-bootstrap:\n%s' "$failed" >&2
+    exit 1
+fi
