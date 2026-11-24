@@ -168,10 +168,15 @@ export function conversationTitle({ summary, pending, title, address, cwd, space
 // --- The mod ------------------------------------------------------------------
 
 // The sidebar's dots and avatar colours, so a card looks like its sidebar row.
-const GLYPH = { blocked: "\u25c6", review: "\u25cf", working: "\u25d0", idle: "\u25cb" };
+const GLYPH = { blocked: "\u25c6", review: "\u25cf", saved: "\u25a0", working: "\u25d0", idle: "\u25cb" };
 const SPIN = ["\u25d0", "\u25d3", "\u25d1", "\u25d2"];
-const TONE = { blocked: "blocked", review: "done", working: "working", idle: "idle" };
+const TONE = { blocked: "blocked", review: "done", saved: "accent", working: "working", idle: "idle" };
 const fallbackDot = (status) => (status === "blocked" ? "blocked" : status === "done" ? "review" : status === "working" ? "working" : "idle");
+// Every mark in one font, so each has Running's \u25d0 size and centre: the UI
+// font lacks them, and the app's other fallbacks draw the rest at half the size.
+const MARK_FONT = "Hiragino Sans";
+const sym = (ch) => div().flex_none().font_family(MARK_FONT).child(ch);
+const tally = (ch, n, color) => h_flex().flex_none().gap(1).items_center().text_size(12).text_color(color).child(sym(ch)).child(String(n));
 const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
 const DIRS = { left: "left", h: "left", right: "right", l: "right", up: "up", k: "up", down: "down", j: "down" };
 
@@ -275,8 +280,8 @@ export default class MissionControl extends View {
     const screen = this.screens[pane.terminal];
     const lines = screen === undefined ? [] : screen === null ? null : tail(screen, LINES);
     const mark = d && (d === "working"
-      ? div().w(12).flex_none().text_size(11).text_color(t.working).frames(SPIN, 180)
-      : div().w(12).flex_none().text_size(11).text_color(t[TONE[d]] ?? t.dim).child(GLYPH[d]));
+      ? div().w(12).flex_none().text_size(11).font_family(MARK_FONT).text_color(t.working).frames(SPIN, 180)
+      : div().w(12).flex_none().text_size(11).font_family(MARK_FONT).text_color(t[TONE[d]] ?? t.dim).child(GLYPH[d]));
     const pic = icon(pane.program, 13, t.muted);
     return v_flex()
       .id(`mc-${pane.pane}`)
@@ -333,6 +338,7 @@ export default class MissionControl extends View {
     const dots = g.cards.map((c) => (c.pane.status ? ((shared("next-agent.dots") ?? {})[c.pane.terminal] ?? fallbackDot(c.pane.status)) : null));
     const blocked = dots.filter((d) => d === "blocked").length;
     const review = dots.filter((d) => d === "review").length;
+    const saved = dots.filter((d) => d === "saved").length;
     const env = shared("spaces-env")?.active;
     const where = env ? env[0].toUpperCase() + env.slice(1) : "All Spaces";
     // Nothing is drawn until the grid's size is known, so no row slides from a
@@ -371,8 +377,9 @@ export default class MissionControl extends View {
         .border_color(t.border)
         .child(div().text_size(15).font_semibold().text_color(t.foreground).child("Mission control"))
         .child(div().text_size(12).text_color(t.dim).child(`${where} \u00b7 ${g.cards.length} agent${g.cards.length === 1 ? "" : "s"}`))
-        .when(blocked > 0, (el) => el.child(div().text_size(12).text_color(t.blocked).child(`${GLYPH.blocked}${blocked}`)))
-        .when(review > 0, (el) => el.child(div().text_size(12).text_color(t.done).child(`${GLYPH.review}${review}`)))
+        .when(blocked > 0, (el) => el.child(tally(GLYPH.blocked, blocked, t.blocked)))
+        .when(review > 0, (el) => el.child(tally(GLYPH.review, review, t.done)))
+        .when(saved > 0, (el) => el.child(tally(GLYPH.saved, saved, t.accent)))
         .child(div().flex_1())
         .child(div().text_size(11).text_color(t.dim).child("\u2190\u2191\u2193\u2192 or hjkl move \u00b7 Enter go \u00b7 Esc close")))
       .child(div()

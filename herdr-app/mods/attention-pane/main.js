@@ -1,7 +1,8 @@
 // A pane header that shows attention: a copy of Herdr's shipped `pane` header
 // (0.1.12). The patched terminal Herdr drew blocked panes with a red border and
 // finished-but-unreviewed ones peach; the app draws pane borders itself, so
-// this header carries the colour instead: a tinted bar with the next-agent dot
+// this header carries the colour instead (saved for later with C-a m: purple):
+// a tinted bar with the next-agent dot
 // (shared "next-agent.dots"). It names the conversation as the Spaces tree does.
 // Props from the app: { pane, terminal }. Click: focus the pane.
 //
@@ -13,9 +14,14 @@ import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, terminals, props, run, theme, home, shared, layout } from "herdr";
 
-const GLYPH = { blocked: "\u25c6", review: "\u25cf", working: "\u25d0", idle: "\u25cb" };
+const GLYPH = { blocked: "\u25c6", review: "\u25cf", saved: "\u25a0", working: "\u25d0", idle: "\u25cb" };
 const SPIN = ["\u25d0", "\u25d3", "\u25d1", "\u25d2"];
-const TONE = { blocked: "blocked", review: "done", working: "working", idle: "idle" };
+const SAYS = { blocked: "Needs you", review: "To review", saved: "Saved" };
+const TONE = { blocked: "blocked", review: "done", saved: "accent", working: "working", idle: "idle" };
+// Every mark in one font, so each has Running's \u25d0 size and centre: the UI
+// font lacks them, and the app's other fallbacks draw the rest at half the size.
+const MARK_FONT = "Hiragino Sans";
+const sym = (ch) => div().flex_none().font_family(MARK_FONT).child(ch);
 const FADE = 200; // the tint and the dot, ms
 const BUTTONS = 120; // the hover buttons, ms
 const FRAME = 32; // long enough for one frame to be drawn in between
@@ -75,7 +81,7 @@ export default class AttentionPane extends View {
     const name = labels.task_summary || program;
     const pic = icon(p.program, 14, t.dim);
     const d = p.status ? (shared("next-agent.dots") ?? {})[p.terminal] ?? fallbackDot(p.status) : null;
-    const loud = d === "blocked" || d === "review";
+    const loud = d === "blocked" || d === "review" || d === "saved";
     const color = d ? t[TONE[d]] : t.dim;
     const pane = p.pane;
     // The tint keeps its colour while it fades out.
@@ -124,8 +130,10 @@ export default class AttentionPane extends View {
       .child(div().flex_none().truncate().max_w(360).font_medium().text_color(p.focused || loud ? t.foreground : t.muted).child(name))
       .child(div().flex_1().truncate().text_color(t.dim).child(folder(p.cwd)))
       .when(Boolean(d), (el) => el.child(d === "working"
-        ? div().id(`ph-dot-${pane}-${d}`).flex_none().text_color(color).opacity(freshDot ? 0 : 1).transition("opacity", FADE).frames(SPIN, 180)
-        : div().id(`ph-dot-${pane}-${d}`).flex_none().text_color(color).opacity(freshDot ? 0 : 1).transition("opacity", FADE).child(d === "blocked" ? `${GLYPH.blocked} Needs you` : d === "review" ? `${GLYPH.review} To review` : GLYPH.idle)))
+        ? div().id(`ph-dot-${pane}-${d}`).flex_none().font_family(MARK_FONT).text_color(color).opacity(freshDot ? 0 : 1).transition("opacity", FADE).frames(SPIN, 180)
+        : h_flex().id(`ph-dot-${pane}-${d}`).flex_none().gap(4).items_center().text_color(color).opacity(freshDot ? 0 : 1).transition("opacity", FADE)
+          .child(sym(GLYPH[d] ?? GLYPH.idle))
+          .when(Boolean(SAYS[d]), (el) => el.child(SAYS[d]))))
       .when(this.hovered, el => el
         .child(this.button(t, `ph-r-${pane}`, "split-right", "pane.split", { direction: "right", pane }))
         .child(this.button(t, `ph-d-${pane}`, "split-down", "pane.split", { direction: "down", pane }))

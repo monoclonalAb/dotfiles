@@ -224,10 +224,10 @@ export function tail(text, count) {
 // --- The mod ------------------------------------------------------------------
 
 // The sidebar's dots, so a result looks like its sidebar row.
-const GLYPH = { blocked: "\u25c6", review: "\u25cf", working: "\u25d0", idle: "\u25cb" };
+const GLYPH = { blocked: "\u25c6", review: "\u25cf", saved: "\u25a0", working: "\u25d0", idle: "\u25cb" };
 const SPIN = ["\u25d0", "\u25d3", "\u25d1", "\u25d2"];
-const TONE = { blocked: "blocked", review: "done", working: "working", idle: "idle" };
-const SAYS = { blocked: "Needs you", review: "To review", working: "Working", idle: "Idle" };
+const TONE = { blocked: "blocked", review: "done", saved: "accent", working: "working", idle: "idle" };
+const SAYS = { blocked: "Needs you", review: "To review", saved: "Saved", working: "Working", idle: "Idle" };
 const fallbackDot = (status) => (status === "blocked" ? "blocked" : status === "done" ? "review" : status === "working" ? "working" : "idle");
 const dotOf = (c) => (shared("next-agent.dots") ?? {})[c.address] ?? fallbackDot(c.status);
 const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
@@ -238,10 +238,15 @@ function icon(p, size, color) {
   return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
 }
 
+// Every mark in one font, so each has Running's \u25d0 size and centre: the UI
+// font lacks them, and the app's other fallbacks draw the rest at half the size.
+const MARK_FONT = "Hiragino Sans";
+const sym = (ch) => div().flex_none().font_family(MARK_FONT).child(ch);
+
 function mark(d, t) {
   return d === "working"
-    ? div().w(12).flex_none().text_size(11).text_color(t.working).frames(SPIN, 180)
-    : div().w(12).flex_none().text_size(11).text_color(t[TONE[d]] ?? t.dim).child(GLYPH[d] ?? GLYPH.idle);
+    ? div().w(12).flex_none().text_size(11).font_family(MARK_FONT).text_color(t.working).frames(SPIN, 180)
+    : div().w(12).flex_none().text_size(11).font_family(MARK_FONT).text_color(t[TONE[d]] ?? t.dim).child(GLYPH[d] ?? GLYPH.idle);
 }
 
 export default class ConversationPicker extends View {
@@ -327,7 +332,7 @@ export default class ConversationPicker extends View {
         .gap(1)
         .child(div().truncate().text_size(13).text_color(selected || c.strong ? t.foreground : t.muted).when(selected, (el) => el.font_semibold()).child(c.title))
         .child(div().truncate().text_size(11).text_color(t.dim).child(where(c) || c.program)))
-      .when(d === "blocked" || d === "review", (el) => el.child(div().flex_none().text_size(11).text_color(d === "blocked" ? t.blocked : t.done).child(SAYS[d])))
+      .when(d === "blocked" || d === "review" || d === "saved", (el) => el.child(div().flex_none().text_size(11).text_color(t[TONE[d]]).child(SAYS[d])))
       .when(c.here, (el) => el.child(div().flex_none().text_size(11).text_color(t.accent).child("here")))
       .when(Boolean(away), (el) => el.child(div().flex_none().px(6).py(1).rounded(5).border(1).border_color(t.border).text_size(10.5).text_color(t.dim).child(capital(c.env))));
   }
@@ -350,7 +355,7 @@ export default class ConversationPicker extends View {
         .child(div().pt(2).child(mark(d, t)))
         .child(div().flex_1().min_w(0).text_size(14.5).font_semibold().text_color(t.foreground).child(c.title)))
       .child(div().truncate().text_size(12).text_color(t.muted).child(where(c) || c.folder || "\u2014"))
-      .child(h_flex().gap(6).items_center().text_size(11.5).text_color(d === "blocked" ? t.blocked : d === "review" ? t.done : t.dim)
+      .child(h_flex().gap(6).items_center().text_size(11.5).text_color(d === "blocked" || d === "review" || d === "saved" ? t[TONE[d]] : t.dim)
         .when(Boolean(pic), (el) => el.child(pic))
         .child(div().truncate().child(about)))
       .child(v_flex()

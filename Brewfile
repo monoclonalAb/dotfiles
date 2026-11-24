@@ -67,6 +67,9 @@ cask "font-symbols-only-nerd-font"
 # Nerd Font icons included. The Herdr app takes one font, so italics can't come
 # from a second family.
 cask "font-maple-mono-nf"
+# herdr-app/layouts/eric.json's "ui_font": the sidebar and other mods. Rounded,
+# to sit next to Maple Mono.
+cask "font-nunito"
 
 ###############################################################################
 # Daily drivers — not required by any config, safe to trim                    #

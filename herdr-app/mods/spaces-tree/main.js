@@ -5,11 +5,13 @@
 // - Only the active Personal/Work environment's Spaces show, plus the focused
 //   one (shared "spaces-env", kept by the spaces-env mod in the status bar).
 // - Above the Spaces list, a pinned activity band surfaces the shown
-//   environment's conversations that need you or finished unread (◆ / ●), then
-//   the ones currently running (◐), each with where it lives and how long; idle
+//   environment's conversations in foldable sections: Needs you (◆),
+//   To review (● finished unread), Saved (■ saved for later with C-a m) and
+//   Running (◐), each row with where it lives and how long; idle
 //   conversations stay out, and the band disappears when nothing is active.
 // - Each Space lists its conversations with the next-agent dot: ◆ blocked,
-//   ● finished and not reviewed, ◐ working, ○ idle (shared "next-agent.dots").
+//   ● finished and not reviewed, ■ saved, ◐ working, ○ idle (shared
+//   "next-agent.dots").
 //   Click a Space's counts to fold its conversations, a repository's chevron to
 //   fold its worktrees. A Pi conversation not written in yet ("New
 //   conversation") stays out until it starts.
@@ -24,8 +26,10 @@
 //   rows shut and open; new rows (a new Space or conversation, the other
 //   environment's Spaces) open in; a changed dot fades in.
 // - No coloured letter avatars: a repository or plain Space shows its name alone.
-// - Every Space row names its branch, main and master included, so a checkout
-//   left on another branch is plain to see.
+// - Every Space row names its branch at its right edge, main and master
+//   included, so a checkout left on another branch is plain to see.
+//   Ahead/behind (↑ ↓) sit just left of it; the fold chevron and counts
+//   follow the name.
 // - Review Spaces (bin/review, C-a R: a terminal labelled review.pr) leave the
 //   tree for a Reviews section pinned at the bottom: one row per pull request
 //   with its state icon, repository and dot; merged and closed ones dim.
@@ -238,16 +242,19 @@ export function splitReviews(list, reviews) {
   return { tree, review };
 }
 
-// Split active items into `due` (blocked before review, preserving order within
-// each) and `running`, leaving idle conversations out.
+// Split active items into the band's sections, `blocked`, `review`, `saved`
+// and `running` (each keeping tree order), leaving idle conversations out.
 export function activityGroups(items) {
   const blocked = items.filter((x) => x.dot === "blocked");
   const review = items.filter((x) => x.dot === "review");
+  const saved = items.filter((x) => x.dot === "saved");
   const running = items.filter((x) => x.dot === "working");
   return {
-    due: [...blocked, ...review],
+    blocked,
+    review,
+    saved,
     running,
-    counts: { blocked: blocked.length, review: review.length, running: running.length },
+    counts: { blocked: blocked.length, review: review.length, saved: saved.length, running: running.length },
   };
 }
 
@@ -294,13 +301,19 @@ const FADE = 150; // highlights and dots
 const FRAME = 32; // long enough for one frame to be drawn in between
 
 // The next-agent dots, as the terminal Herdr sidebar drew them.
-const GLYPH = { blocked: "\u25c6", review: "\u25cf", working: "\u25d0", idle: "\u25cb" };
+const GLYPH = { blocked: "\u25c6", review: "\u25cf", saved: "\u25a0", working: "\u25d0", idle: "\u25cb" };
 const SPIN = ["\u25d0", "\u25d3", "\u25d1", "\u25d2"];
-const TONE = { blocked: "blocked", review: "done", working: "working", idle: "idle" };
-const RANK = { blocked: 4, review: 3, working: 2, idle: 1 };
+const TONE = { blocked: "blocked", review: "done", saved: "accent", working: "working", idle: "idle" };
+const RANK = { blocked: 5, review: 4, saved: 3, working: 2, idle: 1 };
 // Without the next-agent mod: the app's own status.
 const fallbackDot = (status) => (status === "blocked" ? "blocked" : status === "done" ? "review" : status === "working" ? "working" : "idle");
 const PR_TONE = { open: "ansi2", draft: "dim", merged: "accent", closed: "ansi1" };
+// Every mark in one font, so each has Running's \u25d0 size and centre: the UI
+// font lacks them, and the app's other fallbacks draw the rest at half the size.
+const MARK_FONT = "Hiragino Sans";
+const sym = (ch) => div().flex_none().font_family(MARK_FONT).child(ch);
+// A mark and its count, as in a Space's row (\u25c6 2).
+const tally = (ch, n, color) => h_flex().flex_none().gap(1).items_center().text_color(color).child(sym(ch)).child(String(n));
 const fade = (hex, alpha) => (/^#[0-9a-f]{6}$/i.test(hex ?? "") ? hex + alpha : hex);
 
 // GitHub's pull-request state icons (Lucide). svg() only loads files inside the
@@ -723,8 +736,9 @@ export default class SpacesTree extends View {
     });
   }
 
-  // After the name: "dotfiles \u00b7 main \u21912 \u21931" (gitWhere). Short of room, the
-  // repository truncates first, so the branch stays readable.
+  // The row's right end: "\u21912 \u21931 dotfiles \u00b7 main" (gitWhere), so every branch
+  // lines up at the right edge with ahead/behind just left of it. Short of room,
+  // the repository truncates first, so the branch stays readable.
   gitTail(g, tree, name, t, pr) {
     const { repo, branch } = gitWhere(g, { tree, name, pr });
     return h_flex()
@@ -735,11 +749,11 @@ export default class SpacesTree extends View {
       .items_center()
       .text_size(11.5)
       .text_color(t.dim)
+      .when(g.ahead > 0, (el) => el.child(div().flex_none().text_color(t.ansi2).child(`\u2191${g.ahead}`)))
+      .when(g.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`\u2193${g.behind}`)))
       .when(Boolean(repo), (el) => el.child(div().min_w(0).flex_shrink(100).truncate().child(repo)))
       .when(Boolean(repo && branch), (el) => el.child(div().flex_none().child("\u00b7")))
-      .when(Boolean(branch), (el) => el.child(div().min_w(0).truncate().child(branch)))
-      .when(g.ahead > 0, (el) => el.child(div().flex_none().text_color(t.ansi2).child(`\u2191${g.ahead}`)))
-      .when(g.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`\u2193${g.behind}`)));
+      .when(Boolean(branch), (el) => el.child(div().min_w(0).truncate().child(branch)));
   }
 
   // A conversation's dot: the next-agent ledger's, else the app's own status.
@@ -750,7 +764,7 @@ export default class SpacesTree extends View {
   // A dot; one that changed (`key`: its row) fades in.
   mark(t, d, key) {
     const id = `mark-${key}-${d}`;
-    const el = div().id(id).w(12).flex_none().text_size(11).text_color(t[TONE[d]] ?? t.dim)
+    const el = div().id(id).w(12).flex_none().text_size(11).font_family(MARK_FONT).text_color(t[TONE[d]] ?? t.dim)
       .opacity(this.isNew(id) ? 0 : 1).transition("opacity", FADE);
     return d === "working" ? el.frames(SPIN, 180) : el.child(GLYPH[d]);
   }
@@ -870,7 +884,7 @@ export default class SpacesTree extends View {
     const blocked = item.dot === "blocked";
     const key = `${section}-${item.address}`;
     const dot = blocked
-      ? div().id(`act-mark-${key}-blocked`).w(12).flex_none().text_size(11).text_color(t.blocked)
+      ? div().id(`act-mark-${key}-blocked`).w(12).flex_none().text_size(11).font_family(MARK_FONT).text_color(t.blocked)
         .loop("opacity", { from: 0.35, to: 1, period: 1200 }).child(GLYPH.blocked)
       : this.mark(t, item.dot, `act-${key}`);
     return this.grow(v_flex(), `act-row-${key}`, item.where ? 40 : 28, open)
@@ -892,75 +906,54 @@ export default class SpacesTree extends View {
           .items_center()
           .child(dot)
           .child(div().flex_1().min_w(0).truncate().text_size(12.2).font_medium()
-            .text_color(item.strong || blocked || item.dot === "review" ? t.foreground : t.muted).child(item.title))
+            .text_color(item.strong || blocked || item.dot === "review" || item.dot === "saved" ? t.foreground : t.muted).child(item.title))
           .child(div().flex_none().text_size(10.5).text_color(blocked ? t.blocked : t.dim)
             .when(blocked, (el) => el.font_semibold()).child(item.age)),
       )
       .when(Boolean(item.where), (el) => el.child(div().pl(19).min_w(0).truncate().text_size(10.5).text_color(t.dim).child(item.where)));
   }
 
+  // Four sections, each shown only when it has rows and folded by its
+  // heading: Needs you (◆), To review (●), Saved (■), Running (◐).
   activityBand(model, t) {
-    const { due, running, counts } = model;
-    if (!due.length && !running.length) return null;
+    const { blocked, review, saved, running, counts } = model;
     this.foldedActivity ??= new Set();
-    const out = [];
-    if (due.length) {
-      const folded = this.foldedActivity.has("due");
-      out.push(
-        h_flex()
-          .id("act-head-due")
-          .h(24)
-          .flex_none()
-          .px(6)
-          .gap(5)
-          .items_center()
-          .rounded(6)
-          .text_size(11)
-          .cursor_pointer()
-          .hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => this.toggleActivity("due", cx))
-          .when(counts.blocked > 0, (el) => el
-            .child(div().text_color(t.blocked).child(GLYPH.blocked))
-            .child(div().font_medium().text_color(t.muted).child("Needs you"))
-            .child(pill(counts.blocked, t.blocked)))
-          .when(counts.blocked > 0 && counts.review > 0, (el) => el.child(div().text_color(t.dim).child("\u00b7")))
-          .when(counts.review > 0, (el) => el
-            .child(div().text_color(t.done).child(GLYPH.review))
-            .child(div().font_medium().text_color(t.muted).child("To review"))
-            .child(pill(counts.review, t.done)))
-          .child(div().flex_1().h(1).bg(t.border))
-          .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim)),
-        ...due.map((item) => this.activityRow(item, "due", !folded, t)),
-      );
-    }
-    if (running.length) {
-      const folded = this.foldedActivity.has("running");
-      out.push(
-        h_flex()
-          .id("act-head-running")
-          .h(24)
-          .flex_none()
-          .when(due.length > 0, (el) => el.mt(5))
-          .px(6)
-          .gap(5)
-          .items_center()
-          .rounded(6)
-          .text_size(11)
-          .cursor_pointer()
-          .hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => this.toggleActivity("running", cx))
-          .child(div().id("act-head-spin").w(11).flex_none().text_color(t.working).frames(SPIN, 180))
-          .child(div().font_medium().text_color(t.muted).child("Running"))
-          .child(pill(counts.running, t.working))
-          .child(div().flex_1().h(1).bg(t.border))
-          .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim)),
-        ...running.map((item) => this.activityRow(item, "run", !folded, t)),
-      );
-    }
+    const sections = [
+      { key: "blocked", items: blocked, icon: sym(GLYPH.blocked).w(11).text_color(t.blocked), label: "Needs you", count: counts.blocked, color: t.blocked },
+      { key: "review", items: review, icon: sym(GLYPH.review).w(11).text_color(t.done), label: "To review", count: counts.review, color: t.done },
+      { key: "saved", items: saved, icon: sym(GLYPH.saved).w(11).text_color(t.accent), label: "Saved", count: counts.saved, color: t.accent },
+      { key: "running", items: running, icon: div().id("act-head-spin").w(11).flex_none().font_family(MARK_FONT).text_color(t.working).frames(SPIN, 180), label: "Running", count: counts.running, color: t.working },
+    ].filter((s) => s.items.length);
+    if (!sections.length) return null;
     const rowH = (item) => (item.where ? 40 : 28);
-    const dueH = due.length ? 24 + (this.foldedActivity.has("due") ? 0 : due.reduce((sum, x) => sum + 3 + rowH(x), 0)) : 0;
-    const runH = running.length ? (due.length ? 8 : 0) + 24 + (this.foldedActivity.has("running") ? 0 : running.reduce((sum, x) => sum + 3 + rowH(x), 0)) : 0;
-    const contentH = 18 + dueH + runH;
+    let contentH = 18;
+    const out = sections.flatMap((s, i) => {
+      const folded = this.foldedActivity.has(s.key);
+      // A 24-high heading (8 above it after the first: its margin and the
+      // band's gap), then each row and the 3 gap before it.
+      contentH += (i ? 8 : 0) + 24 + (folded ? 0 : s.items.reduce((sum, x) => sum + 3 + rowH(x), 0));
+      return [
+        h_flex()
+          .id(`act-head-${s.key}`)
+          .h(24)
+          .flex_none()
+          .when(i > 0, (el) => el.mt(5))
+          .px(6)
+          .gap(5)
+          .items_center()
+          .rounded(6)
+          .text_size(11)
+          .cursor_pointer()
+          .hover((st) => st.bg(t.hover))
+          .on_click((_e, cx) => this.toggleActivity(s.key, cx))
+          .child(s.icon)
+          .child(div().font_medium().text_color(t.muted).child(s.label))
+          .child(pill(s.count, s.color))
+          .child(div().flex_1().h(1).bg(t.border))
+          .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim)),
+        ...s.items.map((item) => this.activityRow(item, s.key, !folded, t)),
+      ];
+    });
     const capped = contentH > 350;
     return v_flex()
       .id("activity-band")
@@ -1104,6 +1097,7 @@ export default class SpacesTree extends View {
     const folded = this.foldedSpaces.has(w.id);
     const blocked = dots.filter((d) => d === "blocked").length;
     const review = dots.filter((d) => d === "review").length;
+    const saved = dots.filter((d) => d === "saved").length;
     const top = dots.reduce((m, d) => (RANK[d] > RANK[m] ? d : m), "idle");
     return h_flex()
       .id(`fold-${w.id}`)
@@ -1124,9 +1118,10 @@ export default class SpacesTree extends View {
         localStorage.setItem("folded.spaces", JSON.stringify([...this.foldedSpaces]));
         cx.notify();
       })
-      .when(blocked > 0, (el) => el.child(div().text_color(t.blocked).child(`${GLYPH.blocked}${blocked}`)))
-      .when(review > 0, (el) => el.child(div().text_color(t.done).child(`${GLYPH.review}${review}`)))
-      .when(folded && !blocked && !review, (el) => el.child(div().text_color(t[TONE[top]]).child(`${GLYPH[top]}${list.length}`)));
+      .when(blocked > 0, (el) => el.child(tally(GLYPH.blocked, blocked, t.blocked)))
+      .when(review > 0, (el) => el.child(tally(GLYPH.review, review, t.done)))
+      .when(saved > 0, (el) => el.child(tally(GLYPH.saved, saved, t.accent)))
+      .when(folded && !blocked && !review && !saved, (el) => el.child(tally(GLYPH[top], list.length, t[TONE[top]])));
   }
 
   // A repository's fold chevron, on its main checkout's row.
@@ -1200,9 +1195,9 @@ export default class SpacesTree extends View {
             ? svg(this.icons ? prIcon(pr.state) : "mods/workspace-chrome/branch.svg").size(13).flex_none().text_color(t[PR_TONE[pr.state]] ?? t.dim)
             : svg("mods/workspace-chrome/branch.svg").size(13).text_color(t.dim)))
           .child(div().flex_shrink(0).max_w(pr ? 170 : 150).truncate().text_color(t.foreground).child(name))
-          .child(g ? this.gitTail(g, tree, w.name, t, pr) : div().flex_1())
           .when(r.kids > 0, (el) => el.child(this.repoFold(r, t)))
-          .when(Boolean(this.counts(w, t)), (el) => el.child(this.counts(w, t))),
+          .when(Boolean(this.counts(w, t)), (el) => el.child(this.counts(w, t)))
+          .child(g ? this.gitTail(g, tree, w.name, t, pr) : div().flex_1()),
       );
   }
 
@@ -1217,7 +1212,9 @@ export default class SpacesTree extends View {
       .hover((s) => s.bg(t.hover))
       .on_click(() => run("space.select", { id: w.id }))
       .child(div().text_color(w.active ? t.foreground : t.muted).child(String(i + 1)))
-      .child(div().text_color(top ? t[TONE[top]] : t.dim).child(top === "blocked" || top === "review" ? GLYPH[top] : "\u00b7"));
+      .child(top === "blocked" || top === "review" || top === "saved"
+        ? sym(GLYPH[top]).text_color(t[TONE[top]])
+        : div().text_color(t.dim).child("\u00b7"));
   }
 
   render(cx) {
@@ -1256,7 +1253,7 @@ export default class SpacesTree extends View {
     const env = shared("spaces-env")?.active;
     const heading = env ? env[0].toUpperCase() + env.slice(1) : "Spaces";
     const act = this.activity([...shown, ...reviews]);
-    this.hasActivity = act.due.length > 0 || act.running.length > 0;
+    this.hasActivity = act.blocked.length > 0 || act.review.length > 0 || act.saved.length > 0 || act.running.length > 0;
     const band = collapsed ? null : this.activityBand(act, t);
     const rows = this.grouped(t, collapsed, shown);
     const reviewSection = this.reviewsSection(reviews, t, collapsed);

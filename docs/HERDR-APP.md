@@ -18,7 +18,7 @@ Its own manual is `~/.config/herdr-app/AGENTS.md`, rewritten on every start.
 | [`herdr-app/keys.json`](../herdr-app/keys.json) | Every key. `global` keeps the app's `Cmd` keys and the `C-a` prefix keys that map to app commands; `layout:eric` adds the keys that need this repository's mods |
 | [`herdr-app/layouts/eric.json`](../herdr-app/layouts/eric.json) | The window: a copy of the shipped `main` layout with one right-hand panel that shows the Spaces tree or Files, a tab bar without buttons, a status bar that hosts the mods below, attention pane headers and a 2 px focus border |
 | [`herdr-app/themes/`](../herdr-app/themes/) | Catppuccin Latte, Frappé, Macchiato and Mocha, from the same palettes as Alacritty and Neovim |
-| [`herdr-app/mods/`](../herdr-app/mods/) | `tab-bar` (the app's own tab bar without its `+`, Files and Changes buttons), `spaces-tree` (the sidebar view of the right-hand panel), `next-agent`, `spaces-env`, `popups`, `pane-keys`, `pi-resume` (status bar), `attention-pane` (pane headers), `conversation-picker` (a popup), `mission-control` (a dialog) |
+| [`herdr-app/mods/`](../herdr-app/mods/) | `tab-bar` (the app's own tab bar without its `+`, Files and Changes buttons), `spaces-tree` (the sidebar view of the right-hand panel), `next-agent`, `spaces-env`, `popups`, `pane-keys`, `pi-resume` (status bar), `attention-pane` (pane headers), `conversation-picker` (a popup), `mission-control` (a dialog), `toast-filter` ([notifications](#notifications)) |
 | [`lib/herdr-app-mods/`](../lib/herdr-app-mods/) | Tests for the mods' rules, with the app's modules stubbed |
 | [`bin/herdr-import`](../bin/herdr-import) | Rebuilds the terminal Herdr session in the app |
 
@@ -79,13 +79,17 @@ layout if a file breaks the window.
   panel. The view stays as you left it when you change Space. The app's Changes
   view is left out.
 - **Sidebar:** at the top, a pinned band lists the active environment's
-  conversations that need you or finished unread (`◆ Needs you` / `● To review`),
-  then the ones running (`◐ Running`), each with its Space or repository/PR
-  and how long it has been in that state (click a row to jump there, or a
-  heading to fold; hidden when all are idle). Below it is one tree: repository,
-  then its worktree Spaces (branch icon), then the conversations in each Space.
-  Each Space's row ends with its repository and branch, `main` included
-  (`.config  dotfiles · main`); a worktree named after its branch, or showing
+  conversations in four sections: the ones that need you (`◆ Needs you`),
+  then the ones finished unread (`● To review`), then the ones you saved for
+  later with `C-a m` (`■ Saved`), then the ones running (`◐ Running`). Each
+  row shows its Space or repository/PR and how long it has been in that
+  state. Click a row to jump there, or a heading to fold that section. A
+  section with no rows is left out; the band hides when all are idle. Below
+  it is one tree: repository, then its worktree Spaces (branch icon), then the conversations in each Space.
+  Each Space's row ends with its repository and branch, `main` included, so
+  branches line up at the right edge; commits ahead or behind sit just left
+  of them, and the fold chevron and counts follow the name
+  (`code-slop ●1      ↑2 main`). A worktree named after its branch, or showing
   its pull request, leaves them out. Only the active environment's Spaces
   show, plus the one you are in. Click a Space's counts (`◆1 ●2`) to fold its
   conversations, a repository's chevron to fold its worktrees. A Pi
@@ -99,9 +103,30 @@ layout if a file breaks the window.
   zoom they sit above or below the tabs; set its second number to
   21 × zoom − 7.5 (6 at 0.7, 13.5 at 1).
 - **Status bar, right:** `Personal | Work` (click: toggle) and the attention
-  counts (click: next agent).
+  counts, which leave Saved conversations out (click: next agent).
+- **Split panes:** the selected pane stays bright. The other panes fade toward
+  the theme background (`pane.veil` in the `eric` layout). Click any pane to
+  select it. A dialog does not dim the selected pane, and zooming shows one
+  pane at full brightness.
 - **Pane headers:** a blocked pane's header is red ("◆ Needs you"), a finished but
-  unreviewed one peach ("● To review").
+  unreviewed one peach ("● To review"), a saved one purple ("■ Saved").
+
+### Notifications
+
+The notes in the bottom-right corner show only conversation alerts and errors.
+Example:
+
+1. 10:00: `fix login` asks a question while you are in another Space. "Pi needs
+   you" shows, with its Space and tab; click it to go there. 10:05: another
+   agent finishes unseen: "Pi finished".
+2. 10:06: `C-a ;` switches to Work. No note; the `Personal | Work` pill shows it.
+3. 10:07: `C-a t` cannot open its popup. A red "Popup failed" note shows.
+
+Everything else is dropped: Space switches, `C-a m`'s "Saved until you reply", "Resumed
+Pi", the app's own info notes. The `toast-filter` mod does this; the layout's
+`toast` field hands it every note, the app's and every mod's. Kept notes look like
+the app's own (`toast` mod, copied from 0.1.17). The alert sounds are separate and
+still play (Settings → Alerts). Another layout shows every note.
 
 Each conversation has one dot. Example, three agents in one Space:
 
@@ -111,7 +136,11 @@ Each conversation has one dot. Example, three agents in one Space:
    to `fix login`.
 4. 10:07: you focus `fix login`: `○` (read). Its split neighbour keeps its own
    dot; only focusing that pane reads it.
-5. 10:08: `C-a m` on `fix login` keeps it `●` until you send it a message.
+5. 10:08: you want to come back to `fix login` tomorrow. `C-a m` moves it to
+   Saved (`■`). `C-a u` and the status bar counts now skip it, even if it was
+   asking you something.
+6. Next day: you click it under Saved and send it a message. It leaves Saved
+   and shows `◐` again. `C-a m` a second time also takes it out (as read).
 
 Pi conversations are named by the `herdr-task-summary` extension (a 2–6 word
 title). Other agents show their own title, else their tab or program name.
@@ -155,7 +184,7 @@ change tabs or move worktrees.
 | `C-a w`, `Cmd+P` | [Conversation picker](#conversation-picker): type part of a conversation's name, `Enter` goes there |
 | `C-a C-w` | [Mission control](#mission-control): every agent at once |
 | `C-a u` / `C-a U` | Next conversation needing you / back to where the jumps started |
-| `C-a m` | Keep this conversation unread until you reply; again: mark it read |
+| `C-a m` | Save this conversation for later (sidebar's Saved) until you reply; again: unsave it, marked read |
 | `C-a o` | The conversation that most recently came to need you (terminal Herdr: the latest notification's pane) |
 | `C-a ;` / `C-a :` | Toggle Personal/Work / send this Space to the other one |
 | `C-a S-1..9`, `Ctrl+1..9`, `C-a S-←/→` | Spaces of the active environment, in sidebar order |
@@ -324,11 +353,11 @@ themselves, as terminal Herdr's `resume_agents_on_restore` did:
    session file and its shell's pid (`hc get t7 | jq .labels`).
 2. 18:00: the Mac restarts. `t7` comes back as a new shell with a new pid.
 3. 18:01: the app's `pi-resume` mod sees the labels and the changed pid, and types
-   `pi --session '<file>'` into `t7`. A toast says so.
+   `pi --session '<file>'` into `t7`.
 
 Quitting Pi clears the labels, so a conversation you ended stays ended. If
 something other than a shell is in front of the recovered terminal, or the
-session file is gone, nothing is typed and a toast gives the command. Other
+session file is gone, nothing is typed and an error note gives the command. Other
 agents (OMP) come back as shells.
 
 ## Theme
@@ -358,7 +387,9 @@ The terminal font is Maple Mono NF, set by `font` in
 [`Brewfile`](../Brewfile), for its handwriting-style italics (Neovim comments,
 Pi's "Thinking"). The app takes one font for everything, so the italics can't
 come from a second family. Without the font installed, the app falls back to
-JetBrains Mono. A newly installed font shows after the app restarts.
+JetBrains Mono. The sidebar and the other mods use `ui_font`, Nunito (same
+file, also in the Brewfile), a rounded font that sits well next to Maple Mono.
+A newly installed font shows after the app restarts.
 
 ## Moving the terminal Herdr session
 
@@ -394,11 +425,11 @@ Terminal Herdr settings with no app equivalent:
   for them. Select with the mouse and `Cmd+C`. Resize with
   [`Ctrl+Alt+arrows` or `C-a H/J/K/L`](#resizing-panes), or drag a pane's
   edge. There is no copy-on-select.
-- **Dimmed or coloured panes:** mods do not draw terminals, so unfocused panes
-  are not faded and borders are not red or peach. The pane header carries the
-  colour instead.
+- **Attention-coloured pane borders:** the pane header carries the colour
+  instead.
 - **Alerts:** the app's own sound and corner toast when an agent needs you or
-  finishes unseen (Settings → Alerts); `ui.toast` settings do not apply. The app
+  finishes unseen (Settings → Alerts); `ui.toast` settings do not apply, and the
+  `eric` layout shows only those notes and errors ([Notifications](#notifications)). The app
   bundle includes macOS notification delivery, but whether it posts to
   Notification Center has not been checked here.
 - **Output after a reboot:** closing the window and updating the app or

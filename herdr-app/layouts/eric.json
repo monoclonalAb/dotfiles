@@ -41,15 +41,16 @@
                   },
                   "background": "background",
                   "border": {
-                    "width": 1,
+                    "width": 2,
                     "color": "border"
                   },
                   "focus": {
-                    "width": 1,
+                    "width": 2,
                     "color": "accent"
                   },
                   "radius": 10,
                   "gap": 8,
+                  "veil": 0.4,
                   "lone": true
                 }
               }
@@ -184,6 +185,7 @@
   "background": "canvas",
   "window_blur": true,
   "font": "Maple Mono NF",
+  "ui_font": "Nunito",
   "terminal_padding": [
     14,
     12
@@ -198,5 +200,6 @@
     6
   ],
   "preview": "mods/spaces-tree/.layout-preview.svg",
+  "toast": "toast-filter",
   "terminal_opacity": 0
 }

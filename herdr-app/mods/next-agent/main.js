@@ -4,12 +4,14 @@
 // the status bar).
 //
 //   next-agent.jump           the next blocked, then finished-unreviewed, agent
+//                             (Saved ones are skipped)
 //   next-agent.back           back to where the jumps started (again: return)
-//   next-agent.toggle-unread  keep this conversation unread until you reply
+//   next-agent.toggle-unread  save this conversation for later until you reply
+//                             (again: unsave it, marking it read)
 //   next-agent.latest         the agent that most recently came to need you
 //
 // Publishes shared("next-agent.dots") = { address: "blocked" | "review" |
-// "working" | "idle" } for the Spaces tree and pane headers.
+// "saved" | "working" | "idle" } for the Spaces tree and pane headers.
 //
 // A count that changed fades in (natively): drawn hidden by the render that
 // first shows it, shown by a render FRAME ms later.
@@ -104,15 +106,19 @@ export function setKept(entry, keep, status, seq, created = null) {
 }
 
 // The priority bucket of a live agent, or null when it needs no attention.
+// A saved conversation (C-a m) is "saved" whatever it is doing, until you
+// reply; jumps and the status bar counts leave it out (not in PRIORITY).
 export function bucket(status, entry) {
+  if (entry?.kept === true) return "saved";
   if (status === "blocked") return "blocked";
   if ((status === "done" || status === "idle") && entry?.unread === true) return entry.raised ?? "done";
   return null;
 }
 
-// What the tree and pane headers show: blocked, review, working or idle.
+// What the tree and pane headers show: blocked, review, saved, working or idle.
 export function dot(status, attention) {
   if (attention === "blocked") return "blocked";
+  if (attention === "saved") return "saved";
   if (attention) return "review";
   return status === "working" ? "working" : "idle";
 }
@@ -161,9 +167,11 @@ export function planBack(chain, focusedPane, livePanes) {
 export const DOTS = "next-agent.dots";
 // The Spaces tree publishes the agents it shows, in its order.
 const ORDER = "spaces-tree.agents";
-export const GLYPH = { blocked: "◆", review: "●", working: "◐", idle: "○" };
-export const TONE = { blocked: "blocked", review: "done", working: "working", idle: "idle" };
+export const GLYPH = { blocked: "◆", review: "●", saved: "■", working: "◐", idle: "○" };
+export const TONE = { blocked: "blocked", review: "done", saved: "accent", working: "working", idle: "idle" };
 
+// Every mark in one font, so each has the \u25d0 size and centre (see spaces-tree).
+const MARK_FONT = "Hiragino Sans";
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const FADE = 200; // a changed count fading in, ms
 const FRAME = 32; // long enough for one frame to be drawn in between
@@ -247,7 +255,7 @@ export default class NextAgent extends View {
       this.ledger = { ...this.ledger, [a.address]: setKept(this.ledger[a.address], keep, a.status, a.seq, created) };
       localStorage.setItem("ledger", JSON.stringify(this.ledger));
       this.sync();
-      notify({ title: keep ? "Kept unread until you reply" : "Marked read", level: "info", timeout: 2000 });
+      notify({ title: keep ? "Saved until you reply" : "Removed from Saved", level: "info", timeout: 2000 });
     } else {
       notify({ title: `next-agent: unknown command ${command}`, level: "warning" });
     }
@@ -269,11 +277,11 @@ export default class NextAgent extends View {
       fresh ||= isNew;
       return el.id(key).opacity(isNew ? 0 : 1).transition("opacity", FADE);
     };
-    const count = (kind, n) => enter(h_flex(), `na-${kind}-${n}`).gap(4).items_center().text_color(t[TONE[kind]]).child(GLYPH[kind]).child(String(n));
+    const count = (kind, n) => enter(h_flex(), `na-${kind}-${n}`).gap(4).items_center().text_color(t[TONE[kind]]).child(div().font_family(MARK_FONT).child(GLYPH[kind])).child(String(n));
     const shown = [
       blocked > 0 && count("blocked", blocked),
       review > 0 && count("review", review),
-      !blocked && !review && enter(div(), "na-read").child(`${GLYPH.idle} all read`),
+      !blocked && !review && enter(h_flex(), "na-read").gap(4).items_center().child(div().font_family(MARK_FONT).child(GLYPH.idle)).child("all read"),
     ].filter(Boolean);
     if (fresh) cx.timer.after(FRAME, (cx) => cx.notify());
     return h_flex()
@@ -289,7 +297,7 @@ export default class NextAgent extends View {
       .text_size(11.8)
       .text_color(t.dim)
       .cursor_pointer()
-      .tooltip("Next agent needing you (C-a u), back (C-a U), keep unread (C-a m)")
+      .tooltip("Next agent needing you (C-a u), back (C-a U), save for later (C-a m)")
       .on_click(() => this.command("jump"))
       .children(shown);
   }

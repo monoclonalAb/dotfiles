@@ -71,10 +71,11 @@ export default class PiResume extends View {
           else notify({ title: "Resumed Pi", body: `${t.address}: ${name(t.file)}`, level: "info", timeout: 4000 });
         }
         if (act !== "resume") {
+          // An error, so the eric layout's toast-filter still shows it.
           notify({
             title: act === "gone" ? "Pi conversation not found" : "Pi conversation not resumed",
             body: act === "gone" ? `${t.address}: ${t.file}` : `${t.address} was busy. To resume: pi --session ${quote(t.file)}`,
-            level: "warning",
+            level: "error",
           });
         }
         await hc(["label", t.address, `pi.resumed=${t.pid}`]);
