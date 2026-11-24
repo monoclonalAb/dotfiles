@@ -61,7 +61,7 @@ reports.
 
 It ends by printing the manual steps: sign-ins (`gh`, Pi `/login`, gcloud,
 Tailscale), AeroSpace's Accessibility permission, `C-a I` in tmux, and the first
-`nvim` launch.
+`nvim` launch. If a step failed, it lists the failures after them and exits 1.
 
 Keep the clone at `~/dotfiles`; Pi and OMP configs use that path. Credentials,
 SSH keys, app data and a few [machine-specific paths](docs/SETUP.md#personal-bits)
