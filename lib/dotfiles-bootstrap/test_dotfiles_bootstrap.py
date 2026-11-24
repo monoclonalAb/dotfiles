@@ -95,18 +95,29 @@ class InstallModeTest(unittest.TestCase):
         self.assertIn("task-launcher", last_screen, run.stdout)
         self.assertIn("pr-status", last_screen, run.stdout)
 
+    def offline(self):
+        executable(self.home / ".local" / "bin" / "curl", "#!/bin/sh\necho 'curl: (6) Could not resolve host' >&2\nexit 6\n")
+
     def test_failed_downloads_and_installs_are_listed_too(self):
-        (self.home / ".cargo" / "env").unlink()
         shutil.rmtree(self.home / ".nvm")
         shutil.rmtree(self.home / ".config" / "tmux" / "plugins")
         (self.home / ".config" / "tmux" / "plugins").write_text("a file where tpm's folder goes\n")
-        executable(self.home / ".local" / "bin" / "curl", "#!/bin/sh\necho 'curl: (6) Could not resolve host' >&2\nexit 6\n")
+        self.offline()
         run = self.bootstrap(PLUGINS)
         self.assertEqual(run.returncode, 1, run.stdout)
         self.assertIn("Manual steps", run.stdout)
         last_screen = run.stdout[run.stdout.index("Manual steps"):]
-        for step in ("rustup", "nvm", "Node", "pi-coding-agent", "tpm"):
+        for step in ("nvm", "Node", "pi-coding-agent", "tpm"):
             self.assertIn(step, last_screen, run.stdout)
+
+    def test_a_failed_rust_install_stops_before_linking(self):
+        # The linked ~/.zshenv sources ~/.cargo/env, so linking without it breaks every shell.
+        (self.home / ".cargo" / "env").unlink()
+        self.offline()
+        run = self.bootstrap(PLUGINS)
+        self.assertEqual(run.returncode, 1, run.stdout)
+        self.assertIn("rustup", run.stdout.strip().splitlines()[-1], run.stdout)
+        self.assertFalse((self.home / ".config" / "app" / "config").exists(), run.stdout)
 
     def test_a_run_with_nothing_failing_exits_0(self):
         run = self.bootstrap(PLUGINS)
