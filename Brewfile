@@ -24,7 +24,7 @@ brew "zsh-autosuggestions"
 brew "zsh-syntax-highlighting"
 brew "zsh-vi-mode"
 
-brew "neovim"                  # 0.11+ — lsp.lua uses vim.lsp.config()
+brew "neovim"                  # 0.12+ — lsp.lua uses vim.lsp.config() and vim.lsp.codelens.enable()
 brew "herdr"                   # base install only; ~/.local/bin/herdr (install-herdr-focus) shadows it and owns the running config
 brew "zig@0.16"                # install-herdr-focus requires Zig 0.16.0 for Herdr 0.9.5; plain `zig` is 0.17. Keg-only. rustup comes from docs/SETUP.md step 3, not Homebrew
 brew "python@3.14"             # herdr-next-agent plugin runtime

@@ -92,16 +92,9 @@ return {
 					end, { buffer = ev.buf, desc = "Toggle inlay hints" })
 				end
 
-				-- Codelens (native). Refresh on events; <leader>vl runs the lens under cursor.
+				-- Codelens (native); Neovim refreshes it as the buffer changes. <leader>vl runs the lens under cursor.
 				if client and client:supports_method("textDocument/codeLens") then
-					vim.lsp.codelens.refresh({ bufnr = ev.buf })
-					vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "InsertLeave" }, {
-						buffer = ev.buf,
-						group = vim.api.nvim_create_augroup("UserLspCodelens" .. ev.buf, { clear = true }),
-						callback = function()
-							vim.lsp.codelens.refresh({ bufnr = ev.buf })
-						end,
-					})
+					vim.lsp.codelens.enable(true, { bufnr = ev.buf })
 					vim.keymap.set("n", "<leader>vl", vim.lsp.codelens.run, { buffer = ev.buf, desc = "Run codelens" })
 				end
 			end,
