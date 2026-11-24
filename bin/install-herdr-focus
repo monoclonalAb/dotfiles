@@ -56,8 +56,10 @@ fi
 
 zig_bin=${ZIG-}
 if [ -z "$zig_bin" ] && command -v brew >/dev/null 2>&1; then
-  zig_prefix=$(brew --prefix zig 2>/dev/null || true)
-  [ -z "$zig_prefix" ] || zig_bin=$zig_prefix/bin/zig
+  zig_prefix=$(brew --prefix zig@0.16 2>/dev/null || true)
+  if [ -n "$zig_prefix" ] && [ -x "$zig_prefix/bin/zig" ]; then
+    zig_bin=$zig_prefix/bin/zig
+  fi
 fi
 if [ -z "$zig_bin" ]; then
   zig_bin=$(command -v zig 2>/dev/null || true)
