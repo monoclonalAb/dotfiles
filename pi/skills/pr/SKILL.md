@@ -47,27 +47,45 @@ Read everything the PR will contain, against the base on the remote:
 
 ## 3. Write the description
 
-Follow the repository's PR template if it has one. Otherwise read the last few
-PRs I wrote myself in this repository (skip ones with a "Generated with" footer)
-and match their title style and their description, length included: if they're
-one sentence, write one sentence. Check the repo's AGENTS.md for a PR rule too.
-With no PRs to match:
+Follow the repository's PR template and any PR rule in its `AGENTS.md`.
+Otherwise write a short, scannable note sized to the change — roughly
+**800–1,500 characters** for a normal PR, and shorter for small fixes. Do not
+copy the length of long past PRs.
 
-- Start with one or two plain sentences: what changed and why.
-- Add only what a reviewer needs to understand the change. Mention how it was
-  checked only when that isn't obvious.
-- Leave out "Not in this PR" sections, change lists, test lists, and links to
-  docs, plans or branches.
-- Write it like a short note from a teammate, not a generated report.
+- **Small PR (under ~100 changed lines):** one or two short paragraphs, no
+  headings — what changed and why, what stays unchanged if that matters, and
+  how it was checked (plus anything left unchecked).
+- **Medium or large PR:** use only the sections that earn their space:
+  1. **Opener (2–3 sentences, no heading):** what was broken or missing, what
+     changes, and what stays untouched. If I passed rough wording or a note,
+     lead with my phrasing.
+  2. **One concrete example or before/after** (only when behaviour isn't
+     obvious): 3–5 lines, a small table for prompt/AI/perf changes, or a
+     Before/After image table for UI changes.
+  3. **`## Key files`** (or **`**Review order**`** by commit SHA for large
+     multi-commit PRs, 500+ lines): 3–5 bullets naming which file owns what,
+     instead of narrating function internals the diff already shows.
+  4. **`## Checked`:** 2–4 tight bullets with real commands or production
+     counts, ending with one honest sentence on what was *not* run or stays
+     unverified.
+  5. **`## For the reviewer` / `## After merge`** (omit if empty): trade-offs
+     or design choices for the reviewer to weigh, subtle edge cases, or
+     rollout steps (migrations, crons, env vars, flags).
+
+Put long backtest tables or logs in a collapsed `<details>` block rather than
+the main body. Leave out boilerplate "Not in this PR" lists, file-by-file
+change recaps, and links to plans or branches. Write it like a short note from
+a teammate, not a generated report.
 
 Accurate doesn't mean complete. Leave out what a reviewer sees at a glance in
-the diff. Never leave out a change in behaviour, a step needed after merge, or
-something a reviewer could easily miss.
+the diff. Never leave out a change in behaviour, a step needed after merge, a
+verification gap, or something a reviewer could easily miss.
 
-The title says what the PR does. If the repository uses prefixes such as
-`feat:`, `fix:` or `docs:`, pick the one that fits most of the diff, not the
-first commit. Write ticket references, such as `(EAI-1234)`, the way recent PRs
-do. For a stacked PR, say which PR it builds on.
+The title says what the PR does. Match the repository's recent PRs for title
+style (plain imperative vs `feat:`/`fix:`/`docs:` prefixes, and ticket
+references such as `(EAI-1234)`). If prefixes are used, pick the one that fits
+most of the diff, not the first commit. For a stacked PR, say which PR it
+builds on.
 
 ## 4. Check the draft against the diff
 

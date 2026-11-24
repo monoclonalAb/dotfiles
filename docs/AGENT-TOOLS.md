@@ -119,10 +119,10 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
 - `/domain-first [scope]`, `/test-sweep [scope]`, `/feedback [correction]`.
 - `/pr [notes]`: commit, push, and open or update a draft PR by following the
   [`pr` skill](../pi/skills/pr/SKILL.md). The skill holds the rules: it
-  reads the whole branch diff, writes a short description in the style of your
-  recent PRs, checks each sentence against the diff (with a fresh reader from
-  `pi-agent` above about 300 changed lines), and attaches screenshots only
-  when asked. It is on in every Pi session, so "open a draft PR" or "update the
+  reads the whole branch diff, writes a short description sized to the change
+  (matching the repo's PR template and title style), checks each sentence
+  against the diff (with a fresh reader from `pi-agent` above about 300 changed
+  lines), and attaches screenshots only when asked. It is on in every Pi session, so "open a draft PR" or "update the
   PR" in plain words follows the same rules; OMP loads it from the same folder.
 - `/ship [notes]`: commit this task's changes and push straight to the current
   branch, even the default branch, with no PR. For changes small enough to skip
