@@ -95,6 +95,19 @@ class InstallModeTest(unittest.TestCase):
         self.assertIn("task-launcher", last_screen, run.stdout)
         self.assertIn("pr-status", last_screen, run.stdout)
 
+    def test_failed_downloads_and_installs_are_listed_too(self):
+        (self.home / ".cargo" / "env").unlink()
+        shutil.rmtree(self.home / ".nvm")
+        shutil.rmtree(self.home / ".config" / "tmux" / "plugins")
+        (self.home / ".config" / "tmux" / "plugins").write_text("a file where tpm's folder goes\n")
+        executable(self.home / ".local" / "bin" / "curl", "#!/bin/sh\necho 'curl: (6) Could not resolve host' >&2\nexit 6\n")
+        run = self.bootstrap(PLUGINS)
+        self.assertEqual(run.returncode, 1, run.stdout)
+        self.assertIn("Manual steps", run.stdout)
+        last_screen = run.stdout[run.stdout.index("Manual steps"):]
+        for step in ("rustup", "nvm", "Node", "pi-coding-agent", "tpm"):
+            self.assertIn(step, last_screen, run.stdout)
+
     def test_a_run_with_nothing_failing_exits_0(self):
         run = self.bootstrap(PLUGINS)
         self.assertEqual(run.returncode, 0, run.stdout)
