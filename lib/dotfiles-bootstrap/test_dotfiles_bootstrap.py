@@ -62,8 +62,10 @@ class InstallModeTest(unittest.TestCase):
         (self.repo / "app").mkdir()
         (self.repo / "app" / "config").write_text("x = 1\n")
         (self.repo / "Brewfile").write_text("# nothing to install\n")
-        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
-        subprocess.run(["git", "add", "-A"], cwd=self.repo, check=True)
+        # A caller's GIT_DIR or GIT_INDEX_FILE would aim these at another repository.
+        git_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True, env=git_env)
+        subprocess.run(["git", "add", "-A"], cwd=self.repo, check=True, env=git_env)
 
         (self.home / ".cargo").mkdir(parents=True)
         (self.home / ".cargo" / "env").write_text("")
@@ -86,10 +88,11 @@ class InstallModeTest(unittest.TestCase):
             text=True, timeout=120,
         )
 
-    def test_a_failed_step_is_named_after_the_manual_steps_and_exits_1(self):
-        run = self.bootstrap(PLUGINS[:-1])
+    def test_failed_steps_are_named_after_the_manual_steps_and_exit_1(self):
+        run = self.bootstrap(PLUGINS[:2])
         self.assertEqual(run.returncode, 1, run.stdout)
         last_screen = run.stdout[run.stdout.index("Manual steps"):]
+        self.assertIn("task-launcher", last_screen, run.stdout)
         self.assertIn("pr-status", last_screen, run.stdout)
 
     def test_a_run_with_nothing_failing_exits_0(self):
