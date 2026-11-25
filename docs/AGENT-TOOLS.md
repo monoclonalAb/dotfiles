@@ -248,8 +248,7 @@ How it behaves:
   servers that is the tracked file, so review them like `settings.json` changes.
 - Every enabled server connects when a session starts. After 10 minutes with no
   agent run, `mcp-idle-stop` stops the local (stdio) ones; `/mcp` shows them as
-  disconnected, and the next call to a server's tools starts it again (up to a
-  couple of seconds for the npx ones).
+  disconnected, and the next call to a server's tools starts it again.
   `pi mcp list` connects each one and reports errors; `/reload` applies changes to
   a running session.
 - OAuth sign-ins (`pi mcp login <server>`) are stored in `~/.pi/agent/mcp-auth.json`.
