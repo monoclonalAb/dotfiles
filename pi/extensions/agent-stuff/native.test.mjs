@@ -44,8 +44,7 @@ async function until(predicate, label = 'condition') {
   for (let i = 0; i < 500; i++) { if (predicate()) return; await tick(); }
   assert.fail(`Timed out waiting for ${label}`);
 }
-// What the terminal shows: Pi's TUI removes its cursor markers (APC `ESC _pi:… BEL`) before drawing.
-const screenText = lines => stripVTControlCharacters(lines.join('\n')).replace(/\x1b_pi:[^\x07]*\x07/g, '');
+const screenText = lines => tui.stripTerminalSequences(lines.join('\n'));
 const text = content => typeof content === 'string' ? content : (content ?? []).filter(p => p.type === 'text').map(p => p.text).join('\n');
 // Pi 0.87 providers receive a transcript whose system messages carry the prompt
 // and tool changes; fold them back into the prompt/tools/messages view asserted here.
