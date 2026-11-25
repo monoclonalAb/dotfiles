@@ -216,6 +216,15 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
 - **No mouse reporting while parked:** clicking an unfocused pane already sends
   focus-in, and the click itself would then reach the new Pi as input. A click on
   the pane that is already focused needs a key.
+- **A running command is a child of Pi that does not read a unix socket.** Pi's
+  MCP servers read a unix socket from Pi (measured: all six on this Mac); a
+  `!cmd`, a bash tool command or a Ctrl+G editor reads `/dev/null`, a file, a
+  pipe or the terminal. Shell names alone missed `!sleep 40`, because bash execs
+  a single command (seen in the app check). A child that exits before `lsof`
+  runs, such as the `ps` that listed it, is ignored.
+- **Also held:** an open extension dialog (`ui_prompt_start`/`ui_prompt_end`),
+  a `/tree` position other than the latest entry, and a key during the checks
+  (so `Ctrl+D` is never turned into a park).
 - **Plan review** (GPT, 2026-11-25, `rho/plan-review-1.md` in the worktree's Git
   dir): adopted all but one. Not adopted: holding PR 2 until PR 4 ships. A
   reboot already reopens every running conversation at once today; parking does
@@ -225,15 +234,33 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
 
 - [x] Prototypes above.
 - [x] Focus-in measured in the app: received (PR 3 dropped).
-- [ ] PR 1 · [ ] PR 2 · [x] PR 3 dropped · [ ] PR 4
-- [ ] Overall done check on a throwaway Space after deployment.
+- [x] PR 1 opened as #31 (three review rounds; the last found nothing to fix).
+- [x] PR 2 opened (three review rounds; the last finding fixed in one line after
+  it and checked in the app; no round read that line).
+- [x] PR 3 dropped.
+- [ ] PR 4: after a reboot, parked conversations come back parked, with flags.
+- [ ] Overall done check again after deployment (`dotfiles-link apply` for the
+  new extension folder; sessions started afterwards).
 
 ## Verification
 
-- Overall (brief): on a throwaway Space, (1) after the shortened threshold its
-  Pi and MCP processes are gone and the terminal remains, (2) focusing it reopens
-  the same session file with its last message within ~5 s, (3) a conversation
-  you quit never reopens. Not run.
+- Overall (brief) — passed 2026-11-25 from the worktree (PR 2 head `c3eb241`,
+  wrapper from PR 1), in a throwaway Space running
+  `pi -ne -e builtin:mcp -e <park-idle> -e <herdr-app-resume> -e selective-skills`
+  with `PI_PARK_AFTER=20` (script `/tmp/park-proto/e2e.sh`, not kept):
+  (1) 24 s after the reply, Pi and its six MCP processes were gone, the terminal
+  was live with `{app: pi, state: idle}`, `herdr-app ls` listed it as a Pi, its
+  `pi.session` label stayed, and the wrapper held 1.8 MB; (2) focusing it with
+  `pane.focus` reopened the same file with its last message in 0.4 s (run on
+  the previous commit with the same wrapper; a key: 0.4 s on `c3eb241`), the
+  message sent once and `/skill` choice kept; (3) `Ctrl+D` left a plain zsh,
+  status cleared and no `pi.*` labels. A draft and a running `!sleep 40` each
+  kept Pi running; it parked 20 s after they ended.
+- `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/pi -p 'test_*.py'`
+  (PR 1) — passed 20 runs in a row.
+- `bun test ./pi/extensions/park-idle/*.test.ts` and
+  `bun test ./pi/extensions/herdr-app-resume/*.test.ts` (PR 2) — passed; each
+  park-idle check fails its test when removed.
 
 ## Outcome
 
