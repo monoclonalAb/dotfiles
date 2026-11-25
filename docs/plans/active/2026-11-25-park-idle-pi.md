@@ -40,8 +40,8 @@ child instead. Example:
    the terminal has no live `hc` sub-terminals. The new `park-idle` extension writes the session file to
    `PI_PARK_FILE` and calls `ctx.shutdown()`. Pi exits; its MCP servers stop
    with it. `herdr-app-resume` sees the park file and keeps its labels.
-4. The wrapper (~1 MB) restores the terminal, prints one line ("Closed after 2 h
-   idle to free memory. Press a key to reopen …"), reports
+4. The wrapper (~1 MB) restores the terminal, prints one line ("Pi closed while
+   idle to free memory. Press a key to reopen this conversation."), reports
    `state=idle:app=pi` (OSC 7501) so Herdr still lists a Pi conversation, turns
    on focus reporting, and waits for input.
 5. 15:00: you focus the pane. The app sends focus-in (or you press a key; a
