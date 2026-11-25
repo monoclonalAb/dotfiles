@@ -101,10 +101,11 @@ child instead. Example:
 - **Idle threshold:** 2 hours, `PI_PARK_AFTER=<seconds>` overrides (0: never).
 - **A nested Pi** (run by the agent) inherits `PI_PARK_FILE`; the extension parks
   only when its parent is the wrapper that set it (`PI_PARK_PID`).
-- **Options a resume would lose** (`--no-tools`, `--tools`, `--system-prompt`,
-  `-e` …): such runs are not supervised at all, so they never park. Replayed:
-  `-a/--approve`, `-na/--no-approve`, `--no-skills`, `--tui-mode`,
-  `--session-dir`, `--fast`, `--offline`. Dropped as the session restores or
+- **Options a resume would lose** (`--no-tools`, `--tools`, `--system-prompt` …):
+  such runs are not supervised at all, so they never park. Replayed:
+  `-a/--approve`, `-na/--no-approve`, `--no-skills`, `-e/--extension`,
+  `-ne/--no-extensions`, `--no-mcp`, `--tui-mode`, `--session-dir`, `--fast`,
+  `--offline`. Dropped as the session restores or
   replaces them: messages and `@files` (before or after `--`), `--session`,
   `--session-id`, `-c`, `-r`, `--fork`, `-n/--name`, `--provider`, `--model`,
   `--thinking`. Anything else, `-p` and `--mode` included, means `exec`.
