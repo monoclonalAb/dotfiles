@@ -18,9 +18,10 @@ where you were.
    The browser opens the page from a small server on this Mac. The footer shows
    `reviewing <id>`.
 2. You Option-click a heading and type "move this to the top", then press Enter.
-   Or select some text and press **Add note**. Plain clicks still work the
-   page's own tabs and pickers. Tick **Plain clicks add notes** to comment
-   without Option. The outline, the note card and the **Add note** button
+   Or select some text and press **Add note**. Option-clicking empty space
+   outside the page's content makes a note on the whole page. Plain clicks
+   still work the page's own tabs and pickers. Tick **Plain clicks add notes**
+   to comment without Option. The outline, the note card and the **Add note** button
    scroll with the part of the page they belong to; the review panel stays in
    the bottom-right corner.
 3. You press **Send to Pi** (or ⌘Enter in a note). Pi shows the message and asks
