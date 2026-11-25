@@ -298,10 +298,22 @@ test('the review panel in Chrome: notes, normal clicks, send, reload', { skip: !
     assert.equal(await ui(`ui.querySelectorAll('.queue li').length`), 1, 'the note added while Pi asked is kept');
     assert.match(await ui(`ui.querySelector('.queue li').textContent`), /added while Pi asks/);
 
+    // A batch still waiting for Pi when the review stops: the held reload must not replace the panel.
+    confirmation = new Promise(() => {});
+    await until(`document.getElementById('__artifact-review').shadowRoot.querySelector('.send').disabled === false`, 'Send before stopping');
+    await click(`document.getElementById('__artifact-review').shadowRoot.querySelector('.send')`);
+    for (const deadline = Date.now() + 5000; deliveries.length < 3; await sleep(20)) {
+      if (Date.now() > deadline) assert.fail('timed out waiting for the last batch to reach Pi');
+    }
+    writeFileSync(join(folder, 'index.html'), PAGE.replace('Bottom of the page', 'Bottom, edited four times'));
+    await until(`!document.getElementById('__artifact-review').shadowRoot.querySelector('.banner').hidden`, 'the change to wait again');
+
     // When the review stops, the panel says so and Send is off.
     await server.close();
     await until(`document.getElementById('__artifact-review').shadowRoot.querySelector('.status').textContent.startsWith('Review stopped')`, 'the stopped status');
     assert.equal(await ui(`ui.querySelector('.send').disabled`), true);
+    assert.equal(await evaluate('window.pageLoads'), 4, 'no reload after the review stopped');
+    assert.equal(await ui(`ui.querySelectorAll('.queue li').length`), 1, 'the unsent note is still on the page');
   } finally {
     cdp.ws.close();
     const exited = chrome.exitCode === null ? new Promise((done) => chrome.once('exit', done)) : null;
