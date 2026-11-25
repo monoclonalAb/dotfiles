@@ -1,42 +1,18 @@
 # Selected agent-stuff commands
 
-Five extensions vendored from [mitsuhiko/agent-stuff](https://github.com/mitsuhiko/agent-stuff)
+Three extensions vendored from [mitsuhiko/agent-stuff](https://github.com/mitsuhiko/agent-stuff)
 at [`122e299`](https://github.com/mitsuhiko/agent-stuff/tree/122e2994adddb113c04764c5697217dae120fcc6)
-under [Apache-2.0](LICENSE): `answer`, `btw`, `goal`, `review` and
-`session-breakdown`. Each carries a modification notice; `index.ts` registers them.
+under [Apache-2.0](LICENSE): `btw`, `goal` and `session-breakdown`. Each carries a
+modification notice; `index.ts` registers them. `answer` and `review` were removed
+on 2026-11-25 after going unused; `/rho` reviews through `pi-agent` instead.
 Nothing else from the mitsupi package is installed (installing it too would
 duplicate the commands). Tested with Pi 0.87.1.
 
 | Command | Behaviour |
 | --- | --- |
-| `/review [target]` | Code review in an **Empty branch** (isolated) or the current session. Targets: `uncommitted`, `branch main`, `commit abc123`, `pr 123` or a PR URL, `folder src docs`, plus `--extra "focus"` |
-| `/end-review` | Leave an Empty-branch review: return only, return and summarize, or return and fix findings |
-| `/answer` / `Ctrl+.` | Extract the questions in the last reply and answer them in a form; only the final confirmation submits |
 | `/btw [question]` | Side chat in an overlay, with a snapshot of the main context, read/search tools and `bash` |
 | `/goal <objective>` | Keep working automatically until the goal is complete, blocked, paused or over budget |
 | `/session-breakdown` | 7/30/90-day local usage dashboard from session files |
-
-## Review
-
-Needs an idle session in a Git repository. `REVIEW_GUIDELINES.md` next to the
-nearest `.pi` directory is used for trusted projects. **Loop fixing** (off by
-default) and "return and fix findings" start coding turns, but never commit,
-push or comment. A plain review is a prompt, not a sandbox.
-
-Loop fixing is capped so that it converges (local change):
-
-1. Only `[P0]`/`[P1]` findings start a fix round; P2/P3 go to the final summary.
-2. It stops after three reviews. If P0/P1 findings remain, it returns with the
-   summary and a warning to reconsider the approach instead of fixing again.
-3. Reviews 2 and 3 get the earlier findings and the fixer's reply (declined
-   findings stay declined unless shown wrong), and are pointed at
-   `git diff <before> <after>` of the latest fixes. The two trees are snapshots
-   made with a temporary copy of the index, so your staging area, stash and
-   commits are untouched; they leave unreferenced objects for `git gc`.
-
-`/review pr` uses `gh` and checks the PR out in the current working tree only
-after confirmation and a check for tracked changes; it never stashes or resets.
-`/end-review` returns the conversation, not the Git branch.
 
 ## BTW
 
@@ -67,13 +43,13 @@ limit checked after each run (fresh input + output + cache writes). While active
 the goal exposes `get_goal`, `create_goal` and `update_goal`, which the session's
 tool allowlist must permit.
 
-`/answer` extraction, `/btw` and its summaries are extra provider requests outside
-the session totals (60–90 s deadlines), using the parent's provider and auth.
+`/btw` and its summaries are extra provider requests outside the session totals
+(60–90 s deadlines), using the parent's provider and auth.
 
 ## State
 
-Loading the extension adds no model calls, tools or background work. Review, goal
-and BTW state are custom entries in the existing session log. `/session-breakdown`
+Loading the extension adds no model calls, tools or background work. Goal and BTW
+state are custom entries in the existing session log. `/session-breakdown`
 reads session JSONL only when opened (`PI_CODING_AGENT_SESSION_DIR`, else the
 agent's `sessions/`), groups whole files by start date, and keeps everything in
 memory. It is an estimate, not billing.
@@ -86,8 +62,8 @@ node pi/extensions/agent-stuff/typecheck.mjs
 ```
 
 The native suite runs real Pi SDK sessions and TUI components with an isolated
-HOME, per-file links like dotfiles-link's, synthetic providers, temporary Git repositories and mocked
-`gh`. It does not cover real providers, the real clipboard or terminal key
+HOME, per-file links like dotfiles-link's, synthetic providers and temporary Git
+repositories. It does not cover real providers, the real clipboard or terminal key
 forwarding. `btw.ts` imports the editor from `../modal-vim-navigation/`, so keep
 both deployed together.
 
