@@ -18,7 +18,7 @@ It does not park while something would be lost, and tries again two hours later:
 
 - an agent run, a queued message, a draft in the editor or an open dialog;
 - a command still running under Pi (`!cmd`, or an editor opened with Ctrl+G):
-  any child of Pi that does not read a socket from it, as MCP servers do;
+  any child of Pi that does not read a unix socket from it, as MCP servers do;
 - a page Pi serves (an open `/artifact-review`);
 - a live `hc` sub-terminal, whose notes would be typed into the parked pane;
 - a `/tree` position other than the latest entry, since a reopen starts from

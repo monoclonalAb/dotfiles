@@ -34,10 +34,17 @@ export function childPids(ps: string, pid: number) {
     .filter(([child, parent]) => parent === pid && Number.isInteger(child)).map(([child]) => child);
 }
 
-// Whether `lsof -F pt -d 0` shows a process whose input is not a pipe. Pi's MCP
-// servers read a socket from Pi; a command it runs reads /dev/null or the terminal.
-export function hasCommandChild(lsof: string) {
-  return lsof.split("\n").some((line) => line.startsWith("t") && !["tunix", "tPIPE", "tFIFO"].includes(line.trim()));
+// Whether one of `children` runs a command, given `lsof -F pt -d 0` for them.
+// Pi's MCP servers read a unix socket from Pi; a command reads /dev/null, the
+// terminal, a file or a pipe, or has no input at all.
+export function hasCommandChild(lsof: string, children: number[]) {
+  const input = new Map<number, string>();
+  let pid = 0;
+  for (const line of lsof.split("\n")) {
+    if (line.startsWith("p")) pid = Number(line.slice(1));
+    else if (line.startsWith("t")) input.set(pid, line.slice(1).trim());
+  }
+  return children.some((child) => input.get(child) !== "unix");
 }
 
 // Whether the `hc connect` replies list a live terminal whose parent is `terminal`.
@@ -87,7 +94,7 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
       const children = childPids(ps.stdout, process.pid);
       if (children.length) {
         const stdin = await pi.exec("/usr/sbin/lsof", ["-nP", "-a", "-p", children.join(","), "-d", "0", "-F", "pt"], { timeout: 5000 });
-        if (hasCommandChild(stdin.stdout)) found.push("command running");
+        if (hasCommandChild(stdin.stdout, children)) found.push("command running");
       }
     } catch { found.push("process check failed"); }
     try {
@@ -111,7 +118,7 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
     try {
       const found = await blockers(ctx);
       // A key (Ctrl+D included) or a run may have come while the checks ran.
-      if (found.length || ctx !== current || inputs !== seen || !ctx.isIdle() || ctx.ui.getEditorText().trim()) return arm();
+      if (found.length || ctx !== current || inputs !== seen || prompts > 0 || !ctx.isIdle() || ctx.ui.getEditorText().trim()) return arm();
       try { writeFileSync(file!, ctx.sessionManager.getSessionFile()!); } catch { return arm(); }
       ctx.shutdown();
     } finally {

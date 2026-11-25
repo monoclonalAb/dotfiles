@@ -174,8 +174,10 @@ test("a quit or a session switch stops the timer", async () => {
 
 test("children, their input and live sub-terminals are read from ps, lsof and hc", () => {
   assert.deepEqual(childPids("  10     1\n 4300  4242\n 4301  4243\n 4302  4242\n", 4242), [4300, 4302]);
-  assert.equal(hasCommandChild("p1\nf0\ntunix\np2\nf0\ntPIPE\n"), false);
-  assert.equal(hasCommandChild("p1\nf0\ntunix\np2\nf0\ntCHR\n"), true);
+  assert.equal(hasCommandChild("p1\nf0\ntunix\np2\nf0\ntunix\n", [1, 2]), false, "MCP servers");
+  assert.equal(hasCommandChild("p1\nf0\ntunix\np2\nf0\ntCHR\n", [1, 2]), true, "a command on /dev/null");
+  assert.equal(hasCommandChild("p1\nf0\ntunix\np2\nf0\ntPIPE\n", [1, 2]), true, "`!cmd < <(…)`");
+  assert.equal(hasCommandChild("p1\nf0\ntunix\n", [1, 2]), true, "`!cmd 0<&-` has no input");
   const reply = (terminals: object[]) => `${JSON.stringify({ id: 1, result: {} })}\n${JSON.stringify({ id: 2, result: { terminals } })}\n`;
   assert.equal(hasLiveChild(reply([{ parent: "t7", state: "live" }]), "t7"), true);
   assert.equal(hasLiveChild(reply([{ parent: "t7", state: "finished" }, { parent: "t9", state: "live" }]), "t7"), false);
