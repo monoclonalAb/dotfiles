@@ -3,9 +3,13 @@
 import json
 import os
 import pty
+import select
+import fcntl
 import shutil
+import signal
 import subprocess
 import tempfile
+import termios
 import threading
 import time
 import unittest
@@ -48,19 +52,23 @@ FOCUS_IN, FOCUS_OUT = b"\x1b[I", b"\x1b[O"
 class Terminal:
     """The wrapper on a pseudo-terminal, with everything it prints collected."""
 
-    def __init__(self, args, env):
+    def __init__(self, args, env, argv=None):
         self.master, slave = pty.openpty()
-        self.proc = subprocess.Popen([str(WRAPPER), *args], stdin=slave, stdout=slave, stderr=slave,
-                                     env=env, start_new_session=True)
+        # The pseudo-terminal is the controlling terminal, so closing it hangs up like a closed tab.
+        self.proc = subprocess.Popen(argv or [str(WRAPPER), *args], stdin=slave, stdout=slave, stderr=slave, env=env,
+                                     start_new_session=True, preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
         os.close(slave)
         self.output = bytearray()
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
-        while True:
+        # Never blocked in read, so the main thread can close the master.
+        while self.master is not None:
             try:
+                if not select.select([self.master], [], [], 0.05)[0]:
+                    continue
                 chunk = os.read(self.master, 4096)
-            except OSError:
+            except (OSError, TypeError, ValueError):
                 return
             if not chunk:
                 return
@@ -77,11 +85,17 @@ class Terminal:
             time.sleep(0.02)
         return False
 
+    def hang_up(self):
+        master, self.master = self.master, None
+        time.sleep(0.1)
+        os.close(master)
+
     def close(self):
         if self.proc.poll() is None:
             self.proc.kill()
             self.proc.wait()
-        os.close(self.master)
+        if self.master is not None:
+            os.close(self.master)
 
 
 class PiParkingTest(unittest.TestCase):
@@ -102,8 +116,8 @@ class PiParkingTest(unittest.TestCase):
             "FAKE_SESSION": self.session,
         }
 
-    def start(self, *args, **env):
-        terminal = Terminal(args, {**self.env, **env})
+    def start(self, *args, argv=None, **env):
+        terminal = Terminal(args, {**self.env, **env}, argv)
         self.addCleanup(terminal.close)
         return terminal
 
@@ -166,6 +180,15 @@ class PiParkingTest(unittest.TestCase):
                 self.assertEqual(t.proc.wait(10), code)
                 self.assertNotIn(NOTE, t.output)
                 self.assertEqual(len(self.runs()), 1)
+
+    def test_closing_a_parked_pane_in_a_shell_leaves_no_park_file(self):
+        t = self.start(argv=["/bin/zsh", "-fic", f"'{WRAPPER}'; exit 7"])
+        self.parked(t)
+        park = Path(self.env["XDG_STATE_HOME"]) / "pi-park"
+        self.assertEqual(len(list(park.iterdir())), 1)
+        os.kill(t.proc.pid, signal.SIGHUP)
+        t.hang_up()
+        self.assertTrue(t.wait_for(lambda: not list(park.iterdir()), timeout=5), list(park.iterdir()))
 
     def test_an_unusable_park_folder_still_runs_pi(self):
         state = Path(self.env["XDG_STATE_HOME"])
