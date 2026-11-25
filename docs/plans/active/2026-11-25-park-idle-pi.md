@@ -119,8 +119,9 @@ child instead. Example:
   extension's input listener sees them, so two hours of reading without a key
   can park it; a key reopens it at the bottom. Accepted.
 - **Signals:** Pi stays a foreground child in the same process group, so a tab
-  close (terminal hangup) reaches both; the wrapper sets no HUP or TERM trap (a
-  shell defers traps until its foreground child exits). `Ctrl+Z` stops both and
+  close (terminal hangup) reaches both. The wrapper's HUP and TERM traps exit
+  through its EXIT trap, which removes the park file (`hc kill` under zsh had
+  left it); a shell runs them only after Pi exits, so Pi is never orphaned. `Ctrl+Z` stops both and
   `fg` resumes both. PR 1 checks `hc kill` and a Pi Task tab close leave no
   process.
 
@@ -234,9 +235,10 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
 
 - [x] Prototypes above.
 - [x] Focus-in measured in the app: received (PR 3 dropped).
-- [x] PR 1 opened as #31 (three review rounds; the last found nothing to fix).
-- [x] PR 2 opened (three review rounds; the last finding fixed in one line after
-  it and checked in the app; no round read that line).
+- [x] PR 1 opened as #31 (three review rounds on `88096be`; the later park-file
+  cleanup, `dc5ea2b`, has a failing-first test but no review).
+- [x] PR 2 opened as #32 (three review rounds; the last finding fixed in one
+  line after it and checked in the app; no round read that line).
 - [x] PR 3 dropped.
 - [ ] PR 4: after a reboot, parked conversations come back parked, with flags.
 - [ ] Overall done check again after deployment (`dotfiles-link apply` for the
@@ -251,13 +253,14 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
   (1) 24 s after the reply, Pi and its six MCP processes were gone, the terminal
   was live with `{app: pi, state: idle}`, `herdr-app ls` listed it as a Pi, its
   `pi.session` label stayed, and the wrapper held 1.8 MB; (2) focusing it with
-  `pane.focus` reopened the same file with its last message in 0.4 s (run on
-  the previous commit with the same wrapper; a key: 0.4 s on `c3eb241`), the
-  message sent once and `/skill` choice kept; (3) `Ctrl+D` left a plain zsh,
+  `pane.focus` reopened the same file with its last message in 0.4 s (a key:
+  0.4 s), the
+  message sent once and `/skill` choice kept; focus again on `c3eb241`: parked
+  before, reopened in 0.4 s; (3) `Ctrl+D` left a plain zsh,
   status cleared and no `pi.*` labels. A draft and a running `!sleep 40` each
   kept Pi running; it parked 20 s after they ended.
 - `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/pi -p 'test_*.py'`
-  (PR 1) — passed 20 runs in a row.
+  (PR 1) — passed 10 runs in a row on `dc5ea2b`.
 - `bun test ./pi/extensions/park-idle/*.test.ts` and
   `bun test ./pi/extensions/herdr-app-resume/*.test.ts` (PR 2) — passed; each
   park-idle check fails its test when removed.
