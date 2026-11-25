@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
+  type AutocompleteProvider,
   truncateToWidth,
   visibleWidth,
   type EditorTheme,
@@ -94,6 +95,8 @@ export class ClipboardImageEditor extends CustomEditor {
   private clipboardPending = false;
   private disposed = false;
   private readonly queuedInput: string[] = [];
+  /** Last change to a submitted draft before Pi sees it (the /copy alias). */
+  rewriteSubmit: (text: string) => string = (text) => text;
 
   constructor(
     tui: TUI,
@@ -235,7 +238,7 @@ export class ClipboardImageEditor extends CustomEditor {
     // than using getExpandedText. Expand our display chips at that same UI
     // boundary; app actions (Alt+Enter, external editor, copy) use the getter.
     const onSubmit = this.onSubmit;
-    if (onSubmit) this.onSubmit = (text) => onSubmit(this.expandImages(text));
+    if (onSubmit) this.onSubmit = (text) => onSubmit(this.rewriteSubmit(this.expandImages(text)));
     try {
       super.handleInput(data);
     } finally {
@@ -362,8 +365,41 @@ export class VimNavigationEditor extends ClipboardImageEditor {
   }
 }
 
+// Pi runs its built-in /copy (copy the last reply) before any extension
+// command, so no extension can register over it. While ../copy-session.ts is
+// loaded, this editor submits an exact /copy as /copy-session instead, and the
+// command menu describes /copy accordingly.
+const COPY_ALIAS_TARGET = "copy-session";
+const COPY_ALIAS_DESCRIPTION = "Copy this session's file path to the clipboard (/copy-session)";
+
+function copyAlias(pi: Pick<ExtensionAPI, "getCommands">) {
+  const active = () =>
+    pi.getCommands().some((command) => command.source === "extension" && command.name === COPY_ALIAS_TARGET);
+  return {
+    rewriteSubmit: (text: string) => (text.trim() === "/copy" && active() ? `/${COPY_ALIAS_TARGET}` : text),
+    autocomplete: (current: AutocompleteProvider): AutocompleteProvider => ({
+      triggerCharacters: current.triggerCharacters,
+      async getSuggestions(lines, cursorLine, cursorCol, options) {
+        const suggestions = await current.getSuggestions(lines, cursorLine, cursorCol, options);
+        if (!suggestions?.prefix.startsWith("/") || !active()) return suggestions;
+        return {
+          ...suggestions,
+          items: suggestions.items.map((item) =>
+            item.value === "copy" ? { ...item, description: COPY_ALIAS_DESCRIPTION } : item,
+          ),
+        };
+      },
+      applyCompletion: (lines, cursorLine, cursorCol, item, prefix) =>
+        current.applyCompletion(lines, cursorLine, cursorCol, item, prefix),
+      shouldTriggerFileCompletion: (lines, cursorLine, cursorCol) =>
+        current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true,
+    }),
+  };
+}
+
 export default function vimNavigation(pi: ExtensionAPI): void {
   let editor: VimNavigationEditor | undefined;
+  const alias = copyAlias(pi);
 
   pi.registerMarkdownTransformer((markdown, { messageType }) => {
     if (messageType !== "user") return markdown;
@@ -386,8 +422,10 @@ export default function vimNavigation(pi: ExtensionAPI): void {
         ),
         { reportError: (operation) => ctx.ui.notify(`Clipboard ${operation} failed; check Pi's clipboard support`, "warning") },
       );
+      editor.rewriteSubmit = alias.rewriteSubmit;
       return editor;
     });
+    ctx.ui.addAutocompleteProvider(alias.autocomplete);
   });
 
   pi.on("session_shutdown", () => {

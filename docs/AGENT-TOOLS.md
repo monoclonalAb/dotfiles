@@ -67,7 +67,8 @@ context.
 | --- | --- |
 | `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) skill is on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows it as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
 | `session-controls.ts` | `/drop` erases this session and starts a new one (Pi's `/new` keeps it) |
-| [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
+| `copy-session.ts` | `/copy-session`, or `/copy` through `modal-vim-navigation`, copies this session's file path (to paste into another session), without `/session`'s slow statistics |
+| [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears; `/copy` runs `/copy-session` instead of copying the last reply |
 | [`artifact-review`](../pi/extensions/artifact-review/README.md) | `/artifact-review <page>` opens a page in the browser; Option-click or select text to write notes, Send delivers them to the session, and edits reload the page (below) |
 | [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
 | [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
