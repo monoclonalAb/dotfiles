@@ -479,7 +479,7 @@
     } finally {
       sending = false;
       render();
-      if (pendingReload && !(card && ui.cardText.value.trim())) reloadPage();
+      if (pendingReload && !stopped && !(card && ui.cardText.value.trim())) reloadPage();
     }
   }
 
