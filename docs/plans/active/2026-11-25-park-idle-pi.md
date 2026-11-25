@@ -41,11 +41,11 @@ child instead. Example:
    `PI_PARK_FILE` and calls `ctx.shutdown()`. Pi exits; its MCP servers stop
    with it. `herdr-app-resume` sees the park file and keeps its labels.
 4. The wrapper (~1 MB) restores the terminal, prints one line ("Closed after 2 h
-   idle to free memory; click or press a key to reopen"), reports
+   idle to free memory. Press a key to reopen …"), reports
    `state=idle:app=pi` (OSC 7501) so Herdr still lists a Pi conversation, turns
-   on focus and click reporting, and waits for input.
-5. 15:00: you focus the pane. The app sends focus-in (or you click or press a
-   key; a focus-out alone is ignored); the wrapper swallows that input and runs
+   on focus reporting, and waits for input.
+5. 15:00: you focus the pane. The app sends focus-in (or you press a key; a
+   focus-out alone is ignored); the wrapper swallows that input and runs
    `pi --session <file>` with the original run's replayable flags. The
    conversation is back with its last message.
 6. Later you quit Pi (`Ctrl+D`, `/quit`): no park file, so the wrapper exits with
@@ -95,7 +95,7 @@ child instead. Example:
   (measured), session name, and `/skill` choices (`selective-skills.ts` restores
   its `appendEntry` state on `session_start`; to confirm in PR 2).
 - **Typing race:** the wrapper owns the terminal while parked; nothing reaches a
-  shell. The waking input (focus-in, click or first key) is swallowed; keys typed
+  shell. The waking input (focus-in or the first key) is swallowed; keys typed
   while Pi starts wait in the terminal and land in Pi's editor.
 - **Focus-out:** ignored, or leaving a parked pane would reopen it.
 - **Reboot while parked:** labels are kept, so `pi-resume` reopens every parked
@@ -117,7 +117,7 @@ child instead. Example:
   `/bin/bash -c` for a running command).
 - **Reading by scrolling:** fullscreen Pi consumes clicks and scrolling before an
   extension's input listener sees them, so two hours of reading without a key
-  can park it; one click reopens it at the bottom. Accepted.
+  can park it; a key reopens it at the bottom. Accepted.
 - **Signals:** Pi stays a foreground child in the same process group, so a tab
   close (terminal hangup) reaches both; the wrapper sets no HUP or TERM trap (a
   shell defers traps until its foreground child exits). `Ctrl+Z` stops both and
@@ -143,8 +143,7 @@ merged here (`rho-may-merge` says no for this repository).
 - **Done check:** `python3 -m unittest discover -s lib/pi` runs the wrapper in a
   pseudo-terminal with a fake `pi`: a parked fake leaves no `pi` process, the
   screen has the line and `state=idle:app=pi`; one key reruns it with exactly
-  the replayed flags and `--session <file>`; focus-outs (also split across
-  reads) do not; a park file with exit 7 exits 7; a plain exit passes the
+  the replayed flags and `--session <file>`; focus-outs do not; a park file with exit 7 exits 7; a plain exit passes the
   status through; `pi -p`, `--no-tools` and a pipe are the same process (exec).
   By hand: the worktree wrapper runs a real Pi in `hc` terminals in the four
   launch forms; `Ctrl+D` still exits as before (the review and launcher forms
@@ -214,6 +213,9 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
 
 ## Decisions
 
+- **No mouse reporting while parked:** clicking an unfocused pane already sends
+  focus-in, and the click itself would then reach the new Pi as input. A click on
+  the pane that is already focused needs a key.
 - **Plan review** (GPT, 2026-11-25, `rho/plan-review-1.md` in the worktree's Git
   dir): adopted all but one. Not adopted: holding PR 2 until PR 4 ships. A
   reboot already reopens every running conversation at once today; parking does
