@@ -27,8 +27,9 @@ Display-only extensions (no approval needed, but keep them that way):
 - `modal-vim-navigation/` owns the editor. Its `[img #N]` markers expand to Pi's
   native image file references when the draft is submitted, and it reads the
   clipboard only on an explicit paste. Ctrl+C copies a nonempty draft it clears.
-  An exact `/copy` is submitted as `/copy-session` (a local command; see its
-  README), so it never reaches the model.
+  An exact `/copy` submitted with Enter is sent as `/copy-session` (a local
+  command; see its README), so it never reaches the model. Queued with Alt+Enter
+  while Pi works, `/copy` is sent unchanged, as text for the model.
 - `herdr-app-resume/` labels its Herdr app terminal with the session file and
   shell pid (`pi.session`, `pi.shell`; cleared on quit) so the app's `pi-resume`
   mod can reopen the conversation after a reboot. Labels only; nothing reaches

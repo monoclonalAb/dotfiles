@@ -34,7 +34,7 @@ and undo are unchanged; other deletions do not copy. A failed copy only warns.
 
 Pi's own `/copy` copies the last reply. Pi checks its own commands before
 extension commands, so no extension can take over the name. This editor therefore
-sends an exact `/copy` as `/copy-session` ([`../copy-session.ts`](../copy-session.ts)),
+sends an exact `/copy`, submitted with Enter, as `/copy-session` ([`../copy-session.ts`](../copy-session.ts)),
 which copies this session's file path, and the command menu describes `/copy` that
 way. `/copy` with anything after it is sent unchanged. If `copy-session.ts` is not
 loaded, `/copy` is Pi's again. To copy the last reply, select its text.
