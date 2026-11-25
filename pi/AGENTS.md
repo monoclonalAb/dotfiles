@@ -32,7 +32,16 @@ don't want things opened in.
   dashes> <branch>`, then `herdr-app do space.new --name "<short name>" --folder
   <that path>`. That folder is where the app's own worktree dialog puts them, so the
   sidebar nests the space under its repository.
-- Check the result with `herdr-app ls`.
+- Then put it in the same Personal/Work environment as the repository's own space.
+  A new space joins whichever environment is active, so it can land in the other
+  one, away from its repository. Find the repository's space in `herdr-app ls`
+  (its `folder` is the main checkout), read its environment from
+  `spaces-env.assign` in `~/.config/herdr-app/shared.json`, then run
+  `herdr-app do "spaces-env.assign:<new space id>=<personal|work>" '{}'`. With no
+  space for the repository, use the environment of its owner's other repositories,
+  as `bin/review` in dotfiles does.
+- Check the result with `herdr-app ls` and that the new space's environment in
+  `shared.json` matches the repository's.
 
 ## HTML artifacts
 
