@@ -1,12 +1,13 @@
 // Stop this session's local (stdio) MCP servers once Pi has been idle for 10
-// minutes (PI_MCP_IDLE_STOP_SECONDS overrides it). Pi starts every configured
+// minutes (PI_MCP_IDLE_STOP_SECONDS overrides it); a server that starts while Pi
+// is idle, as after /mcp reconnect, restarts the clock. Pi starts every configured
 // server when a session starts and keeps it for the session's life; a stopped
 // server shows as "disconnected" in /mcp and Pi starts it again on the next call
 // to one of its tools. Pi keeps the server's tools and instructions, so the model
 // sees no change.
 //
 // Pi offers no way to disconnect a server from mcp.json, and `ps` cannot tell its
-// servers apart (npx shows as `npm exec`, wrapper scripts exec node). So this
+// servers apart (their wrapper scripts exec node). So this
 // records the detached children spawned through `child_process.spawn`, which
 // Pi's MCP transport reaches through cross-spawn, and signals the process group
 // of each live one whose command and arguments are exactly a stdio server from
@@ -28,14 +29,21 @@ interface Spawned extends StdioServer {
   child: ChildProcess;
 }
 
-// Process-wide, so /reload does not wrap spawn twice or forget running servers.
-const SPAWNED = Symbol.for("dotfiles.mcp-idle-stop.spawned");
+interface Recorder {
+  spawned: Set<Spawned>;
+  listeners: Set<(entry: Spawned) => void>;
+}
 
-export function spawnedChildren(): Set<Spawned> {
-  const holder = globalThis as { [SPAWNED]?: Set<Spawned> };
-  if (holder[SPAWNED]) return holder[SPAWNED];
-  const spawned = new Set<Spawned>();
-  holder[SPAWNED] = spawned;
+// Process-wide, so /reload does not wrap spawn twice or forget running servers.
+// Not the first version's key, whose value was only the set: a Pi that loaded
+// that version and then reloads gets this wrapper on top of the old one.
+const RECORDER = Symbol.for("dotfiles.mcp-idle-stop.recorder");
+
+export function spawnRecorder(): Recorder {
+  const holder = globalThis as { [RECORDER]?: Recorder };
+  if (holder[RECORDER]) return holder[RECORDER];
+  const recorder: Recorder = { spawned: new Set(), listeners: new Set() };
+  holder[RECORDER] = recorder;
   const original = childProcess.spawn;
   childProcess.spawn = function (this: unknown, ...params: unknown[]) {
     const child = (original as (...args: unknown[]) => ChildProcess).apply(this, params);
@@ -43,12 +51,13 @@ export function spawnedChildren(): Set<Spawned> {
     // Only a detached child leads its own process group, which is what gets signalled.
     if (typeof command === "string" && Array.isArray(args) && options?.detached === true && child.pid !== undefined) {
       const entry = { command, args: args.map(String), child };
-      spawned.add(entry);
-      child.once("exit", () => spawned.delete(entry));
+      recorder.spawned.add(entry);
+      child.once("exit", () => recorder.spawned.delete(entry));
+      for (const listener of recorder.listeners) listener(entry);
     }
     return child;
   } as typeof original;
-  return spawned;
+  return recorder;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -107,9 +116,11 @@ export interface Options {
 export function registerMcpIdleStop(pi: ExtensionAPI, options: Options = {}) {
   const idleMs = options.idleMs ?? idleMilliseconds(process.env.PI_MCP_IDLE_STOP_SECONDS);
   const kill = options.kill ?? ((pid: number, signal: NodeJS.Signals) => process.kill(pid, signal));
-  const spawned = spawnedChildren();
+  const recorder = spawnRecorder();
   let servers: StdioServer[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Set while Pi is between runs; a server spawned then restarts the clock.
+  let idleCtx: ExtensionContext | undefined;
 
   const cancel = () => {
     clearTimeout(timer);
@@ -117,7 +128,7 @@ export function registerMcpIdleStop(pi: ExtensionAPI, options: Options = {}) {
   };
 
   const stopServers = () => {
-    for (const entry of spawned) {
+    for (const entry of recorder.spawned) {
       const { child } = entry;
       if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) continue;
       if (!isServerProcess(entry, servers)) continue;
@@ -133,9 +144,14 @@ export function registerMcpIdleStop(pi: ExtensionAPI, options: Options = {}) {
       timer = undefined;
       try {
         if (ctx.isIdle()) stopServers();
+        else arm(ctx);
       } catch { /* a stale context after shutdown: nothing to stop */ }
     }, idleMs);
     timer.unref?.();
+  };
+
+  const onSpawn = (entry: Spawned) => {
+    if (idleCtx && isServerProcess(entry, servers)) arm(idleCtx);
   };
 
   pi.on("session_start", (_event, ctx) => {
@@ -144,11 +160,23 @@ export function registerMcpIdleStop(pi: ExtensionAPI, options: Options = {}) {
       join(agentDir, "mcp.json"),
       ...(ctx.isProjectTrusted() ? [join(ctx.cwd, CONFIG_DIR_NAME, "mcp.json")] : []),
     ]);
+    idleCtx = ctx;
+    recorder.listeners.add(onSpawn);
     arm(ctx);
   });
-  pi.on("agent_start", () => cancel());
-  pi.on("agent_settled", (_event, ctx) => arm(ctx));
-  pi.on("session_shutdown", () => cancel());
+  pi.on("agent_start", () => {
+    idleCtx = undefined;
+    cancel();
+  });
+  pi.on("agent_settled", (_event, ctx) => {
+    idleCtx = ctx;
+    arm(ctx);
+  });
+  pi.on("session_shutdown", () => {
+    idleCtx = undefined;
+    recorder.listeners.delete(onSpawn);
+    cancel();
+  });
 }
 
 export default function (pi: ExtensionAPI) {

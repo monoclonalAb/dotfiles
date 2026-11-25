@@ -24,7 +24,9 @@ writeFileSync(join(agentDir, "mcp.json"), JSON.stringify({
 }));
 
 const children: ChildProcess[] = [];
+const sessions: Array<() => void> = [];
 afterEach(() => {
+  for (const shutdown of sessions.splice(0)) shutdown();
   for (const child of children.splice(0)) if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -38,18 +40,22 @@ function spawn(command: string, args: string[], detached = true) {
   return child;
 }
 
+const alive = (child: ChildProcess) => child.exitCode === null && child.signalCode === null;
+
 async function running(child: ChildProcess) {
   await sleep(IDLE_MS * 3);
-  return child.exitCode === null && child.signalCode === null;
+  return alive(child);
 }
 
-function harness({ idle = true } = {}) {
+function harness({ idle = true, idleMs = IDLE_MS } = {}) {
   const handlers = new Map<string, (event: object, ctx: object) => void>();
   const pi = { on: (name: string, handler: (event: object, ctx: object) => void) => handlers.set(name, handler) };
   const state = { idle };
   const ctx = { cwd: root, isProjectTrusted: () => false, isIdle: () => state.idle };
-  registerMcpIdleStop(pi as never, { idleMs: IDLE_MS, agentDir });
-  return { state, emit: (name: string) => handlers.get(name)?.({}, ctx) };
+  registerMcpIdleStop(pi as never, { idleMs, agentDir });
+  const emit = (name: string) => handlers.get(name)?.({}, ctx);
+  sessions.push(() => emit("session_shutdown"));
+  return { state, emit };
 }
 
 test("after the idle time only children running a configured stdio server are stopped", async () => {
@@ -84,6 +90,37 @@ test("nothing is stopped when Pi reports busy as the time runs out", async () =>
   const mcp = spawn(server, ["serve"]);
   h.emit("session_start");
   assert.equal(await running(mcp), true);
+});
+
+test("a stop that finds Pi busy, such as compacting, tries again after another idle time", async () => {
+  const h = harness({ idle: false });
+  const mcp = spawn(server, ["serve"]);
+  h.emit("session_start");
+  await sleep(IDLE_MS * 1.5);
+  assert.equal(alive(mcp), true, "busy when the time ran out");
+  h.state.idle = true;
+  assert.equal(await running(mcp), false, "stopped once Pi is idle at the next check");
+});
+
+test("a server that starts while Pi is idle gets a full idle time of its own", async () => {
+  const idleMs = 400;
+  const h = harness({ idleMs });
+  h.emit("session_start");
+  await sleep(idleMs * 0.6);
+  const mcp = spawn(server, ["serve"]);
+  await sleep(idleMs * 0.6);
+  assert.equal(alive(mcp), true, "not stopped when the session's idle time runs out just after it started");
+  await sleep(idleMs * 0.8);
+  assert.equal(alive(mcp), false, "stopped a full idle time after it started");
+});
+
+test("a server started again while idle, as /mcp reconnect does, is stopped again", async () => {
+  const h = harness();
+  h.emit("session_start");
+  const first = spawn(server, ["serve"]);
+  assert.equal(await running(first), false);
+  const again = spawn(server, ["serve"]);
+  assert.equal(await running(again), false);
 });
 
 test("session shutdown cancels the pending stop", async () => {
