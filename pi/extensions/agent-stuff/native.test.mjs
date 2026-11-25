@@ -44,6 +44,8 @@ async function until(predicate, label = 'condition') {
   for (let i = 0; i < 500; i++) { if (predicate()) return; await tick(); }
   assert.fail(`Timed out waiting for ${label}`);
 }
+// What the terminal shows: Pi's TUI removes its cursor markers (APC `ESC _pi:… BEL`) before drawing.
+const screenText = lines => stripVTControlCharacters(lines.join('\n')).replace(/\x1b_pi:[^\x07]*\x07/g, '');
 const text = content => typeof content === 'string' ? content : (content ?? []).filter(p => p.type === 'text').map(p => p.text).join('\n');
 // Pi 0.87 providers receive a transcript whose system messages carry the prompt
 // and tool changes; fold them back into the prompt/tools/messages view asserted here.
@@ -409,7 +411,7 @@ for (const pasteKey of ['\x16', '\x1b[200~\x1b[201~']) test(`BTW image paste ${J
     assert.equal(submitted[0], `${imagePath} describe this image`);
     assert.deepEqual(readFileSync(imagePath), bytes);
     assert.equal(statSync(imagePath).mode & 0o777, 0o600);
-    assert(stripVTControlCharacters(overlay.render(80).join('\n')).includes('[img #1]'));
+    assert(screenText(overlay.render(80)).includes('[img #1]'));
     overlay.handleInput('\x1b[99;4u');
     await until(() => copied.length === 1);
     assert.equal(copied[0], submitted[0]);
@@ -417,7 +419,7 @@ for (const pasteKey of ['\x16', '\x1b[200~\x1b[201~']) test(`BTW image paste ${J
     overlay.setDraft('');
     overlay.handleInput('\x1b[A');
     assert.equal(overlay.getDraft(), submitted[0]);
-    assert(stripVTControlCharacters(overlay.render(80).join('\n')).includes('[img #1]'));
+    assert(screenText(overlay.render(80)).includes('[img #1]'));
     overlay.handleInput('\x03');
     assert.equal(overlay.getDraft(), '');
     await until(() => copied.length === 2);
