@@ -252,11 +252,10 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
   with `PI_PARK_AFTER=20` (script `/tmp/park-proto/e2e.sh`, not kept):
   (1) 24 s after the reply, Pi and its six MCP processes were gone, the terminal
   was live with `{app: pi, state: idle}`, `herdr-app ls` listed it as a Pi, its
-  `pi.session` label stayed, and the wrapper held 1.8 MB; (2) focusing it with
-  `pane.focus` reopened the same file with its last message in 0.4 s (a key:
-  0.4 s), the
-  message sent once and `/skill` choice kept; focus again on `c3eb241`: parked
-  before, reopened in 0.4 s; (3) `Ctrl+D` left a plain zsh,
+  `pi.session` label stayed, and the wrapper held 1.8 MB; (2) focusing the
+  parked pane with `pane.focus` (owner away, Herdr not the front app) reopened
+  the same file with its last message in 0.4 s, as did a key; the message was
+  sent once and the `/skill` choice kept; (3) `Ctrl+D` left a plain zsh,
   status cleared and no `pi.*` labels. A draft and a running `!sleep 40` each
   kept Pi running; it parked 20 s after they ended.
 - `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/pi -p 'test_*.py'`
