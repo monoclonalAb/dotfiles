@@ -77,7 +77,7 @@ npm install -g @earendil-works/pi-coding-agent typescript@5
 ```
 
 `PROFILE=/dev/null` keeps nvm's installer from appending to a shell file. The
-global packages are Pi itself (the [`pi`](../bin/pi) wrapper execs it) and the
+global packages are Pi itself (the [`pi`](../bin/pi) wrapper runs it) and the
 `tsc` that the Pi agent-stuff typecheck runs. Install them with nvm's npm, not
 Homebrew's. OMP's TypeScript LSP falls back to the TypeScript in Mason's
 `typescript-language-server` package (see [Neovim](#8-set-up-each-tool)).
