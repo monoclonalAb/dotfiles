@@ -66,6 +66,7 @@ function harness(complete: (...args: any[]) => Promise<any> = async () => respon
   const failures: Array<string | null | undefined> = [];
   const entries: any[] = [];
   const ctx = {
+    mode: "tui",
     model: { provider: "test", id: "selected" },
     modelRegistry: registry(async (...args: any[]) => { calls.push(args); return complete(...args); }),
     sessionManager: { getBranch: () => entries },
@@ -414,6 +415,22 @@ test("extension is completely inert outside Herdr", async () => {
   assert.deepEqual(h.reports, []);
 });
 
+test("a Pi that a program in this terminal runs, such as `pi -p` from an agent's shell, never retitles it", async () => {
+  for (const mode of ["print", "json", "rpc"]) {
+    const h = harness();
+    h.ctx.mode = mode;
+    h.entries.push(user("Fix login"));
+    await h.emit("session_start");
+    await h.message("Reply with the single word: pong");
+    await h.emit("model_select");
+    await h.emit("session_tree");
+    await h.emit("session_shutdown");
+    await tick();
+    assert.deepEqual(h.reports, [], mode);
+    assert.deepEqual(h.calls, [], mode);
+  }
+});
+
 test("empty sessions get a placeholder; only observational lifecycle hooks are registered", async () => {
   const h = harness();
   await h.emit("session_start");
@@ -732,6 +749,7 @@ test("the default entry point makes only title requests and publishes only title
   const calls: any[][] = [];
   const entries = [user("Fix the login redirect")];
   const ctx = {
+    mode: "tui",
     model: { provider: "test", id: "selected" },
     modelRegistry: registry(async (...args: any[]) => { calls.push(args); return response("Repair login redirect"); }),
     sessionManager: { getBranch: () => entries },
@@ -775,6 +793,7 @@ test("in the Herdr app a pending title is one mark, not animation frames", async
   const labels: string[][] = [];
   const pending = deferred();
   const ctx = {
+    mode: "tui",
     model: { provider: "test", id: "selected" },
     modelRegistry: registry(async () => { await pending.promise; return response("Repair login redirect"); }),
     sessionManager: { getBranch: () => [] },
