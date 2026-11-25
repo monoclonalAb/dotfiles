@@ -221,8 +221,10 @@ describe("server", () => {
   });
 });
 
+type Answer = "send" | "keep" | "enter" | "wait";
+
 describe("command", () => {
-  function harness(options: { idle?: boolean; sessionFile?: string; artifact?: (args: string[]) => string; confirm?: boolean } = {}) {
+  function harness(options: { idle?: boolean; sessionFile?: string; artifact?: (args: string[]) => string; answer?: Answer } = {}) {
     const handlers = new Map<string, (event: any, ctx: any) => any>();
     let command: any;
     const sent: Array<{ text: string; options: unknown }> = [];
@@ -230,8 +232,17 @@ describe("command", () => {
     const notifications: Array<{ message: string; type: string }> = [];
     const statuses = new Map<string, string | undefined>();
     let idle = options.idle ?? true;
-    let answer = options.confirm ?? true;
-    const confirms: Array<{ title: string; message: string }> = [];
+    // How the person answers Pi's dialog about sending notes. "enter" presses Enter on whatever
+    // Pi preselects (Yes in a confirm, the first choice in a select); "wait" leaves it open.
+    let answer: Answer = options.answer ?? "send";
+    const dialogs: Array<{ text: string; settle(choice: "send" | "keep"): void }> = [];
+    const ask = (text: string, pick: (choice: "send" | "keep" | "enter") => any, signal?: AbortSignal) =>
+      new Promise<any>((resolve) => {
+        const settle = (choice: "send" | "keep") => resolve(pick(choice));
+        dialogs.push({ text, settle });
+        signal?.addEventListener("abort", () => resolve(undefined), { once: true });
+        if (answer !== "wait") resolve(pick(answer));
+      });
     const pi = {
       on: (name: string, handler: any) => handlers.set(name, handler),
       registerCommand(name: string, value: any) {
@@ -253,15 +264,19 @@ describe("command", () => {
       ui: {
         notify: (message: string, type: string) => notifications.push({ message, type }),
         setStatus: (key: string, value: string | undefined) => statuses.set(key, value),
-        select: async (_title: string, labels: string[]) => labels[0],
-        confirm: async (title: string, message: string) => (confirms.push({ title, message }), answer),
+        select: async (title: string, labels: string[], opts?: { signal?: AbortSignal }) =>
+          labels.length === 2 && /keep/i.test(labels[0])
+            ? ask(title, (choice) => (choice === "send" ? labels[1] : labels[0]), opts?.signal)
+            : labels[0],
+        confirm: (title: string, message: string, opts?: { signal?: AbortSignal }) =>
+          ask(`${title}\n${message}`, (choice) => choice !== "keep", opts?.signal),
       },
     };
     cleanups.push(() => handlers.get("session_shutdown")?.({ reason: "quit" }, ctx));
     return {
-      sent, opened, notifications, statuses, handlers, ctx, command, confirms,
+      sent, opened, notifications, statuses, handlers, ctx, command, dialogs,
       setIdle: (value: boolean) => (idle = value),
-      setAnswer: (value: boolean) => (answer = value),
+      setAnswer: (value: Answer) => (answer = value),
       run: (args: string) => command.handler(args, ctx),
     };
   }
@@ -290,17 +305,39 @@ describe("command", () => {
 
   test("notes reach Pi only after you confirm them there, so a page script cannot send on its own", async () => {
     const folder = tempFolder({ "index.html": PAGE });
-    const h = harness({ confirm: false });
+    const h = harness({ answer: "keep" });
     await h.run(folder);
     const declined = await postTo(h.opened[0], { notes: [{ kind: "page", note: "make the header darker" }] });
     expect(declined.ok).toBe(false);
     expect((await declined.json()).error).toContain("declined");
     expect(h.sent).toHaveLength(0);
-    expect(h.confirms).toHaveLength(1);
-    expect(h.confirms[0].message).toContain("make the header darker");
-    h.setAnswer(true);
+    expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].text).toContain("make the header darker");
+    h.setAnswer("send");
     expect((await postTo(h.opened[0], { notes: [{ kind: "page", note: "make the header darker" }] })).ok).toBe(true);
     expect(h.sent).toHaveLength(1);
+  });
+
+  test("Enter alone on Pi's dialog keeps the notes, so typing in Pi cannot approve a page's batch", async () => {
+    const folder = tempFolder({ "index.html": PAGE });
+    const h = harness({ answer: "enter" });
+    await h.run(folder);
+    const response = await postTo(h.opened[0], { notes: [{ kind: "page", note: "unasked" }] });
+    expect(response.ok).toBe(false);
+    expect(h.sent).toHaveLength(0);
+  });
+
+  test("stopping the review closes a waiting dialog; answering it later sends nothing", async () => {
+    const folder = tempFolder({ "index.html": PAGE });
+    const h = harness({ answer: "wait" });
+    await h.run(folder);
+    const pending = postTo(h.opened[0], { notes: [{ kind: "page", note: "late" }] }).catch(() => undefined);
+    while (!h.dialogs.length) await Bun.sleep(5);
+    await h.run("stop");
+    h.dialogs[0].settle("send");
+    await pending;
+    await Bun.sleep(20);
+    expect(h.sent).toHaveLength(0);
   });
 
   test("an artifact id goes through `artifact show`; file:// URLs and files work", async () => {

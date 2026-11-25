@@ -106,10 +106,13 @@ test('the review panel in Chrome: notes, normal clicks, send, reload', { skip: !
   mkdirSync(folder);
   writeFileSync(join(folder, 'index.html'), PAGE);
   const deliveries = [];
+  // Set while a test leaves Pi's confirmation open: delivery waits until it resolves.
+  let confirmation;
   const server = await startReviewServer({
     folder, entry: 'index.html', overlayPath: fileURLToPath(new URL('./overlay.js', import.meta.url)), title: 'Demo', busy: () => false, debounceMs: 100,
-    deliver(batch) {
+    async deliver(batch) {
       deliveries.push(batch);
+      await confirmation;
       return { queued: false, text: 'the message' };
     },
   });
@@ -264,6 +267,36 @@ test('the review panel in Chrome: notes, normal clicks, send, reload', { skip: !
     await load;
     await until(`window.pageLoads === 3 && document.getElementById('bottom').textContent === 'Bottom, edited twice'`, 'the held reload');
     assert.equal(await ui(`ui.querySelectorAll('.queue li').length`), 1, 'the note added before reloading is kept');
+
+    // While Pi waits for the person to confirm a batch, a note added on the page stays and a change waits.
+    await click(`document.getElementById('__artifact-review').shadowRoot.querySelector('.queue li button')`);
+    assert.equal(await ui(`ui.querySelectorAll('.queue li').length`), 0);
+    await evaluate('scrollTo(0, 0)');
+    await frames();
+    await click(`document.querySelectorAll('h3')[0]`, ALT);
+    await until(`!document.getElementById('__artifact-review').shadowRoot.querySelector('.card').hidden`, 'a card for the batch');
+    await write('first batch');
+    await key('Enter');
+    let confirm;
+    confirmation = new Promise((done) => { confirm = done; });
+    await click(`document.getElementById('__artifact-review').shadowRoot.querySelector('.send')`);
+    for (const deadline = Date.now() + 5000; deliveries.length < 2; await sleep(20)) {
+      if (Date.now() > deadline) assert.fail('timed out waiting for the batch to reach Pi');
+    }
+    await click(`document.querySelectorAll('h3')[0]`, ALT);
+    await until(`!document.getElementById('__artifact-review').shadowRoot.querySelector('.card').hidden`, 'a card while the batch waits');
+    await write('added while Pi asks');
+    await key('Enter');
+    writeFileSync(join(folder, 'index.html'), PAGE.replace('Bottom of the page', 'Bottom, edited three times'));
+    await until(`!document.getElementById('__artifact-review').shadowRoot.querySelector('.banner').hidden`, 'the change to wait for the batch');
+    assert.equal(await evaluate('window.pageLoads'), 3, 'no reload while a batch waits for Pi');
+    load = loaded();
+    confirm();
+    await load;
+    await until(`window.pageLoads === 4 && document.getElementById('bottom').textContent === 'Bottom, edited three times'`, 'the reload after the batch');
+    assert.deepEqual(deliveries[1].notes.map((note) => note.note), ['first batch']);
+    assert.equal(await ui(`ui.querySelectorAll('.queue li').length`), 1, 'the note added while Pi asked is kept');
+    assert.match(await ui(`ui.querySelector('.queue li').textContent`), /added while Pi asks/);
 
     // When the review stops, the panel says so and Send is off.
     await server.close();
