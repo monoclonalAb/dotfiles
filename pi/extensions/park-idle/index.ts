@@ -8,15 +8,16 @@
 // Pi quits. 15:00 you click the pane and the same conversation is back.
 //
 // Never parks while something would be lost: an agent run or queued message, a
-// draft in the editor, a shell command still running under Pi (`!cmd`), a page
-// Pi serves (/artifact-review listens on a local port), or a live `hc`
-// sub-terminal (its notes would be typed into the parked pane). It then tries
-// again after another full period. Quitting writes nothing, so it never reopens.
+// draft in the editor or an open dialog, a command still running under Pi (a
+// `!cmd`, or an editor opened with Ctrl+G), a page Pi serves (/artifact-review
+// listens on a local port), a live `hc` sub-terminal (its notes would be typed
+// into the parked pane), or a /tree position other than the latest entry (a
+// reopen starts from the latest). It then tries again after another full period.
+// Quitting writes nothing, so a conversation you quit never reopens.
 import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const PARK_AFTER_SECONDS = 2 * 60 * 60;
-const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh"]);
 const HC_LIST = `printf '%s\\n' '{"jsonrpc":"2.0","id":1,"method":"hello","params":{}}' '{"jsonrpc":"2.0","id":2,"method":"terminal.list","params":{}}' | "$0" connect`;
 
 export interface ParkEnvironment {
@@ -27,12 +28,16 @@ export interface ParkEnvironment {
   HC_BIN_PATH?: string;
 }
 
-// Whether `ps -A -o ppid=,ucomm=` lists a shell whose parent is `pid`.
-export function hasShellChild(ps: string, pid: number) {
-  return ps.split("\n").some((line) => {
-    const [ppid, name] = line.trim().split(/\s+/);
-    return Number(ppid) === pid && SHELLS.has(name ?? "");
-  });
+// Pids whose parent is `pid`, from `ps -A -o pid=,ppid=`.
+export function childPids(ps: string, pid: number) {
+  return ps.split("\n").map((line) => line.trim().split(/\s+/).map(Number))
+    .filter(([child, parent]) => parent === pid && Number.isInteger(child)).map(([child]) => child);
+}
+
+// Whether `lsof -F pt -d 0` shows a process whose input is not a pipe. Pi's MCP
+// servers read a socket from Pi; a command it runs reads /dev/null or the terminal.
+export function hasCommandChild(lsof: string) {
+  return lsof.split("\n").some((line) => line.startsWith("t") && !["tunix", "tPIPE", "tFIFO"].includes(line.trim()));
 }
 
 // Whether the `hc connect` replies list a live terminal whose parent is `terminal`.
@@ -57,6 +62,9 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let current: ExtensionContext | undefined;
   let stopListening: (() => void) | undefined;
+  let inputs = 0;
+  let prompts = 0;
+  let checking = false;
 
   const arm = () => {
     clearTimeout(timer);
@@ -68,14 +76,20 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
   async function blockers(ctx: ExtensionContext) {
     const found: string[] = [];
     if (!ctx.isIdle() || ctx.hasPendingMessages()) found.push("agent busy");
-    if (ctx.ui.getEditorText().trim()) found.push("draft");
+    if (ctx.ui.getEditorText().trim() || prompts > 0) found.push("draft or dialog");
     const session = ctx.sessionManager.getSessionFile();
     if (!session || !existsSync(session)) found.push("no session file");
+    if (ctx.sessionManager.getLeafId() !== (ctx.sessionManager.getEntries().at(-1)?.id ?? null)) found.push("earlier /tree point");
     if (found.length) return found;
     try {
-      const ps = await pi.exec("/bin/ps", ["-A", "-o", "ppid=,ucomm="], { timeout: 5000 });
-      if (ps.code !== 0 || hasShellChild(ps.stdout, process.pid)) found.push("shell command running");
-    } catch { found.push("ps failed"); }
+      const ps = await pi.exec("/bin/ps", ["-A", "-o", "pid=,ppid="], { timeout: 5000 });
+      if (ps.code !== 0) throw new Error(ps.stderr);
+      const children = childPids(ps.stdout, process.pid);
+      if (children.length) {
+        const stdin = await pi.exec("/usr/sbin/lsof", ["-nP", "-a", "-p", children.join(","), "-d", "0", "-F", "pt"], { timeout: 5000 });
+        if (hasCommandChild(stdin.stdout)) found.push("command running");
+      }
+    } catch { found.push("process check failed"); }
     try {
       const lsof = await pi.exec("/usr/sbin/lsof", ["-nP", "-a", "-p", String(process.pid), "-iTCP", "-sTCP:LISTEN", "-t"], { timeout: 5000 });
       if (lsof.stdout.trim()) found.push("serving a page");
@@ -91,12 +105,18 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
 
   async function park() {
     const ctx = current;
-    if (!ctx) return;
-    if ((await blockers(ctx)).length) return arm();
-    // Input or a run may have started while the checks ran.
-    if (ctx !== current || !ctx.isIdle() || ctx.ui.getEditorText().trim()) return arm();
-    writeFileSync(file!, ctx.sessionManager.getSessionFile()!);
-    ctx.shutdown();
+    if (!ctx || checking) return;
+    checking = true;
+    const seen = inputs;
+    try {
+      const found = await blockers(ctx);
+      // A key (Ctrl+D included) or a run may have come while the checks ran.
+      if (found.length || ctx !== current || inputs !== seen || !ctx.isIdle() || ctx.ui.getEditorText().trim()) return arm();
+      try { writeFileSync(file!, ctx.sessionManager.getSessionFile()!); } catch { return arm(); }
+      ctx.shutdown();
+    } finally {
+      checking = false;
+    }
   }
 
   pi.on("session_start", (_event, ctx) => {
@@ -104,6 +124,7 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
     if (!ctx.hasUI) return;
     stopListening?.();
     stopListening = ctx.ui.onTerminalInput(() => {
+      inputs++;
       arm();
       return undefined;
     });
@@ -114,11 +135,14 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
     current = ctx;
     if (ctx.hasUI) arm();
   });
+  pi.on("ui_prompt_start", () => { prompts++; });
+  pi.on("ui_prompt_end", () => { prompts = Math.max(0, prompts - 1); });
   pi.on("session_shutdown", () => {
     clearTimeout(timer);
     stopListening?.();
     stopListening = undefined;
     current = undefined;
+    prompts = 0;
   });
 }
 

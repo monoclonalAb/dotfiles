@@ -446,9 +446,10 @@ plus ~300 MB of MCP servers), and comes back when you return to it:
    conversation is back in about a second. Any key also brings it back; the key
    that wakes it is not typed.
 
-It never quits with a draft in the editor, while the agent works, while a `!`
-command runs, while an `/artifact-review` page is open or while an `hc`
-sub-terminal is live. It keeps the `herdr-app-resume` labels, so a reboot
+It never quits with a draft in the editor or an open dialog, while the agent
+works, while a `!` command or a Ctrl+G editor runs, while an `/artifact-review`
+page is open, while an `hc` sub-terminal is live, or after `/tree` moved to an
+earlier point. It keeps the `herdr-app-resume` labels, so a reboot
 reopens a parked conversation like any other. Quitting Pi yourself still ends
 the conversation. Only Pi started after this was installed parks: older
 sessions keep running until you restart them.

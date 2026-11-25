@@ -16,10 +16,15 @@ back to it reopens the same conversation in about a second.
 
 It does not park while something would be lost, and tries again two hours later:
 
-- an agent run, a queued message or a draft in the editor;
-- a shell command still running under Pi (`!cmd`);
+- an agent run, a queued message, a draft in the editor or an open dialog;
+- a command still running under Pi (`!cmd`, or an editor opened with Ctrl+G):
+  any child of Pi that does not read a socket from it, as MCP servers do;
 - a page Pi serves (an open `/artifact-review`);
-- a live `hc` sub-terminal, whose notes would be typed into the parked pane.
+- a live `hc` sub-terminal, whose notes would be typed into the parked pane;
+- a `/tree` position other than the latest entry, since a reopen starts from
+  the latest.
+
+A key that arrives while the checks run (`Ctrl+D` to quit, say) cancels the park.
 
 Lost on a park, as on `/reload`: `/fast` turned on inside the session (`--fast`
 on the command line is kept) and an open `/btw` overlay (its thread is saved).
