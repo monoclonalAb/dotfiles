@@ -75,6 +75,7 @@ context.
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
 | [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` picker: switch logins, choose main, manage saved accounts and automation; `/route` controls fallback when a login hits a limit |
 | [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and an `MCP: N/M` footer |
+| `mcp-idle-stop` | Stops the session's local (stdio) MCP servers after 10 idle minutes; Pi starts each again on the next call to its tools |
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
 | [`readable-transcript`](../pi/extensions/readable-transcript/README.md) | Frames thinking blocks behind a `│` rail and tidies `codemode` and multi-line `bash` script rows (display only) |
@@ -245,7 +246,9 @@ How it behaves:
   the full `command` or `url`, plus `"enabled": false` to disable it.
 - `/mcp` toggles are written to the file that defines the server. For global
   servers that is the tracked file, so review them like `settings.json` changes.
-- Every enabled server connects when a session starts (no lazy mode).
+- Every enabled server connects when a session starts. After 10 minutes with no
+  agent run, `mcp-idle-stop` stops the local (stdio) ones; `/mcp` shows them as
+  disconnected, and the next call to a server's tools starts it again.
   `pi mcp list` connects each one and reports errors; `/reload` applies changes to
   a running session.
 - OAuth sign-ins (`pi mcp login <server>`) are stored in `~/.pi/agent/mcp-auth.json`.
