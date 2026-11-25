@@ -54,9 +54,8 @@ credited billing account with location `global`. The project ID is stored in
 `~/.pi/agent/auth.json`, not here. Gemini 4 Carbon
 (`google-vertex/gemini-4-carbon`) is also built in and stays available from
 `/model`, also starting at medium; its thinking blocks arrive as Google's
-summariser's working notes ("Thinking Process: 1. Analyze the Request…"), and
-[`gemini-thinking-tidy`](../pi/extensions/gemini-thinking-tidy/README.md) shows
-only the summary at the end of each note.
+summariser's working notes ("Thinking Process: 1. Analyze the Request…"), shown
+as they arrive. Neon's do not.
 
 ### Extensions
 
@@ -76,7 +75,6 @@ context.
 | [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and an `MCP: N/M` footer |
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
-| [`gemini-thinking-tidy`](../pi/extensions/gemini-thinking-tidy/README.md) | Gemini 4 Carbon thinking blocks show only the summaries, not the summariser's working notes (display only) |
 | [`readable-transcript`](../pi/extensions/readable-transcript/README.md) | Frames thinking blocks behind a `│` rail and tidies `codemode` and multi-line `bash` script rows (display only) |
 | `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task; see [`HERDR.md`](HERDR.md#agent-state)); titles only, no background conversation summaries |
 | [`omp-anthropic-route`](../pi/extensions/omp-anthropic-route/README.md) | Sends Claude OAuth requests in OMP's reviewed shape (below) |

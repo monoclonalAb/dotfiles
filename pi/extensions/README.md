@@ -19,9 +19,6 @@ Display-only extensions (no approval needed, but keep them that way):
 
 - [`local-file-links/`](local-file-links/README.md) rewrites the link targets of
   rendered assistant Markdown so the terminal can open them. Messages are unchanged.
-- [`gemini-thinking-tidy/`](gemini-thinking-tidy/README.md) shows only the
-  summaries in Gemini 4 Carbon thinking blocks, hiding the summariser's leaked
-  working notes. Rendering only: the session and model input keep the full text.
 - [`readable-transcript/`](readable-transcript/README.md) frames thinking blocks
   behind one continuous `│` blockquote rail with a `Thinking` heading and tidies
   `codemode` and multi-line `bash` tool rows (human-readable nested call args,
