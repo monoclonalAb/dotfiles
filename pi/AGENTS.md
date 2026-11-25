@@ -56,6 +56,9 @@ has the details.
 2. New page: `artifact new <slug> --title "..." --summary "..." --tags a,b`. It
    prints a folder; write `index.html` (and any assets) there. Make the summary
    say what the page shows and what it is for, so a later search finds it.
+   If the page has tabs, pickers or other views, keep the current choice in the
+   address after `#` (for example `#tab=late-day&day=2026-10-27`) and read it on
+   load, so a reload (as `/artifact-review` does after each edit) returns there.
 3. After changing a page, run `artifact update <id>`, with a new `--summary` if
    what it shows changed.
 4. Open it with `artifact open <id>` and tell me the path.
