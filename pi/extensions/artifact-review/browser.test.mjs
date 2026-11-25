@@ -164,6 +164,21 @@ test('the review panel in Chrome: notes, normal clicks, send, reload', { skip: !
     await until(`document.getElementById('__artifact-review')?.shadowRoot.querySelector('.status').textContent === 'Pi is ready'`, 'the panel to connect');
     assert.equal(await evaluate('window.pageLoads'), 1);
 
+    // Option-click on empty space beside the content: a note on the whole page, and it sends.
+    const blank = await evaluate(`(() => { for (let x = 2; x < 40; x += 4) for (let y = 100; y < 600; y += 50) if (document.elementFromPoint(x, y) === document.documentElement) return { x, y }; return null; })()`);
+    assert.ok(blank, 'the fixture has empty space outside its body');
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', ...blank, modifiers: ALT });
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', ...blank, button: 'left', clickCount: 1, modifiers: ALT });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...blank, button: 'left', clickCount: 1, modifiers: ALT });
+    await until(`!document.getElementById('__artifact-review').shadowRoot.querySelector('.card').hidden`, 'a card for empty space');
+    assert.equal(await ui(`ui.querySelector('.card .what').textContent`), 'Whole page');
+    await write('too much empty space');
+    await key('Enter');
+    await click(`document.getElementById('__artifact-review').shadowRoot.querySelector('.send')`);
+    await until(`document.getElementById('__artifact-review').shadowRoot.querySelector('.message').textContent.startsWith('Sent 1 note.')`, 'the whole-page note to send');
+    assert.deepEqual(deliveries.map((batch) => batch.notes.map((note) => [note.kind, note.note])), [[['page', 'too much empty space']]]);
+    deliveries.splice(0);
+
     // Option-click a heading: a card for it, with its section.
     await click(`document.querySelectorAll('h3')[0]`, ALT);
     await until(`!document.getElementById('__artifact-review').shadowRoot.querySelector('.card').hidden`, 'the note card');

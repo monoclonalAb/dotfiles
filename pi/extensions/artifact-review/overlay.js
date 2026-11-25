@@ -585,7 +585,8 @@
       const selection = getSelection();
       if (!event.altKey && selection && !selection.isCollapsed && selection.toString().trim()) return;
       const el = event.target instanceof Element ? event.target : event.target.parentElement;
-      if (el) openCard({ kind: "element", el, point: { x: event.clientX, y: event.clientY } });
+      // Empty space outside the body lands on <html>: a note on the whole page.
+      if (el) openCard({ kind: el === document.documentElement ? "page" : "element", el, point: { x: event.clientX, y: event.clientY } });
     },
     true,
   );
