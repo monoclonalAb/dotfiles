@@ -68,6 +68,7 @@ context.
 | `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) skill is on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows it as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
 | `session-controls.ts` | `/drop` erases this session and starts a new one (Pi's `/new` keeps it) |
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
+| [`artifact-review`](../pi/extensions/artifact-review/README.md) | `/artifact-review <page>` opens a page in the browser; Option-click or select text to write notes, Send delivers them to the session, and edits reload the page (below) |
 | [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
 | [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
@@ -152,6 +153,13 @@ The `artifact.json` files are the index, read fresh by every `list`; the gallery
 page, `artifact add <file or folder> --summary ...` copies it and leaves the
 original. Nothing deletes pages; remove a folder by hand. The store is private
 (`0700`) because pages can hold work data, and it is outside this repository.
+
+To give feedback on a page by pointing at it, run `/artifact-review <id>` in the
+Pi session that made it. The page opens from a local server with a review panel:
+Option-click any part of it, or select text, write a note, and press Send. The
+notes arrive in that session as your message (after the current step if Pi is
+busy), and the page reloads where you were when the agent changes it. Details
+and limits: [`artifact-review`](../pi/extensions/artifact-review/README.md).
 
 ### rho and helper agents
 
