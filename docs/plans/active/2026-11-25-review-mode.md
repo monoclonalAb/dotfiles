@@ -89,11 +89,13 @@ commented and submitted inside Herdr; milestone 2 adds the rest.
 Files: `herdr-app/layouts/review.json`, mods `review-nav`, `review-page`,
 `review-side` (empty columns), `herdr-app/keys.json`, tests, docs. Also fixes
 the per-PR state-file contract (path, keys: PR link + snapshot id) in docs.
-Done: after each `C-a p`, `herdr-app status` names the expected layout, also
-when a Review mode block has focus; back in `eric` the focused pane, sidebar
-folds and right panel are as before, each checked separately;
+Done: `keys.json` tests show `C-a p` is bound to switch to Review mode in
+`eric` and back in Review mode, and no Review mode mod takes that key;
 `bin/dotfiles-link check` lists exactly the new files; the empty-home check
-links them; each mod passes `herdr-app check`.
+links them; each mod passes `herdr-app check`. Eric checks live after merge:
+after each `C-a p`, `herdr-app status` names the expected layout, also when a
+Review mode block has focus; back in `eric` the focused pane, sidebar folds
+and right panel are as before, each checked separately.
 
 **Step 2 — Your pull requests (item 1).** Waits for step 1.
 List of review requests and authored PRs, all pages (or the cap shown, and
@@ -232,8 +234,13 @@ Rules:
    Before every branch switch, `git status --short` must be empty: commit the
    current step's own work to its branch, and stop if anything else is left,
    because a switch silently carries uncommitted files into the next branch.
-   A stacked draft PR targets that dependency branch; once the dependency merges,
-   the next run retargets it to `main` (`gh pr edit review-mode/step-N --base main`) before working on it.
+   A stacked draft PR targets that dependency branch. Once the dependency
+   merges, the next run, before working on the step, retargets its PR
+   (`gh pr edit review-mode/step-N --base main`), then on its branch merges the
+   dependency's local branch (bringing in its review fixes) and then
+   `origin/main`, pushes normally, and checks with `gh pr view
+   review-mode/step-N --json files` that the PR lists only this step's files.
+   If a merge conflicts, `git merge --abort` and stop.
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
 4. **Checks:** run the checks a step names plus the existing suites for files it
    touches (the `lib/review-analyse` suite only once it exists). Advance only on
@@ -244,12 +251,17 @@ Rules:
    needed permission isn't granted, when starting a step would make four
    unmerged `review-mode/step-*` PRs, after two turns without progress, or at
    the deadline. Never loop on retries.
-6. **Live app:** no layout switches, terminals or screenshots in the real window
-   unless the launch line says "live checks allowed". Before merge, render with
+6. **Live app:** no layout switches, key presses, terminals or screenshots in
+   the real window unless the launch line says "live checks allowed". Without
+   it, the run checks what it can without the window: render with
    `herdr-app check` on worktree mods (side effects guarded by `checking()`) and
-   test keys through `keys.json` tests; Eric checks `C-a p` live after step 1
-   merges. Only start, send to or end terminals the run created (label
-   `review-mode.test=1`); end them before stopping.
+   test keys through `keys.json` tests. A done-check item that needs the window
+   (a key press, focus, a screenshot) goes in the step's PR under "Eric checks
+   live after merge" and does not block advancing or the finish line (rules 1
+   and 4). A step whose whole done check needs the window (step 6's spike)
+   needs "live checks allowed"; without it, stop before that step. Only start,
+   send to or end terminals the run created (label `review-mode.test=1`); end
+   them before stopping.
 7. **Screenshots** stay local (`/tmp`), are never committed or uploaded, and
    show only Review mode with sandbox or public PRs.
 8. **Credentials and data:** bot writes go through one helper in
