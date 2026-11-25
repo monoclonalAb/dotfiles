@@ -131,7 +131,10 @@ mkdir -p "$park_dir" 2>/dev/null && chmod 700 "$park_dir" || exec "$real_pi" "$@
 PI_PARK_FILE=$park_dir/$$
 PI_PARK_PID=$$
 export PI_PARK_FILE PI_PARK_PID
+# Closing the pane signals its shell first; exiting through the trap removes the file.
 trap 'rm -f "$PI_PARK_FILE"' EXIT
+trap 'exit 129' HUP
+trap 'exit 143' TERM
 terminal=$(stty -g)
 
 # Herdr keeps listing the terminal as an idle Pi. Every key wakes it (Ctrl+C
