@@ -24,7 +24,9 @@ where you were.
    scroll with the part of the page they belong to; the review panel stays in
    the bottom-right corner.
 3. You press **Send to Pi** (or ⌘Enter in a note). Pi shows the message and asks
-   you to confirm it. Then the notes arrive in Pi as your message. If Pi is busy,
+   whether to send it. **Keep them on the page** is preselected, so an Enter meant
+   for Pi's prompt sends nothing. Choose **Send** and the notes arrive in Pi as
+   your message. If Pi is busy,
    they wait until it finishes, like a follow-up you type while it works. If you
    decline, nothing is sent and the notes stay on the page.
 4. The agent edits the page. A change to any file in the page's folder reloads

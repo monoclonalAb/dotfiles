@@ -436,7 +436,7 @@
     ui.card.hidden = true;
     hideBox(ui.target);
     if (shownTarget) placeBox(ui.target, shownTarget.getBoundingClientRect());
-    if (pendingReload) reloadPage();
+    if (pendingReload && !sending) reloadPage();
   }
 
   function addFromCard() {
@@ -455,6 +455,7 @@
     const notes = queue.map(({ kind, note, target, quote, screen }) => ({ kind, note, target, quote, screen }));
     if (pageNote) notes.push({ kind: "page", note: pageNote, screen: captureScreen() });
     if (!notes.length || sending || stopped) return;
+    const sentQueue = queue.slice();
     sending = true;
     setMessage("Confirm them in Pi to send.");
     render();
@@ -462,10 +463,13 @@
       const response = await fetch(`${base}__review/notes`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ notes }) });
       const result = await response.json().catch(() => ({ ok: false, error: `HTTP ${response.status}` }));
       if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
-      queue = [];
+      // Notes added while Pi asked stay for the next Send.
+      queue = queue.filter((item) => !sentQueue.includes(item));
       save("queue", queue);
-      ui.pageNote.value = "";
-      save("pageNote", undefined);
+      if (ui.pageNote.value.trim() === pageNote) {
+        ui.pageNote.value = "";
+        save("pageNote", undefined);
+      }
       lastSent = result.text || "";
       save("lastSent", lastSent);
       const count = `${result.count} note${result.count === 1 ? "" : "s"}`;
@@ -475,6 +479,7 @@
     } finally {
       sending = false;
       render();
+      if (pendingReload && !(card && ui.cardText.value.trim())) reloadPage();
     }
   }
 
@@ -486,7 +491,7 @@
   }
 
   function onChange() {
-    if (card && ui.cardText.value.trim()) {
+    if (sending || (card && ui.cardText.value.trim())) {
       pendingReload = true;
       ui.banner.hidden = false;
       return;

@@ -120,6 +120,8 @@ export async function resolvePage(argument: string, cwd: string, deps: Pick<Depe
 interface Review {
   server: ReviewServer;
   page: Page;
+  /** Aborted when the review ends, closing any dialog still asking about notes. */
+  stopped: AbortController;
 }
 
 export function registerArtifactReview(pi: ExtensionAPI, deps: Dependencies = defaultDependencies(pi)) {
@@ -138,6 +140,7 @@ export function registerArtifactReview(pi: ExtensionAPI, deps: Dependencies = de
     const current = review;
     review = undefined;
     if (!current) return false;
+    current.stopped.abort();
     await current.server.close();
     if (ctx?.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
     return true;
@@ -166,6 +169,7 @@ export function registerArtifactReview(pi: ExtensionAPI, deps: Dependencies = de
       madeInSession: page.session,
       thisSession,
     };
+    const stopped = new AbortController();
     const server = await startReviewServer({
       folder: page.folder,
       entry: page.entry,
@@ -174,9 +178,14 @@ export function registerArtifactReview(pi: ExtensionAPI, deps: Dependencies = de
       busy: () => busy,
       async deliver(batch) {
         const text = formatBatch(batch, info);
-        // Scripts in the page share the panel's origin and could post notes, so a person confirms each batch.
+        // Scripts in the page share the panel's origin and could post notes, so a person approves
+        // each batch. Keeping comes first, so an Enter meant for Pi's editor sends nothing.
         const count = `${batch.notes.length} note${batch.notes.length === 1 ? "" : "s"}`;
-        if (!ctx.hasUI || !(await ctx.ui.confirm(`Send ${count} from the review page?`, text))) {
+        const send = `Send ${count} to Pi`;
+        const choice = ctx.hasUI
+          ? await ctx.ui.select(`Send ${count} from the review page?\n\n${text}`, ["Keep them on the page", send], { signal: stopped.signal })
+          : undefined;
+        if (choice !== send) {
           throw new NoteError("you declined them in Pi");
         }
         const queued = !ctx.isIdle();
@@ -185,7 +194,7 @@ export function registerArtifactReview(pi: ExtensionAPI, deps: Dependencies = de
         return { queued, text };
       },
     });
-    review = { server, page };
+    review = { server, page, stopped };
     const name = page.id ?? basename(page.folder);
     if (ctx.hasUI) {
       ctx.ui.setStatus(STATUS_KEY, `reviewing ${name.length > 32 ? `${name.slice(0, 31)}…` : name}`);

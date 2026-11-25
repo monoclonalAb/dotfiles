@@ -101,7 +101,12 @@ test('notes from the review page reach the model as the user message, idle or bu
     await session.bindExtensions({
       mode: 'tui', onError: (error) => errors.push(error),
       uiContext: {
-        select: async () => undefined, confirm: async (title, message) => (confirms.push(message), confirmAnswer), input: async () => undefined, editor: async () => undefined, custom: async () => undefined,
+        select: async (title, options) => {
+          if (!options.includes('Keep them on the page')) return undefined;
+          confirms.push(title);
+          return confirmAnswer ? options[1] : options[0];
+        },
+        confirm: async () => true, input: async () => undefined, editor: async () => undefined, custom: async () => undefined,
         notify: (text) => notifications.push(text), onTerminalInput: () => noop, setStatus: (key, value) => key === 'artifact-review' && statuses.push(value),
         setWorkingMessage: noop, setWorkingVisible: noop, setWorkingIndicator: noop, setHiddenThinkingLabel: noop, setWidget: noop, setFooter: noop,
         setHeader: noop, setTitle: noop, theme: { fg: (_color, text) => text, bold: (text) => text },
