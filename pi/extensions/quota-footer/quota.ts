@@ -413,6 +413,7 @@ async function claimAnthropicLease(directory: string, now: () => number, minInte
 }
 
 async function pruneStaleScopes(root: string, keep: string, now: number): Promise<void> {
+  if (!(await lstat(root).catch(() => undefined))?.isDirectory()) return;
   const names = await readdir(root).catch(() => [] as string[]);
   for (const name of names) {
     if (name === keep || !/^[a-f0-9]{64}$/.test(name)) continue;
