@@ -238,8 +238,8 @@ Rules:
    merges, the next run, before working on the step, retargets its PR
    (`gh pr edit review-mode/step-N --base main`), then on its branch merges the
    dependency's local branch (bringing in its review fixes), notes this step's
-   own change as `git diff -U0 review-mode/step-M HEAD | git patch-id --stable`,
-   merges `origin/main`, checks that `git diff -U0 origin/main HEAD | git
+   own change as `git diff review-mode/step-M HEAD | git patch-id --stable`,
+   merges `origin/main`, checks that `git diff origin/main HEAD | git
    patch-id --stable` gives the same id, and pushes normally. A merge conflict
    (`git merge --abort`) or a different id means stop without pushing: a clean
    merge can still undo a line this step set back to its value before step M.
