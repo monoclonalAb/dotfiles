@@ -70,8 +70,10 @@ child instead. Example:
   started it exited, and ended only when its parent terminal ended.
 - **Listening Pi:** one of the owner's Pi processes listens on a local TCP port
   (an open `/artifact-review` page); its server dies with Pi.
-- **Focus-in from the app:** not yet measured (needs a throwaway Space focused
-  while the owner is away). Decides whether PR 3 is needed.
+- **Focus from the app:** a throwaway Space ran a reader with focus reporting on
+  (`ESC [ ? 1004 h`). `pane.focus` on it, with Herdr not the front app, delivered
+  `ESC [ I`; moving focus back delivered `ESC [ O`. The wrapper wakes on focus by
+  itself, so PR 3 is dropped, and it must ignore focus-out.
 
 ## Risks from the brief, answered
 
@@ -171,7 +173,7 @@ merged here (`rho-may-merge` says no for this repository).
   `!sleep 60` each keep it running past 20 s; `Ctrl+D` clears the labels. Plus
   `bun test` for both extensions.
 
-### PR 3 (only if the app sends no focus-in): wake a parked pane on focus
+### PR 3 (dropped: the app sends focus-in): wake a parked pane on focus
 
 - **Waits for:** PR 2. **Files:** `herdr-app/mods/pi-resume/main.js`, its test,
   `docs/HERDR-APP.md`.
@@ -220,8 +222,8 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
 ## Progress
 
 - [x] Prototypes above.
-- [ ] Focus-in measured in the app.
-- [ ] PR 1 · [ ] PR 2 · [ ] PR 3 or dropped · [ ] PR 4
+- [x] Focus-in measured in the app: received (PR 3 dropped).
+- [ ] PR 1 · [ ] PR 2 · [x] PR 3 dropped · [ ] PR 4
 - [ ] Overall done check on a throwaway Space after deployment.
 
 ## Verification

@@ -33,7 +33,7 @@ placeholder directories are unnecessary.
 - [rho: many small, verified PRs a day](active/2026-11-03-rho-workflow.md) — `/rho`, `/rho-verify` and the merge rule written; a week of real use and the first project verify skill pending.
 - [Migrate to the Herdr desktop app](active/2026-11-04-herdr-app-migration.md) — theme, layout, keys, the four plugins as mods, popups and `herdr-import` live; the `home` machine pending; no cutover, and terminal Herdr stays as a backup.
 - [Review mode: Devin-style PR review inside the Herdr app](active/2026-11-25-review-mode.md) — planned; tour prototype, sandbox repo and machine account ready; milestone 1 (steps 1-4, 9, 10) not started.
-- [Park idle Pi conversations](active/2026-11-25-park-idle-pi.md) — planned; prototypes done, focus-in from the app not yet measured, four PRs.
+- [Park idle Pi conversations](active/2026-11-25-park-idle-pi.md) — planned; prototypes done, focus-in from the app measured, three PRs.
 
 When there are no active plans, use `No active plans.` instead of the list.
 Keep other tasks' entries intact when adding or completing your own plan.
