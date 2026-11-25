@@ -54,9 +54,8 @@ credited billing account with location `global`. The project ID is stored in
 `~/.pi/agent/auth.json`, not here. Gemini 4 Carbon
 (`google-vertex/gemini-4-carbon`) is also built in and stays available from
 `/model`, also starting at medium; its thinking blocks arrive as Google's
-summariser's working notes ("Thinking Process: 1. Analyze the Request…"), and
-[`gemini-thinking-tidy`](../pi/extensions/gemini-thinking-tidy/README.md) shows
-only the summary at the end of each note.
+summariser's working notes ("Thinking Process: 1. Analyze the Request…"), shown
+as they arrive. Neon's do not.
 
 ### Extensions
 
@@ -67,11 +66,11 @@ context.
 | Extension | Adds |
 | --- | --- |
 | `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) skill is on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows it as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
-| `session-controls.ts` | `/clear` and `/drop` |
-| `copy-prompt.ts` | `alt+shift+c` copies the draft |
-| [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
-| [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/review`, `/end-review`, `/answer` (Ctrl+.), `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
-| `long-context` | `/long-context` switches GPT-5.6 / GPT-6 Astra to the 1.05M window (long-context pricing above 272K) |
+| `session-controls.ts` | `/drop` erases this session and starts a new one (Pi's `/new` keeps it) |
+| `copy-session.ts` | `/copy-session`, or `/copy` through `modal-vim-navigation`, copies this session's file path (to paste into another session), without `/session`'s slow statistics |
+| [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears; `/copy` runs `/copy-session` instead of copying the last reply |
+| [`artifact-review`](../pi/extensions/artifact-review/README.md) | `/artifact-review <page>` opens a page in the browser; Option-click or select text to write notes, Send delivers them to the session, and edits reload the page (below) |
+| [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
 | [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
 | [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` picker: switch logins, choose main, manage saved accounts and automation; `/route` controls fallback when a login hits a limit |
@@ -79,7 +78,6 @@ context.
 | `mcp-idle-stop` | Stops the session's local (stdio) MCP servers after 10 idle minutes; Pi starts each again on the next call to its tools |
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
-| [`gemini-thinking-tidy`](../pi/extensions/gemini-thinking-tidy/README.md) | Gemini 4 Carbon thinking blocks show only the summaries, not the summariser's working notes (display only) |
 | [`readable-transcript`](../pi/extensions/readable-transcript/README.md) | Frames thinking blocks behind a `│` rail and tidies `codemode` and multi-line `bash` script rows (display only) |
 | `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task; see [`HERDR.md`](HERDR.md#agent-state)); titles only, no background conversation summaries |
 | [`omp-anthropic-route`](../pi/extensions/omp-anthropic-route/README.md) | Sends Claude OAuth requests in OMP's reviewed shape (below) |
@@ -111,12 +109,6 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
 
 - `/discuss`: interview, then an implementation-ready summary.
 - `/eli5 <topic>`: a throwaway visual HTML explainer.
-- `/tutor <topic>`: Socratic tutoring to mastery. Adapted from the
-  `socratic-tutor` skill in
-  [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills)
-  (commit `7c6715c`) without its intent check, which only matters when a skill
-  starts itself. Its MIT licence is in
-  [`pi/prompts/tutor/`](../pi/prompts/tutor/LICENSE.md).
 - `/domain-first [scope]`, `/test-sweep [scope]`, `/feedback [correction]`.
 - `/pr [notes]`: commit, push, and open or update a draft PR by following the
   [`pr` skill](../pi/skills/pr/SKILL.md). The skill holds the rules: it
@@ -157,6 +149,13 @@ The `artifact.json` files are the index, read fresh by every `list`; the gallery
 page, `artifact add <file or folder> --summary ...` copies it and leaves the
 original. Nothing deletes pages; remove a folder by hand. The store is private
 (`0700`) because pages can hold work data, and it is outside this repository.
+
+To give feedback on a page by pointing at it, run `/artifact-review <id>` in the
+Pi session that made it. The page opens from a local server with a review panel:
+Option-click any part of it, or select text, write a note, and press Send. After
+you confirm them in Pi, the notes arrive in that session as your message (after
+the current step if Pi is busy), and the page reloads where you were when the agent changes it. Details
+and limits: [`artifact-review`](../pi/extensions/artifact-review/README.md).
 
 ### rho and helper agents
 
@@ -262,7 +261,13 @@ How it behaves:
 The global servers:
 
 - **gcloud** and **gcp-observability** use the same pinned packages as OMP and
-  start with every session (needs `npx` and the gcloud CLI). gcloud is read-only
+  start with every session (needs Node and the gcloud CLI). They start through
+  [`bin/npm-mcp`](../bin/npm-mcp), which installs the pinned version once into
+  `~/.local/share/npm-mcp/<package>@<version>/` (with npm, on first start) and
+  then runs Node on it directly. `npx` would leave an extra `npm exec` process
+  of about 47 MB beside each server for the whole session. To change a pin, edit
+  the version in `pi/mcp.json` and `omp/mcp.json`; the next start installs it,
+  and the old version's folder can be deleted. gcloud is read-only
   only because of the `-c` [allowlist](../omp/gcloud-mcp-allowlist.json); keep it.
   Neither restricts projects: they use your Google IAM, so pass explicit project
   IDs. If auth has expired, run `gcloud auth login` and
@@ -422,7 +427,12 @@ trace lookup.
   frontmatter.
 - **Skill scope:** keep only cross-repository skills in `pi/skills/`:
   `agent-handoff`, `llm-eval`, `omp-repo-setup`, `pr`, `repo-recon`,
-  `secret-sast-sweep` and `visual-verify`. Repository-specific skills live in
+  `secret-sast-sweep`, `socratic-tutor` and `visual-verify`.
+  [`socratic-tutor`](../pi/skills/socratic-tutor/SKILL.md) is Jane Street's
+  skill from [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills),
+  unchanged from commit `7c6715c`, with its MIT
+  [licence](../pi/skills/socratic-tutor/LICENSE.md); it teaches by questions
+  when asked "teach me" or "quiz me". Repository-specific skills live in
   [`pi/scoped-skills/`](../pi/scoped-skills/) (`~/.pi/agent/scoped-skills/`),
   which neither harness auto-discovers; link each into the repositories it
   applies to at `.omp/skills/<name>` (both OMP and `/skill` scan that folder):

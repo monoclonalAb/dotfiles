@@ -1,5 +1,6 @@
 // Vendored from mitsuhiko/agent-stuff@122e2994adddb113c04764c5697217dae120fcc6 (Apache-2.0).
-// Modified locally: opt-in tools, status-only entries, safe stopping/restoration and token accounting.
+// Modified locally: opt-in tools, status-only entries, safe stopping/restoration, token accounting
+// and no /review guard (review.ts is not vendored).
 /**
  * Goal Extension
  *
@@ -691,11 +692,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 			if (trimmed && !["pause", "clear"].includes(trimmed.toLowerCase())) {
 				if (!ctx.isIdle()) {
 					ctx.ui.notify("Wait for the agent to stop before setting/resuming a goal", "warning");
-					return;
-				}
-				const review = ctx.sessionManager.getBranch().filter((entry) => entry.type === "custom" && entry.customType === "review-session").at(-1);
-				if (review?.type === "custom" && (review.data as { active?: boolean })?.active) {
-					ctx.ui.notify("Use /end-review before starting a goal", "warning");
 					return;
 				}
 			}

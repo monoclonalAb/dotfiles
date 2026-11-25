@@ -23,6 +23,8 @@ export function registerHerdrTaskSummary(
   if (!target) return;
 
   let started = false;
+  // Whether this Pi is interactive, learnt at session_start; a run's mode never changes.
+  let interactive = false;
   let generation = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let controller: AbortController | undefined;
@@ -160,6 +162,10 @@ export function registerHerdrTaskSummary(
   }
 
   pi.on("session_start", (_event, ctx) => {
+    // Only an interactive Pi owns its pane. A `pi -p` that an agent runs from its
+    // shell inherits the pane's variables too, and must not retitle the agent's Pi.
+    if (ctx.mode !== "tui") return;
+    interactive = true;
     started = true;
     cache.clear();
     restore(ctx);
@@ -181,6 +187,8 @@ export function registerHerdrTaskSummary(
   });
 
   pi.on("session_shutdown", async () => {
+    // Not `started`: a quit during /new's shutdown must still wait for the stable title.
+    if (!interactive) return;
     started = false;
     cancel();
     cache.clear();

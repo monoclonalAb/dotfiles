@@ -28,7 +28,6 @@ mock.module("@earendil-works/pi-tui", () => tuiPackage);
 
 const { AssistantMessageComponent, getMarkdownTheme, ToolExecutionComponent } = codingAgent;
 const { visibleWidth } = tuiPackage;
-const { tidyThinking } = await import("../gemini-thinking-tidy/index.ts");
 const {
   createReadableToolResolver,
   displayPath,
@@ -76,17 +75,13 @@ test("formatThinkingMarkdown frames reasoning in one continuous quote rail and l
   expect(formatThinkingMarkdown(settled, false)).toBe(settled);
 });
 
-test("AssistantMessageComponent renders framed thinking distinctly from reply text and composes with gemini-thinking-tidy", () => {
+test("AssistantMessageComponent renders framed thinking distinctly from reply text", () => {
   const theme = setupLightTheme();
   const transformers = [
     (md: string, ctx: { messageType: string; isStreaming: boolean }) =>
-      ctx.messageType === "assistant-thinking" ? tidyThinking(md, ctx.isStreaming) : md,
-    (md: string, ctx: { messageType: string; isStreaming: boolean }) =>
       ctx.messageType === "assistant-thinking" ? formatThinkingMarkdown(md, ctx.isStreaming) : md,
   ];
-  const geminiNote = [
-    "Thinking Process:",
-    "1. Analyze the Request: Summarize in 3-7 words.",
+  const thinking = [
     "**Inspecting theme configuration**",
     "",
     "Checking how Catppuccin tokens map to Markdown borders.",
@@ -96,7 +91,7 @@ test("AssistantMessageComponent renders framed thinking distinctly from reply te
     {
       role: "assistant",
       content: [
-        { type: "thinking", thinking: geminiNote },
+        { type: "thinking", thinking },
         { type: "text", text: "Here is the final answer." },
       ],
       stopReason: "stop",
@@ -113,7 +108,6 @@ test("AssistantMessageComponent renders framed thinking distinctly from reply te
   expect(plain).toContain("│ Thinking");
   expect(plain).toContain("│ Inspecting theme configuration");
   expect(plain).toContain("│ Checking how Catppuccin tokens map to Markdown borders.");
-  expect(plain).not.toContain("Thinking Process:");
   expect(plain).toContain("Here is the final answer.");
   expect(rendered.join("\n")).toContain(theme.getFgAnsi("mdQuoteBorder"));
 

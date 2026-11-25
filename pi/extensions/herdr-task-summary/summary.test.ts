@@ -66,6 +66,7 @@ function harness(complete: (...args: any[]) => Promise<any> = async () => respon
   const failures: Array<string | null | undefined> = [];
   const entries: any[] = [];
   const ctx = {
+    mode: "tui",
     model: { provider: "test", id: "selected" },
     modelRegistry: registry(async (...args: any[]) => { calls.push(args); return complete(...args); }),
     sessionManager: { getBranch: () => entries },
@@ -414,6 +415,45 @@ test("extension is completely inert outside Herdr", async () => {
   assert.deepEqual(h.reports, []);
 });
 
+test("a Pi that a program in this terminal runs, such as `pi -p` from an agent's shell, never retitles it", async () => {
+  for (const mode of ["print", "json", "rpc"]) {
+    const h = harness();
+    h.ctx.mode = mode;
+    h.entries.push(user("Fix login"));
+    await h.emit("session_start");
+    await h.message("Reply with the single word: pong");
+    await h.emit("model_select");
+    await h.emit("session_tree");
+    await h.emit("session_shutdown");
+    await tick();
+    assert.deepEqual(h.reports, [], mode);
+    assert.deepEqual(h.calls, [], mode);
+  }
+});
+
+test("a second shutdown, such as a quit during /new, still waits for the stable title", async () => {
+  const gate = deferred();
+  const h = harness(async () => deferred().promise);
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const titles: string[] = [];
+  registerHerdrTaskSummary({
+    on(name: string, handler: (...args: any[]) => any) { handlers.set(name, handler); },
+    async exec(_command: string, args: string[]) {
+      titles.push(args.at(-1)!);
+      await gate.promise;
+      return { code: 0 };
+    },
+  } as never, environment, { debounceMs: 0, animationMs: 1 });
+  h.entries.push(user("Fix login"));
+  handlers.get("session_start")!({}, h.ctx);
+  // An animation frame is being sent when /new shuts the session down.
+  await until(() => titles.length === 1 && h.calls.length === 1);
+  void handlers.get("session_shutdown")!({ reason: "new" }, h.ctx);
+  setTimeout(() => gate.resolve(undefined), 20);
+  await handlers.get("session_shutdown")!({ reason: "quit" }, h.ctx);
+  assert.equal(titles.at(-1), `${HERDR_SUMMARY_TOKEN}=${EMPTY_SESSION_SUMMARY}`);
+});
+
 test("empty sessions get a placeholder; only observational lifecycle hooks are registered", async () => {
   const h = harness();
   await h.emit("session_start");
@@ -732,6 +772,7 @@ test("the default entry point makes only title requests and publishes only title
   const calls: any[][] = [];
   const entries = [user("Fix the login redirect")];
   const ctx = {
+    mode: "tui",
     model: { provider: "test", id: "selected" },
     modelRegistry: registry(async (...args: any[]) => { calls.push(args); return response("Repair login redirect"); }),
     sessionManager: { getBranch: () => entries },
@@ -775,6 +816,7 @@ test("in the Herdr app a pending title is one mark, not animation frames", async
   const labels: string[][] = [];
   const pending = deferred();
   const ctx = {
+    mode: "tui",
     model: { provider: "test", id: "selected" },
     modelRegistry: registry(async () => { await pending.promise; return response("Repair login redirect"); }),
     sessionManager: { getBranch: () => [] },

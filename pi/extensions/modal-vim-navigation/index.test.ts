@@ -296,6 +296,7 @@ describe("copy cleared draft", () => {
       editorContainer: new tuiPackage.Container(),
       disposeActiveSelector() {},
       lastSigintTime: 0,
+      extensionDialogs: [],
       shutdown: mock(async () => {}),
       clearEditor: codingAgent.InteractiveMode.prototype.clearEditor,
     };
@@ -608,5 +609,62 @@ describe("clipboard images", () => {
     expect(await readClipboardContent()).toEqual({ type: "text", text: "text fallback" });
     textReader.mockResolvedValue(null);
     expect(await readClipboardContent()).toBeUndefined();
+  });
+});
+
+describe("/copy alias", () => {
+  // Mount through the extension's own session_start, as Pi does in the TUI.
+  function mounted(commands: Array<{ name: string; source: string }>) {
+    const handlers = new Map<string, Function>();
+    let editor!: InstanceType<typeof VimNavigationEditor>;
+    let wrap!: (current: any) => any;
+    vimNavigation({
+      on: (name: string, handler: Function) => { handlers.set(name, handler); },
+      registerMarkdownTransformer() {},
+      getCommands: () => commands,
+    } as never);
+    handlers.get("session_start")!({}, { mode: "tui", ui: {
+      notify() {},
+      setEditorComponent: (factory: Function) => { editor = factory(createTui(), theme, createKeybindings()); },
+      addAutocompleteProvider: (factory: typeof wrap) => { wrap = factory; },
+    } });
+    const submitted: string[] = [];
+    editor.onSubmit = (text: string) => { submitted.push(text); };
+    const submit = (text: string) => { editor.setText(text); editor.handleInput("\r"); return submitted.at(-1); };
+    const menu = new tuiPackage.CombinedAutocompleteProvider([
+      { name: "copy", description: "Copy last agent message to clipboard" },
+      { name: "copy-session", description: "Copy this session's file path to the clipboard" },
+    ], tmpdir());
+    const suggest = async (text: string) => (await wrap(menu).getSuggestions(
+      [text], 0, text.length, { signal: new AbortController().signal }))?.items;
+    return { submit, suggest };
+  }
+
+  test("submits an exact /copy as /copy-session and leaves everything else alone", () => {
+    const { submit } = mounted([{ name: "copy-session", source: "extension" }]);
+    expect(submit("/copy")).toBe("/copy-session");
+    expect(submit("  /copy ")).toBe("/copy-session");
+    for (const text of ["/copy now", "/copy-session", "/copyx", "please /copy", "/session"]) {
+      expect(submit(text)).toBe(text);
+    }
+  });
+
+  test("keeps Pi's own /copy when the copy-session extension is not loaded", () => {
+    for (const commands of [[], [{ name: "copy-session", source: "prompt" }]]) {
+      const { submit } = mounted(commands);
+      expect(submit("/copy")).toBe("/copy");
+    }
+  });
+
+  test("the command menu describes /copy as the session-path copy only while the alias is active", async () => {
+    const active = mounted([{ name: "copy-session", source: "extension" }]);
+    const items = await active.suggest("/cop");
+    expect(items.find((item: any) => item.value === "copy").description).toContain("session's file path");
+    expect(items.find((item: any) => item.value === "copy-session").description)
+      .toBe("Copy this session's file path to the clipboard");
+    expect(await active.suggest("look at @nothing-here-xyz")).toBeUndefined();
+    const inactive = mounted([]);
+    expect((await inactive.suggest("/cop")).find((item: any) => item.value === "copy").description)
+      .toBe("Copy last agent message to clipboard");
   });
 });

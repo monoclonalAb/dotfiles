@@ -30,7 +30,9 @@ the [Pi Tasks launcher](../herdr/plugins/task-launcher/README.md#in-the-herdr-ap
 [`herdr-task-summary`](../pi/extensions/herdr-task-summary/summary.ts) Pi
 extension (titles as `hc` labels). The
 [`herdr-app-resume`](../pi/extensions/herdr-app-resume/index.ts) Pi extension
-exists only for the app ([after a reboot](#after-a-reboot)).
+exists only for the app ([after a reboot](#after-a-reboot)). Both act only for an
+interactive Pi: a `pi -p` that an agent runs from its shell inherits the
+agent's `HC_TERMINAL_ID` but leaves that terminal's title and labels alone.
 
 ### How the app sees these files
 
@@ -399,9 +401,19 @@ The terminal font is Maple Mono NF, set by `font` in
 [`Brewfile`](../Brewfile), for its handwriting-style italics (Neovim comments,
 Pi's "Thinking"). The app takes one font for everything, so the italics can't
 come from a second family. Without the font installed, the app falls back to
-JetBrains Mono. The sidebar and the other mods use `ui_font`, Nunito (same
-file, also in the Brewfile), a rounded font that sits well next to Maple Mono.
+JetBrains Mono. The mods use `ui_font`, Nunito (same file, also in the
+Brewfile), a rounded font that sits well next to Maple Mono.
 A newly installed font shows after the app restarts.
+
+The sidebar is the exception: it uses SF Pro Rounded at medium weight, with
+Space names and headings semibold, and its grey text one step darker than the
+theme's (lighter on the dark flavours). Nunito is one variable-font file, and
+the app draws only its regular weight, so bold text in Nunito shows regular.
+SF Pro Rounded has a file per weight. It is not in the Brewfile (it comes from
+[Apple's fonts page](https://developer.apple.com/fonts/)); which font the
+sidebar shows without it has not been checked. The font, the weights and the darker greys
+are set in [`spaces-tree`](../herdr-app/mods/spaces-tree/main.js)
+(`SIDEBAR_FONT`, `ink`).
 
 ## Moving the terminal Herdr session
 

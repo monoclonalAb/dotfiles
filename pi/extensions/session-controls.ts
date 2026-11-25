@@ -12,28 +12,6 @@ function isMissingFile(error: unknown): boolean {
 }
 
 export default function sessionControls(pi: ExtensionAPI) {
-  pi.registerCommand("clear", {
-    description: "Start an empty session with freshly loaded configuration",
-    handler: async (args, ctx) => {
-      if (args.trim()) {
-        ctx.ui.notify("Usage: /clear", "error");
-        return;
-      }
-
-      const result = await ctx.newSession({
-        withSession: async (replacementCtx) => {
-          // Session replacement creates a new runtime and re-discovers extensions,
-          // skills, prompts, themes, and context files.
-          replacementCtx.ui.notify("Conversation cleared; configuration reloaded", "info");
-        },
-      });
-
-      if (result.cancelled) {
-        ctx.ui.notify("Clear cancelled", "info");
-      }
-    },
-  });
-
   pi.registerCommand("drop", {
     description: "Erase the current session and start fresh",
     handler: async (args, ctx) => {

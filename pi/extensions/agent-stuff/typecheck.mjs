@@ -17,5 +17,5 @@ try {
     typeRoots: [join(pkg, 'node_modules/@types')], paths,
   }, files: [fileURLToPath(new URL('index.ts', import.meta.url))] }));
   execFileSync('tsc', ['-p', config], { stdio: 'inherit' });
-  console.log('PASS: all five extensions against installed Pi public types.');
+  console.log('PASS: all three extensions against installed Pi public types.');
 } finally { rmSync(root, { recursive: true, force: true }); }

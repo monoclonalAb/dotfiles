@@ -17,7 +17,7 @@ Object.assign(process.env, { HOME: root, PATH: path, PI_CODING_AGENT_DIR: join(r
 const agentDir = process.env.PI_CODING_AGENT_DIR;
 const deployed = join(agentDir, 'extensions/agent-stuff');
 mkdirSync(deployed, { recursive: true });
-for (const name of ['index.ts', 'answer.ts', 'btw.ts', 'goal.ts', 'review.ts', 'session-breakdown.ts']) symlinkSync(join(source, name), join(deployed, name));
+for (const name of ['index.ts', 'btw.ts', 'goal.ts', 'session-breakdown.ts']) symlinkSync(join(source, name), join(deployed, name));
 after(() => rmSync(root, { recursive: true, force: true }));
 const sdk = await import(pathToFileURL(join(pkg, 'dist/index.js')));
 sdk.initTheme('dark', false);
@@ -30,11 +30,9 @@ const jiti = createJiti(import.meta.url, { fsCache: false, alias: {
   '@earendil-works/pi-tui': join(pkg, 'node_modules/@earendil-works/pi-tui/dist/index.js'),
   typebox: join(pkg, 'node_modules/typebox/build/index.mjs'),
 } });
-const answerModule = await jiti.import(join(source, 'answer.ts'));
 const btwModule = await jiti.import(join(source, 'btw.ts'));
 const breakdown = await jiti.import(join(source, 'session-breakdown.ts'));
 const goalModule = await jiti.import(join(source, 'goal.ts'));
-const reviewModule = await jiti.import(join(source, 'review.ts'));
 const theme = { fg: (_c, text) => text, bg: (_c, text) => text, bold: text => text };
 const fakeTui = { requestRender() {}, terminal: { columns: 80, rows: 40 } };
 const { KeybindingsManager } = await import(pathToFileURL(join(pkg, 'dist/core/keybindings.js')));
@@ -46,6 +44,7 @@ async function until(predicate, label = 'condition') {
   for (let i = 0; i < 500; i++) { if (predicate()) return; await tick(); }
   assert.fail(`Timed out waiting for ${label}`);
 }
+const screenText = lines => tui.stripTerminalSequences(lines.join('\n'));
 const text = content => typeof content === 'string' ? content : (content ?? []).filter(p => p.type === 'text').map(p => p.text).join('\n');
 // Pi 0.87 providers receive a transcript whose system messages carry the prompt
 // and tool changes; fold them back into the prompt/tools/messages view asserted here.
@@ -121,12 +120,12 @@ async function fixture({ mode = 'tui', tools = ['read'], allowGoals = true, resp
   };
 }
 
-test('native discovery through per-file leaf links: six commands, no tools/context/default requests', async () => {
+test('native discovery through per-file leaf links: three commands, no tools/context/default requests', async () => {
   const f = await fixture({ responses: [reply('ordinary response')] });
   try {
     const ext = f.loader.getExtensions().extensions[0];
-    assert.deepEqual([...ext.commands.keys()].sort(), ['answer', 'btw', 'end-review', 'goal', 'review', 'session-breakdown']);
-    assert(ext.shortcuts.has('ctrl+.'));
+    assert.deepEqual([...ext.commands.keys()].sort(), ['btw', 'goal', 'session-breakdown']);
+    assert.equal(ext.shortcuts.size, 0);
     assert.deepEqual(f.session.getActiveToolNames(), ['read']);
     assert.equal(f.calls.length, 0);
     await f.session.prompt('/goal');
@@ -192,141 +191,6 @@ test('goal pause during a native request prevents settled continuation; resume a
     await f.session.prompt('/goal clear');
     assert.equal(f.latestGoal(), null);
   } finally { release?.(); await f.close(); }
-});
-
-test('review empty branch and /end-review return preserve original native session path', async () => {
-  const f = await fixture({ responses: [reply('original response'), reply('## Findings\nNone.\n## Verdict\ncorrect')] });
-  try {
-    await f.session.prompt('original user task');
-    const original = structuredClone(f.session.messages);
-    f.dialogs.push('Empty branch');
-    await f.session.prompt('/review folder "folder with spaces" docs --extra "Check failure handling"');
-    await until(() => f.calls.length === 2 && f.session.isIdle);
-    const request = f.calls[1].context;
-    assert.equal(request.messages.filter(m => m.role === 'user').length, 1);
-    assert(text(request.messages.at(-1).content).includes('folder with spaces, docs'));
-    assert(text(request.messages.at(-1).content).includes('diff-only restrictions above do not apply'));
-    assert(text(request.messages.at(-1).content).includes('Check failure handling'));
-    f.dialogs.push('Return only');
-    await f.session.prompt('/end-review');
-    assert.deepEqual(f.session.messages, original);
-    assert.equal(f.calls.length, 2);
-    assert.equal(f.navigations.length, 2);
-    await f.session.reload();
-    assert.equal(f.calls.length, 2);
-  } finally { await f.close(); }
-});
-
-for (const target of ['uncommitted', 'branch main', 'commit abc123']) test(`review target ${target} dispatch and summary return`, async () => {
-  const f = await fixture({ responses: [reply('## Findings\n- [P2] Fixture finding'), reply('## Findings\nFixture summary')] });
-  try {
-    await f.session.prompt(`/review ${target}`);
-    await until(() => f.calls.length === 1 && f.session.isIdle);
-    const prompt = text(f.calls[0].context.messages.at(-1).content);
-    assert(prompt.includes(target === 'uncommitted' ? 'staged, unstaged, and untracked' : target === 'branch main' ? "base branch 'main'" : 'commit abc123'));
-    f.dialogs.push('Return and summarize');
-    await f.session.prompt('/end-review');
-    assert.equal(f.calls.length, 2);
-    assert(f.sm.getBranch().some(e => e.type === 'branch_summary'));
-    assert(!f.sm.getBranch().findLast(e => e.customType === 'review-session').data.active);
-  } finally { await f.close(); }
-});
-
-const lastUserText = call => text(call.context.messages.at(-1).content);
-
-test('review loop stops after three reviews, carries earlier rounds and reviews the fix diff without touching the index', async () => {
-  // Each review reports a P1; the fixer declines it. Calls: review, summary, fix (x2), then review, summary.
-  const responses = [];
-  for (let n = 1; n <= 3; n++) {
-    responses.push(reply(`## Findings\n- [P1] Fixture bug ${n} at \`fixture.txt:1\`\n\n## Verdict\nneeds attention`), reply(`## Findings\n- [P1] Fixture bug ${n}`));
-    if (n < 3) responses.push(reply(`Declined fixture bug ${n}: the file is a test fixture.`));
-  }
-  const f = await fixture({ responses });
-  const git = (...args) => execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd: f.cwd, encoding: 'utf8' });
-  try {
-    // A real index with staged, unstaged and untracked work, which the snapshot must not disturb.
-    git('add', 'fixture.txt');
-    git('commit', '-q', '-m', 'fixture');
-    writeFileSync(join(f.cwd, 'fixture.txt'), 'staged edit');
-    git('add', 'fixture.txt');
-    writeFileSync(join(f.cwd, 'fixture.txt'), 'unstaged edit');
-    writeFileSync(join(f.cwd, 'untracked.txt'), 'new file');
-    const statusBefore = git('status', '--porcelain');
-    assert.equal(statusBefore, 'MM fixture.txt\n?? untracked.txt\n');
-    f.sm.appendCustomEntry('review-settings', { loopFixingEnabled: true });
-    await f.session.reload();
-    const run = f.session.prompt('/review uncommitted');
-    await until(() => f.calls.length === 8 && f.session.isIdle, 'three loop reviews');
-    await run;
-    await tick();
-    assert.equal(f.calls.length, 8);
-    const reviews = f.calls.map(lastUserText).filter(p => p.startsWith('# Review Guidelines'));
-    const fixes = f.calls.map(lastUserText).filter(p => p.startsWith('Use the latest review summary'));
-    assert.equal(reviews.length, 3);
-    assert.equal(fixes.length, 2);
-    assert(fixes[0].includes('fix them all, not only the cited line'));
-    assert(!reviews[0].includes('Earlier rounds of this review loop'));
-    assert(reviews[1].includes('This is review 2 of at most 3'));
-    assert(reviews[1].includes('[P1] Fixture bug 1'));
-    assert(reviews[1].includes('Declined fixture bug 1'));
-    assert(reviews[1].includes('(still open)'));
-    const diff = reviews[1].match(/git diff ([0-9a-f]{40}) ([0-9a-f]{40})/);
-    assert(diff, 'review 2 is pointed at the fix diff');
-    // The snapshot is the working tree (including untracked files); the real index is untouched.
-    assert.equal(git('show', `${diff[1]}:fixture.txt`), 'unstaged edit');
-    assert.equal(git('show', `${diff[1]}:untracked.txt`), 'new file');
-    assert.equal(git('status', '--porcelain'), statusBefore);
-    assert.equal(git('show', ':fixture.txt'), 'staged edit');
-    assert(reviews[2].includes('This is review 3 of at most 3'));
-    assert(reviews[2].includes('Review 1 findings') && reviews[2].includes('Review 2 findings'));
-    assert(f.notices.some(n => n.level === 'warning' && n.message.includes('stopped after 3 reviews with P0/P1 findings still open')));
-    assert(f.sm.getBranch().some(e => e.type === 'branch_summary'));
-    assert(!f.sm.getBranch().findLast(e => e.customType === 'review-session').data.active);
-  } finally { await f.close(); }
-});
-
-test('review loop treats P2-only findings as non-blocking and ends after one review', async () => {
-  const f = await fixture({ responses: [reply('## Findings\n- [P2] Minor fixture issue\n\n## Verdict\ncorrect'), reply('## Findings\n- [P2] Minor fixture issue')] });
-  try {
-    f.sm.appendCustomEntry('review-settings', { loopFixingEnabled: true });
-    await f.session.reload();
-    const run = f.session.prompt('/review uncommitted');
-    await until(() => f.calls.length === 2 && f.session.isIdle, 'one loop review');
-    await run;
-    await tick();
-    assert.equal(f.calls.length, 2);
-    assert(!f.calls.map(lastUserText).some(p => p.startsWith('Use the latest review summary')));
-    assert(f.notices.some(n => n.message.includes('no P0/P1 findings remain')));
-  } finally { await f.close(); }
-});
-
-test('answer uses selected registry, real Q&A confirmation, no submission on Escape', async () => {
-  const f = await fixture({ responses: [reply('Which database?'), reply('{"questions":[{"question":"Which database?"}]}'), reply('Thanks')] });
-  try {
-    await f.session.prompt('ask a question');
-    const run = f.session.prompt('/answer');
-    await until(() => f.components.some(v => v.component.constructor.name === 'QnAComponent')).catch(error => {
-      assert.fail(`${error.message}: ${JSON.stringify({ notices: f.notices, errors: f.errors, calls: f.calls.length, components: f.components.map(v => v.component.constructor.name) })}`);
-    });
-    const view = f.components.find(v => v.component.constructor.name === 'QnAComponent');
-    for (const width of [10, 50, 80, 100]) for (const line of view.component.render(width)) assert(tui.visibleWidth(line) <= width);
-    view.component.handleInput('SQLite');
-    view.component.handleInput('\r');
-    assert.equal(f.calls.length, 2); // confirmation, not yet submitted
-    view.component.handleInput('\r');
-    await run;
-    await until(() => f.calls.length === 3 && f.session.isIdle);
-    assert(text(f.calls[2].context.messages.at(-1).content).includes('A: SQLite'));
-    assert.equal(f.calls[1].model.id, f.calls[0].model.id);
-    assert.equal(f.calls[1].context.tools, undefined);
-    assert.equal(f.calls[1].context.messages.length, 1);
-    f.faux.setResponses([reply('{"questions":[{"question":"Another?"}]}')]);
-    const cancelled = f.session.prompt('/answer');
-    await until(() => f.components.filter(v => v.component.constructor.name === 'QnAComponent').length === 2);
-    f.components.at(-1).component.handleInput('\x1b');
-    await cancelled;
-    assert.equal(f.calls.length, 4);
-  } finally { await f.close(); }
 });
 
 test('BTW gets native read/search tools, never sends its thread to the parent until explicit summary', async () => {
@@ -546,7 +410,7 @@ for (const pasteKey of ['\x16', '\x1b[200~\x1b[201~']) test(`BTW image paste ${J
     assert.equal(submitted[0], `${imagePath} describe this image`);
     assert.deepEqual(readFileSync(imagePath), bytes);
     assert.equal(statSync(imagePath).mode & 0o777, 0o600);
-    assert(stripVTControlCharacters(overlay.render(80).join('\n')).includes('[img #1]'));
+    assert(screenText(overlay.render(80)).includes('[img #1]'));
     overlay.handleInput('\x1b[99;4u');
     await until(() => copied.length === 1);
     assert.equal(copied[0], submitted[0]);
@@ -554,7 +418,7 @@ for (const pasteKey of ['\x16', '\x1b[200~\x1b[201~']) test(`BTW image paste ${J
     overlay.setDraft('');
     overlay.handleInput('\x1b[A');
     assert.equal(overlay.getDraft(), submitted[0]);
-    assert(stripVTControlCharacters(overlay.render(80).join('\n')).includes('[img #1]'));
+    assert(screenText(overlay.render(80)).includes('[img #1]'));
     overlay.handleInput('\x03');
     assert.equal(overlay.getDraft(), '');
     await until(() => copied.length === 2);
@@ -745,7 +609,7 @@ test('non-TUI modes reject terminal-only commands without reading sessions or ca
   for (const mode of ['rpc', 'json', 'print']) {
     const f = await fixture({ mode });
     try {
-      for (const cmd of ['/answer', '/btw question', '/session-breakdown', '/review uncommitted', '/end-review']) await f.session.prompt(cmd);
+      for (const cmd of ['/btw question', '/session-breakdown']) await f.session.prompt(cmd);
       assert.equal(f.calls.length, 0);
       assert.deepEqual(f.session.messages, []);
       assert.equal(f.components.length, 0);
@@ -782,8 +646,6 @@ test('usage parser: native disjoint cache buckets, summary usage, malformed tail
       for (const line of view.render(width)) assert(tui.visibleWidth(line) <= width);
     }
   }
-  assert.equal(answerModule.parseExtractionResult('```json\n{"questions":[]}\n```').questions.length, 0);
-  assert.equal(answerModule.parseExtractionResult('{"questions":[{}]}'), null);
   rmSync(file);
 });
 
@@ -825,25 +687,13 @@ test('native abort signal pauses goal before another settled continuation', asyn
   } finally { await f.close(); }
 });
 
-test('restoring an active goal pauses it; review and goal modes cannot run together', async () => {
-  const f = await fixture({ responses: [reply('review complete')] });
+test('restoring an active goal pauses it without a provider call', async () => {
+  const f = await fixture();
   try {
     f.sm.appendCustomEntry('goal', { version: 2, goal: { id: 'old-goal', objective: 'restored objective', status: 'active' } });
     await f.session.reload();
     assert.equal(f.latestGoal().status, 'paused');
     assert.equal(f.calls.length, 0);
-    await f.session.prompt('/review uncommitted');
-    await until(() => f.calls.length === 1 && f.session.isIdle);
-    await f.session.prompt('/goal do something else');
-    assert.equal(f.calls.length, 1);
-    assert(f.notices.some(n => n.message.includes('/end-review')));
-    f.dialogs.push('Return only');
-    await f.session.prompt('/end-review');
-    // An active goal is deliberately inserted as fixture state to test the review guard.
-    f.sm.appendCustomEntry('goal', { version: 2, goal: { id: 'active-fixture', objective: 'fixture', status: 'active' } });
-    await f.session.prompt('/review uncommitted');
-    assert(f.notices.some(n => n.message.includes('/goal pause')));
-    assert.equal(f.calls.length, 1);
   } finally { await f.close(); }
 });
 
@@ -891,43 +741,4 @@ test('breakdown command opens fixture-only TUI, closes without messages or provi
     assert.deepEqual(f.session.messages, []);
     assert.equal(f.calls.length, 0);
   } finally { await f.close(); }
-});
-
-test('PR checkout is confirmed, keeps full repository URL, rechecks dirtiness, and has no cross-runtime review state', async () => {
-  const ref = 'https://github.com/owner/other-repo/pull/123';
-  function mockReview({ confirm = true, statuses = ['', ''], statusCode = 0 } = {}) {
-    const commands = new Map(), hooks = new Map(), calls = [], prompts = [], entries = [];
-    reviewModule.default({
-      registerCommand: (name, command) => commands.set(name, command),
-      on: (name, handler) => hooks.set(name, handler),
-      appendEntry: (customType, data) => entries.push({ id: String(entries.length), type: 'custom', customType, data }),
-      sendUserMessage: prompt => prompts.push(prompt),
-      exec: async (command, args) => {
-        calls.push([command, ...args]);
-        if (command === 'gh' && args[1] === 'view') return { code: 0, stdout: JSON.stringify({ title: 'fixture', baseRefName: 'main', headRefName: 'pr-branch' }) };
-        if (args[0] === 'status') return { code: statusCode, stdout: statuses.shift() ?? '' };
-        return { code: 0, stdout: args.includes('--show-current') ? 'main' : '', stderr: '' };
-      },
-    });
-    const ctx = { mode: 'tui', hasUI: true, cwd: root, isIdle: () => true, isProjectTrusted: () => false,
-      sessionManager: { getBranch: () => entries, getEntries: () => entries, getLeafId: () => entries.at(-1)?.id },
-      ui: { notify() {}, setWidget() {}, confirm: async () => confirm, custom: async () => null, setEditorText() {} },
-    };
-    return { run: () => commands.get('review').handler(`pr ${ref}`, ctx), calls, prompts };
-  }
-  const yes = mockReview();
-  await yes.run();
-  assert(yes.calls.some(c => c.join('|') === ['gh', 'pr', 'checkout', ref].join('|')));
-  assert(yes.calls.some(c => c[0] === 'gh' && c[1] === 'pr' && c[2] === 'view' && c[3] === ref));
-  assert.equal(yes.calls.filter(c => c[1] === 'status').length, 2);
-  assert.equal(yes.prompts.length, 1);
-  for (const options of [{ confirm: false }, { statuses: ['', ' M changed.ts'] }, { statuses: [' M changed.ts'] }]) {
-    const no = mockReview(options);
-    await no.run();
-    assert(!no.calls.some(c => c[0] === 'gh' && c[2] === 'checkout'));
-    assert.equal(no.prompts.length, 0);
-  }
-  const failed = mockReview({ statusCode: 1 });
-  await assert.rejects(failed.run(), /Cannot verify/);
-  assert(!failed.calls.some(c => c[0] === 'gh'));
 });

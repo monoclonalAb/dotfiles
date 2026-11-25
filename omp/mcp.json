@@ -43,9 +43,8 @@
     "flyio": { "command": "flyctl", "args": ["mcp", "serve"], "enabled": false },
     "cloudflare-bindings": { "type": "http", "url": "https://bindings.mcp.cloudflare.com/mcp", "enabled": false },
     "gcloud": {
-      "command": "npx",
+      "command": "${HOME}/.local/bin/npm-mcp",
       "args": [
-        "-y",
         "@google-cloud/gcloud-mcp@0.5.3",
         "-c",
         "/Users/eric/dotfiles/omp/gcloud-mcp-allowlist.json"
@@ -57,9 +56,8 @@
       "enabled": true
     },
     "gcp-observability": {
-      "command": "npx",
+      "command": "${HOME}/.local/bin/npm-mcp",
       "args": [
-        "-y",
         "@google-cloud/observability-mcp@0.2.3"
       ],
       "env": {

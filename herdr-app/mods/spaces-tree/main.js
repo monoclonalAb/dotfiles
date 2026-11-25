@@ -360,9 +360,25 @@ const sym = (ch) => div().flex_none().font_family(MARK_FONT).child(ch);
 // A mark and its count, as in a Space's row (\u25c6 2).
 const tally = (ch, n, color) => h_flex().flex_none().gap(1).items_center().text_color(color).child(sym(ch)).child(String(n));
 const fade = (hex, alpha) => (/^#[0-9a-f]{6}$/i.test(hex ?? "") ? hex + alpha : hex);
+// `#rrggbb` a moved share k of the way to b; anything else stays a.
+export function mixHex(a, b, k) {
+  const ok = (c) => /^#[0-9a-f]{6}$/i.test(c ?? "");
+  if (!ok(a) || !ok(b)) return a;
+  const at = (c, i) => parseInt(c.slice(1 + 2 * i, 3 + 2 * i), 16);
+  return "#" + [0, 1, 2].map((i) => Math.round(at(a, i) + (at(b, i) - at(a, i)) * k).toString(16).padStart(2, "0")).join("");
+}
+// The sidebar's grey text, one step toward the foreground: on Latte, muted
+// becomes Subtext 1 and dim the old muted (lighter on the dark flavours), so
+// small text reads on the frosted chrome. Only this mod; the theme is unchanged.
+export const ink = (t) => ({ ...t, muted: mixHex(t.muted, t.foreground, 0.5), dim: mixHex(t.dim, t.foreground, 0.5) });
 // An editor's mark: its program's logo (Neovim's, from the app's icons) in the
 // theme's green, where a conversation has its dot.
 const editorLogo = (p, size, t) => svg(p?.program?.icon ?? "icons/nvim.svg").size(size).flex_none().text_color(t.ansi2);
+// The sidebar's font, in place of the layout's ui_font (Nunito): Nunito is one
+// variable-font file, and the app draws only its regular weight, so the
+// sidebar's medium and semibold text would show regular. SF Pro Rounded has
+// a file per weight.
+const SIDEBAR_FONT = "SF Pro Rounded";
 // Editor names are in the terminal's font, as file names are.
 const monoFont = () => settings()?.font_family ?? "JetBrains Mono";
 
@@ -1003,7 +1019,7 @@ export default class SpacesTree extends View {
           .hover((st) => st.bg(t.hover))
           .on_click((_e, cx) => this.toggleActivity(s.key, cx))
           .child(s.icon)
-          .child(div().font_medium().text_color(t.muted).child(s.label))
+          .child(div().font_semibold().text_color(t.muted).child(s.label))
           .child(pill(s.count, s.color))
           .child(div().flex_1().h(1).bg(t.border))
           .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim)),
@@ -1071,7 +1087,7 @@ export default class SpacesTree extends View {
       .hover((s) => s.bg(t.hover))
       .tooltip("Pull request reviews (C-a R starts one)")
       .on_click((_e, cx) => this.toggleActivity("reviews", cx))
-      .child(div().font_medium().text_color(t.muted).child("Reviews"))
+      .child(div().font_semibold().text_color(t.muted).child("Reviews"))
       .child(pill(reviews.length, t.dim))
       .child(div().flex_1().h(1).bg(t.border))
       .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim));
@@ -1284,7 +1300,7 @@ export default class SpacesTree extends View {
           .when(Boolean(tree), el => el.pl(14).child(pr
             ? svg(this.icons ? prIcon(pr.state) : "mods/workspace-chrome/branch.svg").size(13).flex_none().text_color(t[PR_TONE[pr.state]] ?? t.dim)
             : svg("mods/workspace-chrome/branch.svg").size(13).text_color(t.dim)))
-          .child(div().flex_shrink(0).max_w(pr ? 170 : 150).truncate().text_color(t.foreground).child(name))
+          .child(div().flex_shrink(0).max_w(pr ? 170 : 150).truncate().font_semibold().text_color(t.foreground).child(name))
           .when(r.kids > 0, (el) => el.child(this.repoFold(r, t)))
           .when(Boolean(this.counts(w, t)), (el) => el.child(this.counts(w, t)))
           .child(g ? this.gitTail(g, tree, w.name, t, pr) : div().flex_1()),
@@ -1308,7 +1324,7 @@ export default class SpacesTree extends View {
   }
 
   render(cx) {
-    const t = theme();
+    const t = ink(theme());
     const collapsed = narrow();
     // What this render draws, against the last (isNew).
     this.before = this.drawn ?? null;
@@ -1356,7 +1372,8 @@ export default class SpacesTree extends View {
       });
     }
     // No buttons in the heading: new Spaces are C-a s or Cmd+N.
-    return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
+    // Medium weight throughout; Space names and headings semibold.
+    return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13).font_family(SIDEBAR_FONT).font_medium()
       .when(Boolean(band), (el) => el.child(band))
       .child(h_flex().h(31).flex_none().pl(16).pr(10).items_center().text_size(11.5).text_color(t.dim)
         .when(!collapsed, el => el.child(heading)))

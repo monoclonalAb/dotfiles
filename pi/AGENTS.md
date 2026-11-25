@@ -32,7 +32,16 @@ don't want things opened in.
   dashes> <branch>`, then `herdr-app do space.new --name "<short name>" --folder
   <that path>`. That folder is where the app's own worktree dialog puts them, so the
   sidebar nests the space under its repository.
-- Check the result with `herdr-app ls`.
+- Then put it in the same Personal/Work environment as the repository's own space.
+  A new space joins whichever environment is active, so it can land in the other
+  one, away from its repository. Find the repository's space in `herdr-app ls`
+  (its `folder` is the main checkout), read its environment from
+  `spaces-env.assign` in `~/.config/herdr-app/shared.json`, then run
+  `herdr-app do "spaces-env.assign:<new space id>=<personal|work>" '{}'`. With no
+  space for the repository, use the environment of its owner's other repositories,
+  as `bin/review` in dotfiles does.
+- Check the result with `herdr-app ls` and that the new space's environment in
+  `shared.json` matches the repository's.
 
 ## HTML artifacts
 
@@ -47,6 +56,9 @@ has the details.
 2. New page: `artifact new <slug> --title "..." --summary "..." --tags a,b`. It
    prints a folder; write `index.html` (and any assets) there. Make the summary
    say what the page shows and what it is for, so a later search finds it.
+   If the page has tabs, pickers or other views, keep the current choice in the
+   address after `#` (for example `#tab=late-day&day=2026-10-27`) and read it on
+   load, so a reload (as `/artifact-review` does after each edit) returns there.
 3. After changing a page, run `artifact update <id>`, with a new `--summary` if
    what it shows changed.
 4. Open it with `artifact open <id>` and tell me the path.

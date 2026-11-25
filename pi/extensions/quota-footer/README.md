@@ -39,8 +39,10 @@ Only GETs to the fixed OpenAI/Anthropic usage endpoints are made (no redirects,
 bounded bodies, errors reduced to labels). Codex state stays in memory. Claude
 snapshots live in `~/.local/state/pi/quota-footer/<sha256-of-token>/` (mode 700,
 files 600) and contain only percentages, resets, timestamps and a failure code.
-Keying by token hash means a new login never reuses another login's numbers. The
-extension never touches model input, tools or request payloads.
+Keying by token hash means a new login never reuses another login's numbers. A
+token refresh starts a new folder, so the process that fetches a reading also
+deletes other login folders untouched for a day. The extension never touches model
+input, tools or request payloads.
 
 ## Tests
 
