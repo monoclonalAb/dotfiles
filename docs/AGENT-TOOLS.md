@@ -70,7 +70,7 @@ context.
 | `session-controls.ts` | `/clear` and `/drop` |
 | `copy-prompt.ts` | `alt+shift+c` copies the draft |
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
-| [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/review`, `/end-review`, `/answer` (Ctrl+.), `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
+| [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
 | `long-context` | `/long-context` switches GPT-5.6 / GPT-6 Astra to the 1.05M window (long-context pricing above 272K) |
 | [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |

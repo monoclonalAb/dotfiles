@@ -239,7 +239,7 @@ credentials, or billing product. Bound retries; honor abort without fallback wor
 
 Keep branch summarization portable initially, and exclude naming/BTW/read-only
 worker side requests from inheriting native mode automatically. Exercise `/fast`,
-`/long-context`, account routing, goal/review hooks, compact UI, and observer/usage
+`/long-context`, account routing, goal hooks, compact UI, and observer/usage
 consumers together before any global activation.
 
 ### 5. Validate Codex subscription support separately
