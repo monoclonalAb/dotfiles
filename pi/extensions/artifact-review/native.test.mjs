@@ -95,12 +95,13 @@ test('notes from the review page reach the model as the user message, idle or bu
       modelRuntime: models, model: models.getModel(PROVIDER, MODEL), thinkingLevel: 'off', tools: [],
       sessionManager: sdk.SessionManager.inMemory(root),
     }));
-    const notifications = [], statuses = [], errors = [];
+    const notifications = [], statuses = [], errors = [], confirms = [];
+    let confirmAnswer = false;
     const noop = () => {};
     await session.bindExtensions({
       mode: 'tui', onError: (error) => errors.push(error),
       uiContext: {
-        select: async () => undefined, confirm: async () => false, input: async () => undefined, editor: async () => undefined, custom: async () => undefined,
+        select: async () => undefined, confirm: async (title, message) => (confirms.push(message), confirmAnswer), input: async () => undefined, editor: async () => undefined, custom: async () => undefined,
         notify: (text) => notifications.push(text), onTerminalInput: () => noop, setStatus: (key, value) => key === 'artifact-review' && statuses.push(value),
         setWorkingMessage: noop, setWorkingVisible: noop, setWorkingIndicator: noop, setHiddenThinkingLabel: noop, setWidget: noop, setFooter: noop,
         setHeader: noop, setTitle: noop, theme: { fg: (_color, text) => text, bold: (text) => text },
@@ -118,14 +119,23 @@ test('notes from the review page reach the model as the user message, idle or bu
     const page = await (await fetch(url)).text();
     assert.match(page, /<script src="\/[\w-]+\/__review\/overlay\.js" defer><\/script><\/body>/);
 
-    const post = async (note) => {
+    const post = async (note, status = 200) => {
       const response = await fetch(new URL('__review/notes', url), {
         method: 'POST', headers: { origin: new URL(url).origin, 'content-type': 'application/json' },
         body: JSON.stringify({ notes: [{ kind: 'element', note, target: { tag: 'h1', selector: 'h1', text: 'Demo' }, screen: { hash: 'tab=2' } }] }),
       });
-      assert.equal(response.status, 200);
+      assert.equal(response.status, status);
       return response.json();
     };
+
+    // Declined in Pi: nothing reaches the conversation or the model.
+    const declined = await post('unasked note from a page script', 400);
+    assert.equal(declined.ok, false);
+    assert.match(confirms[0], /unasked note from a page script/);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(requests.length, 0);
+    assert.equal(session.messages.filter((message) => message.role !== 'system').length, 0);
+    confirmAnswer = true;
 
     // Idle: the note starts a turn at once.
     const idle = await post('make the title bigger');

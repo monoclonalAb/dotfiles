@@ -456,7 +456,7 @@
     if (pageNote) notes.push({ kind: "page", note: pageNote, screen: captureScreen() });
     if (!notes.length || sending || stopped) return;
     sending = true;
-    setMessage("");
+    setMessage("Confirm them in Pi to send.");
     render();
     try {
       const response = await fetch(`${base}__review/notes`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ notes }) });

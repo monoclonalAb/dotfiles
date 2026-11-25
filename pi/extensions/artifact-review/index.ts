@@ -7,20 +7,20 @@
 //
 // The page opens from a local server (server.ts) with a review panel added
 // (overlay.js). Option-click part of the page, or select text, and write a
-// note; Send delivers the notes to this session as your next message, queued
-// as a follow-up while Pi is working. When a file in the page's folder changes,
+// note; Send asks you to confirm the notes in Pi, then delivers them to this
+// session as your next message, queued as a follow-up while Pi is working. When a file in the page's folder changes,
 // the page reloads where you were. One review per session; it stops when the
 // session ends, is replaced, or reloads.
 //
 // Policy exception (pi/extensions/README.md): this extension calls
-// sendUserMessage, but only with notes you wrote and sent from the review page
-// of a review you started with this command.
+// sendUserMessage, but only with notes sent from the review page of a review you
+// started with this command, after you confirm each batch in Pi.
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatBatch, type PageInfo } from "./notes.ts";
+import { formatBatch, NoteError, type PageInfo } from "./notes.ts";
 import { type ReviewServer, startReviewServer } from "./server.ts";
 
 export const COMMAND = "artifact-review";
@@ -172,8 +172,13 @@ export function registerArtifactReview(pi: ExtensionAPI, deps: Dependencies = de
       overlayPath: deps.overlayPath,
       title: page.title,
       busy: () => busy,
-      deliver(batch) {
+      async deliver(batch) {
         const text = formatBatch(batch, info);
+        // Scripts in the page share the panel's origin and could post notes, so a person confirms each batch.
+        const count = `${batch.notes.length} note${batch.notes.length === 1 ? "" : "s"}`;
+        if (!ctx.hasUI || !(await ctx.ui.confirm(`Send ${count} from the review page?`, text))) {
+          throw new NoteError("you declined them in Pi");
+        }
         const queued = !ctx.isIdle();
         // Sent at once when Pi is idle; otherwise waits until the current run ends.
         pi.sendUserMessage(text, { deliverAs: "followUp" });

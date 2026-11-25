@@ -156,9 +156,9 @@ original. Nothing deletes pages; remove a folder by hand. The store is private
 
 To give feedback on a page by pointing at it, run `/artifact-review <id>` in the
 Pi session that made it. The page opens from a local server with a review panel:
-Option-click any part of it, or select text, write a note, and press Send. The
-notes arrive in that session as your message (after the current step if Pi is
-busy), and the page reloads where you were when the agent changes it. Details
+Option-click any part of it, or select text, write a note, and press Send. After
+you confirm them in Pi, the notes arrive in that session as your message (after
+the current step if Pi is busy), and the page reloads where you were when the agent changes it. Details
 and limits: [`artifact-review`](../pi/extensions/artifact-review/README.md).
 
 ### rho and helper agents

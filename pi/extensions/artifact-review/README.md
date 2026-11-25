@@ -23,9 +23,10 @@ where you were.
    without Option. The outline, the note card and the **Add note** button
    scroll with the part of the page they belong to; the review panel stays in
    the bottom-right corner.
-3. You press **Send to Pi** (or ⌘Enter in a note). The notes arrive in Pi as your
-   message. If Pi is busy, they wait until it finishes, like a follow-up you
-   type while it works.
+3. You press **Send to Pi** (or ⌘Enter in a note). Pi shows the message and asks
+   you to confirm it. Then the notes arrive in Pi as your message. If Pi is busy,
+   they wait until it finishes, like a follow-up you type while it works. If you
+   decline, nothing is sent and the notes stay on the page.
 4. The agent edits the page. A change to any file in the page's folder reloads
    the page at the same scroll position and address. A half-written note holds
    the reload until you add it or cancel it.
@@ -61,12 +62,12 @@ Send, **Copy** copies the exact message Pi received.
   folder (symlinks out of it are refused). It changes no files.
 - The review panel is added to the page as it is served; the file on disk is
   unchanged. The panel lives in a shadow root, so the page's styles do not
-  reach it. A script inside the reviewed page could post notes too; review only
-  pages you trust.
+  reach it. A script inside the reviewed page could post notes too, which is why
+  Pi asks you to confirm every batch and shows you what it would send.
 
 Policy: this extension calls `pi.sendUserMessage`, an
-[approved exception](../README.md) because it only sends notes you wrote and sent
-from a review you started.
+[approved exception](../README.md) because it only sends notes from a review you
+started, after you confirm each batch in Pi.
 
 ## Files
 
