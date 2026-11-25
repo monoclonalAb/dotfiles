@@ -190,13 +190,17 @@ and retarget each run a full analysis; tour covers the full current diff;
 ## Running this as a Pi goal
 
 A goal runs a few steps at a time; merges, gates and live key checks are
-Eric's. Preconditions: this plan is merged to `main` (worktrees start from
-`origin/main`); the previous run's gate, if any, is approved by Eric (step 4's
-tour check before run 3; step 6's fallback choice before run 5).
+Eric's. All runs work in one worktree,
+`~/.herdr/worktrees/dotfiles/feat-reviewer-mode` (its own Herdr space).
+Preconditions: this plan is merged to `main` (steps start from `origin/main`);
+that worktree's `git status --short` is empty; the previous run's gate, if any,
+is approved by Eric (step 4's tour check before run 3; step 6's fallback choice
+before run 5).
 
 **Runs:** 1: steps 1-3. 2: step 4 (ends at its gate). 3: steps 9-10. 4: steps 5,
 6. 5: steps 7-8. 6: steps 11-12. Launch each in a fresh Pi session on a Claude
-model in this repository, naming the run, its permissions and a deadline, e.g.:
+model, started in that worktree, naming the run, its permissions and a
+deadline, e.g.:
 
 ```text
 /goal --budget 2000000 Run 1 of docs/plans/active/2026-11-25-review-mode.md (steps 1-3), deadline 4 hours. You may commit, push branches named review-mode/step-N and open or update their draft PRs in monoclonalAb/dotfiles. No other external writes.
@@ -221,10 +225,13 @@ Rules:
    outside the sandbox, any force-push to GitHub (force-push and retarget tests
    use a local bare-repository fixture), messages, deploys, `dotfiles-link
    apply` on the real home, edits or relinks of existing files under `$HOME`.
-3. **Branches:** one worktree per step at
-   `~/.herdr/worktrees/dotfiles/review-mode-step-N`, on goal-owned branches
-   `review-mode/step-N`. Base: `origin/main` if the step it waits for is merged,
+3. **Branches:** steps run one at a time in that worktree, each on its own
+   goal-owned branch `review-mode/step-N`; create no other worktrees. Base:
+   `origin/main` (after `git fetch origin`) if the step it waits for is merged,
    else that step's open `review-mode/step-M` branch (stacked, also across runs).
+   Before every branch switch, `git status --short` must be empty: commit the
+   current step's own work to its branch, and stop if anything else is left,
+   because a switch silently carries uncommitted files into the next branch.
    A stacked draft PR targets that dependency branch; once the dependency merges,
    the next run retargets it to `main` (`gh pr edit --base main`) before working on it.
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
