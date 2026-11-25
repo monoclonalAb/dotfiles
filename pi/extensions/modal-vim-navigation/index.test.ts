@@ -296,6 +296,7 @@ describe("copy cleared draft", () => {
       editorContainer: new tuiPackage.Container(),
       disposeActiveSelector() {},
       lastSigintTime: 0,
+      extensionDialogs: [],
       shutdown: mock(async () => {}),
       clearEditor: codingAgent.InteractiveMode.prototype.clearEditor,
     };
