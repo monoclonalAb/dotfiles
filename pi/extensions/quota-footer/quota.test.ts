@@ -514,6 +514,23 @@ test("account-scoped Claude caches delete other logins' folders untouched for a 
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+test("a symlinked cache root is never pruned, so another tool's folders survive", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "quota-prune-link-"));
+  try {
+    const otherTool = join(dir, "other-tool-state");
+    const hashNamed = join(otherTool, "a".repeat(64));
+    await mkdir(hashNamed, { recursive: true });
+    await writeFile(join(hashNamed, "keep-me"), "");
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000);
+    await utimes(hashNamed, twoDaysAgo, twoDaysAgo);
+    await symlink(otherTool, join(dir, "quota-footer"));
+    const read = createQuotaReader(registry("sk-ant-oat-current"), async () => Response.json(claudeFixture()),
+      { throttleDir: join(dir, "quota-footer"), accountScoped: true });
+    await read("anthropic", signal());
+    expect(await readdir(hashNamed)).toEqual(["keep-me"]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test.each(["snapshot", "cold-backoff"])("scoped adoption honours legacy %s without mixing logins", async (kind) => {
   const dir = await mkdtemp(join(tmpdir(), "quota-legacy-"));
   try {
