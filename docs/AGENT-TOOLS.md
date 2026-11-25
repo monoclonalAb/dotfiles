@@ -69,6 +69,7 @@ context.
 | `session-controls.ts` | `/drop` erases this session and starts a new one (Pi's `/new` keeps it) |
 | `copy-session.ts` | `/copy-session`, or `/copy` through `modal-vim-navigation`, copies this session's file path (to paste into another session), without `/session`'s slow statistics |
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears; `/copy` runs `/copy-session` instead of copying the last reply |
+| [`artifact-review`](../pi/extensions/artifact-review/README.md) | `/artifact-review <page>` opens a page in the browser; Option-click or select text to write notes, Send delivers them to the session, and edits reload the page (below) |
 | [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
 | [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
@@ -107,12 +108,6 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
 
 - `/discuss`: interview, then an implementation-ready summary.
 - `/eli5 <topic>`: a throwaway visual HTML explainer.
-- `/tutor <topic>`: Socratic tutoring to mastery. Adapted from the
-  `socratic-tutor` skill in
-  [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills)
-  (commit `7c6715c`) without its intent check, which only matters when a skill
-  starts itself. Its MIT licence is in
-  [`pi/prompts/tutor/`](../pi/prompts/tutor/LICENSE.md).
 - `/domain-first [scope]`, `/test-sweep [scope]`, `/feedback [correction]`.
 - `/pr [notes]`: commit, push, and open or update a draft PR by following the
   [`pr` skill](../pi/skills/pr/SKILL.md). The skill holds the rules: it
@@ -153,6 +148,13 @@ The `artifact.json` files are the index, read fresh by every `list`; the gallery
 page, `artifact add <file or folder> --summary ...` copies it and leaves the
 original. Nothing deletes pages; remove a folder by hand. The store is private
 (`0700`) because pages can hold work data, and it is outside this repository.
+
+To give feedback on a page by pointing at it, run `/artifact-review <id>` in the
+Pi session that made it. The page opens from a local server with a review panel:
+Option-click any part of it, or select text, write a note, and press Send. After
+you confirm them in Pi, the notes arrive in that session as your message (after
+the current step if Pi is busy), and the page reloads where you were when the agent changes it. Details
+and limits: [`artifact-review`](../pi/extensions/artifact-review/README.md).
 
 ### rho and helper agents
 
@@ -421,7 +423,12 @@ trace lookup.
   frontmatter.
 - **Skill scope:** keep only cross-repository skills in `pi/skills/`:
   `agent-handoff`, `llm-eval`, `omp-repo-setup`, `pr`, `repo-recon`,
-  `secret-sast-sweep` and `visual-verify`. Repository-specific skills live in
+  `secret-sast-sweep`, `socratic-tutor` and `visual-verify`.
+  [`socratic-tutor`](../pi/skills/socratic-tutor/SKILL.md) is Jane Street's
+  skill from [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills),
+  unchanged from commit `7c6715c`, with its MIT
+  [licence](../pi/skills/socratic-tutor/LICENSE.md); it teaches by questions
+  when asked "teach me" or "quiz me". Repository-specific skills live in
   [`pi/scoped-skills/`](../pi/scoped-skills/) (`~/.pi/agent/scoped-skills/`),
   which neither harness auto-discovers; link each into the repositories it
   applies to at `.omp/skills/<name>` (both OMP and `/skill` scan that folder):
