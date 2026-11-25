@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open, rename, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,8 @@ export const TIMEOUT_MS = 15_000;
 export const SHARED_ANTHROPIC_THROTTLE_MS = 15 * 60_000;
 export const MAX_CACHE_AGE_MS = 60 * 60_000;
 const THROTTLE_LOCK_MS = 30_000;
+/** A polled login's folder changes at least hourly; a token refresh moves polling to a new folder. */
+const STALE_SCOPE_MS = 24 * 60 * 60_000;
 
 const ENDPOINTS: Record<Provider, { base: string; usage: string }> = {
   "openai-codex": {
@@ -410,6 +412,18 @@ async function claimAnthropicLease(directory: string, now: () => number, minInte
   return { retryAt: now() + THROTTLE_LOCK_MS, busy: true };
 }
 
+async function pruneStaleScopes(root: string, keep: string, now: number): Promise<void> {
+  const names = await readdir(root).catch(() => [] as string[]);
+  for (const name of names) {
+    if (name === keep || !/^[a-f0-9]{64}$/.test(name)) continue;
+    const path = join(root, name);
+    try {
+      const info = await lstat(path);
+      if (info.isDirectory() && now - info.mtimeMs > STALE_SCOPE_MS) await rm(path, { recursive: true, force: true });
+    } catch {}
+  }
+}
+
 export function createQuotaReader(
   registry: Registry,
   fetchImpl: Fetch = fetch,
@@ -476,7 +490,10 @@ export function createQuotaReader(
         while (true) {
           signal.throwIfAborted();
           const claim = await claimAnthropicLease(directory, now, interval);
-          if ("release" in claim) lease = claim;
+          if ("release" in claim) {
+            lease = claim;
+            if (options.accountScoped && root) await pruneStaleScopes(root, scope, now());
+          }
           shared = await readSharedUsage(directory, scope, now());
           signal.throwIfAborted();
           const cached = cachedReading(shared, now(), interval,
