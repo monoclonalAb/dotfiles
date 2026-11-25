@@ -233,7 +233,7 @@ Rules:
    current step's own work to its branch, and stop if anything else is left,
    because a switch silently carries uncommitted files into the next branch.
    A stacked draft PR targets that dependency branch; once the dependency merges,
-   the next run retargets it to `main` (`gh pr edit --base main`) before working on it.
+   the next run retargets it to `main` (`gh pr edit review-mode/step-N --base main`) before working on it.
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
 4. **Checks:** run the checks a step names plus the existing suites for files it
    touches (the `lib/review-analyse` suite only once it exists). Advance only on
