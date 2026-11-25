@@ -34,7 +34,8 @@ items 1-9 of Devin Review (artifact `2026-11-21-devin-review-flow`):
 
 ## Context and constraints (measured 2026-11-19 to 11-25)
 
-- **Tour prototype:** `pi-agent -m sonnet -r` on amagomori/trident #231 (head
+- **Tour prototype:** `pi-agent -m sonnet -r`, which `bin/pi-agent` maps to
+  `openai-codex/gpt-6.1-sol` (GPT-6.1 Sol, not Claude Sonnet), on amagomori/trident #231 (head
   `d7db56d`) produced an overview, 7 ordered groups with reviewer concerns and 0
   findings in 61 s; all 35 hunks in exactly one group. Devin on the same commit:
   5 groups, 0 findings. Prompt shape: hunks labelled `### H1..Hn`, JSON reply
@@ -114,13 +115,13 @@ raywhite-ai #486 and ckc-de04 #293 (119 files); tests on a made-up repo for a PR
 over 8 MiB, one oversized file, and a push while the snapshot loads.
 
 **Step 4 — Overview and guided tour (items 2, 3).** Waits for step 3.
-`bin/review-analyse tour`: Pi agent (Sonnet) with a 5-minute limit, empty git
+`bin/review-analyse tour`: Pi agent (GPT-6.1 Sol, as in the prototype) with a 5-minute limit, empty git
 and `gh` setup, cached per snapshot; coverage validator (every hunk exactly
 once) with fallback to Files; outline, Part N of M, explanation, reviewer
 concern, Guide | Files.
 Done: trident #231 tour covers all 35 hunks; malformed output falls back
-(test); inside the agent's environment `gh auth status` shows no login and
-`git credential fill` returns nothing for github.com; time and cost recorded.
+(test); a pass/fail check (output discarded) shows the agent's environment has
+no `gh` login and no git credential for github.com; time and cost recorded.
 **Gate:** Eric reads one real tour and says whether it is right.
 
 **Step 9 — Draft comments (item 7, part 1).** Waits for step 4.
@@ -188,31 +189,65 @@ and retarget each run a full analysis; tour covers the full current diff;
 
 ## Running this as a Pi goal
 
-Start in a fresh Pi session in this repository with a budget, for example
-`/goal --budget 3000000 follow docs/plans/active/2026-11-25-review-mode.md, milestone 1`.
-Rules for the goal:
+A goal runs a few steps at a time; merges, gates and live key checks are
+Eric's. Preconditions: this plan is merged to `main` (worktrees start from
+`origin/main`), and the previous run's PRs are merged or explicitly stacked on.
 
-1. Work in a worktree per step under `~/.herdr/worktrees/dotfiles/`, branched
-   from the previous unmerged step (stacked) or from `origin/main`. One step is
-   one draft PR, made with the `pr` skill.
-2. Follow `/rho` for each step: tests first where a cheap test shows the
-   behaviour, the step's done check on its real case, one review round from the
-   other model family (up to three), and the step's screenshot attached to the
-   PR description by path.
-3. Tick the step in Progress below with the PR link and the done-check outcome.
-   Never tick a step whose check was not run.
-4. **Stop (mark the goal blocked) when:** a gate above is reached; a done check
-   still fails after three attempts; a step needs a decision this file does not
-   make; three PRs are stacked unmerged; anything would write to GitHub outside
-   `monoclonalAb/review-mode-sandbox` (including comments on real PRs); a merge
-   is needed (dotfiles merges are Eric's).
-5. Live-window checks (layout switches, `herdr-app shot`) change Eric's screen:
-   do them only when Eric has said he is away, otherwise stop and ask. Test
-   unmerged files by linking only the new layout and mod files into
-   `~/.config/herdr-app/` and switching with `herdr-app do layout.switch`;
-   never edit or relink existing files; remove the preview links afterwards.
-6. Never print the bot token or add it to `gh`; never use Eric's login for
-   writes in tests; never run `dotfiles-link apply` on the real home.
+**Runs:** 1: steps 1-3. 2: step 4 (ends at its gate). 3: steps 9-10. 4: steps 5,
+6. 5: steps 7-8. 6: steps 11-12. Launch each in a fresh Pi session on a Claude
+model in this repository, naming the run, its permissions and a deadline, e.g.:
+
+```text
+/goal --budget 2000000 Run 1 of docs/plans/active/2026-11-25-review-mode.md (steps 1-3), deadline 4 hours. You may commit, push branches named review-mode/step-N and open or update their draft PRs in monoclonalAb/dotfiles. No other external writes.
+```
+
+Rules:
+
+1. **Finish line:** each step named by the run has a draft PR whose step checks
+   passed on the PR's pushed head SHA, recorded in Progress (branch, base SHA,
+   PR, tested SHA). Then mark the goal complete. The project's acceptance
+   criteria are not a run's finish line.
+2. **Permissions:** only what the launch line grants. These rules override
+   `/rho`'s merge rule, review-bot replies and handoff pushes. Never: merge, force-push,
+   write to any GitHub repository other than `monoclonalAb/dotfiles` (draft PRs
+   on goal branches) and, when the launch line says "sandbox writes",
+   `monoclonalAb/review-mode-sandbox`; send messages; deploy; run
+   `dotfiles-link apply` on the real home; edit or relink existing files under
+   `$HOME`. Sandbox approvals and reviews use Eric's login on PRs opened by
+   `monoclonal-bot`; sandbox merges are allowed with "sandbox writes".
+   Force-push and retarget tests use a local bare-repository fixture.
+3. **Branches:** one worktree per step at
+   `~/.herdr/worktrees/dotfiles/review-mode-step-N`, on goal-owned branches
+   `review-mode/step-N`, from `origin/main` or the run's previous step (stacked).
+   Never reuse, rewrite or publish another branch; preserve unrelated changes.
+4. **Checks:** run the checks a step names plus the existing suites for files it
+   touches (the `lib/review-analyse` suite only once it exists). Advance only on
+   passing checks at the pushed SHA. Follow `/rho`: three failed fix attempts, a
+   reviewer that fails twice, or review rounds capped with open findings mean
+   stop.
+5. **Stop (mark blocked, with a note in Progress)** at a gate, when a needed
+   permission isn't granted, when three of the run's PRs are stacked unmerged,
+   after two turns without progress, or at the deadline. Never loop on retries.
+6. **Live app:** no layout switches, terminals or screenshots in the real window
+   unless the launch line says "live checks allowed". Before merge, render with
+   `herdr-app check` on worktree mods (side effects guarded by `checking()`) and
+   test keys through `keys.json` tests; Eric checks `C-a p` live after step 1
+   merges. Only start, send to or end terminals the run created (label
+   `review-mode.test=1`); end them before stopping.
+7. **Screenshots** stay local (`/tmp`), are never committed or uploaded, and
+   show only Review mode with sandbox or public PRs.
+8. **Credentials and data:** read the bot token only inside the one command that
+   uses it (`GH_TOKEN=$(security find-generic-password -s
+   review-mode-sandbox-bot -w) gh ...`); never echo it, put it in a prompt or
+   pass it to an agent. Credential checks report pass/fail only. Model runs read
+   only public PRs and sandbox PRs; work-repo PRs (raywhite-ai #486, ckc-de04
+   #293) are used for file counts, not sent to a model, unless Eric approves.
+9. **Cost:** the goal budget excludes cache reads and `pi-agent` subprocesses,
+   so also: at most 3 review rounds per PR, tour runs of at most 5 minutes and 5
+   per step, CI waits of at most 20 minutes.
+10. **Reviewer route:** `pi-agent -m other` from a Claude session resolves to GPT,
+    which skips the OMP update preflight that a session's first direct Claude
+    request can run (`pi/extensions/omp-anthropic-route/README.md`).
 
 ## Progress
 
@@ -236,7 +271,7 @@ Rules for the goal:
 - **Scope = Devin Review items 1-9:** Eric, 2026-11-25.
 - **Order:** milestone 1 = steps 1, 2, 3, 4, 9, 10, so a review can be read and
   submitted in Herdr first. Proposed; Eric can reorder.
-- **Analysis model:** Sonnet, measured in step 4. Proposed.
+- **Analysis model:** GPT-6.1 Sol (`pi-agent -m sonnet`), the prototype's model; cost measured in step 4. Proposed.
 - **Analysis runs when a PR is opened**, not in the background. Proposed.
 - **Sandbox and machine account** created 2026-11-25.
 
