@@ -24,7 +24,8 @@ interface World {
 }
 
 // Pi's children as in a real session: MCP servers reading a socket from Pi.
-const MCP = { ps: `1 0\n701 ${process.pid}\n702 ${process.pid}\n703 1\n`, stdin: "p701\nf0\ntunix\np702\nf0\ntunix\n" };
+// 709 is the `ps` that listed them, gone by the time lsof runs.
+const MCP = { ps: `1 0\n701 ${process.pid}\n702 ${process.pid}\n703 1\n709 ${process.pid}\n`, stdin: "p701\nf0\ntunix\np702\nf0\ntunix\n" };
 
 function harness(over: Partial<World> = {}, env: Record<string, string> = {}, ui = true) {
   const dir = mkdtempSync(join(tmpdir(), "park-idle-"));
@@ -177,7 +178,7 @@ test("children, their input and live sub-terminals are read from ps, lsof and hc
   assert.equal(hasCommandChild("p1\nf0\ntunix\np2\nf0\ntunix\n", [1, 2]), false, "MCP servers");
   assert.equal(hasCommandChild("p1\nf0\ntunix\np2\nf0\ntCHR\n", [1, 2]), true, "a command on /dev/null");
   assert.equal(hasCommandChild("p1\nf0\ntunix\np2\nf0\ntPIPE\n", [1, 2]), true, "`!cmd < <(…)`");
-  assert.equal(hasCommandChild("p1\nf0\ntunix\n", [1, 2]), true, "`!cmd 0<&-` has no input");
+  assert.equal(hasCommandChild("p1\nf0\ntunix\n", [1, 2]), false, "2 exited before lsof, as the listing ps does");
   const reply = (terminals: object[]) => `${JSON.stringify({ id: 1, result: {} })}\n${JSON.stringify({ id: 2, result: { terminals } })}\n`;
   assert.equal(hasLiveChild(reply([{ parent: "t7", state: "live" }]), "t7"), true);
   assert.equal(hasLiveChild(reply([{ parent: "t7", state: "finished" }, { parent: "t9", state: "live" }]), "t7"), false);

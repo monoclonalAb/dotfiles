@@ -36,7 +36,8 @@ export function childPids(ps: string, pid: number) {
 
 // Whether one of `children` runs a command, given `lsof -F pt -d 0` for them.
 // Pi's MCP servers read a unix socket from Pi; a command reads /dev/null, the
-// terminal, a file or a pipe, or has no input at all.
+// terminal, a file or a pipe. A child lsof does not list has exited, like the
+// `ps` that listed it.
 export function hasCommandChild(lsof: string, children: number[]) {
   const input = new Map<number, string>();
   let pid = 0;
@@ -44,7 +45,7 @@ export function hasCommandChild(lsof: string, children: number[]) {
     if (line.startsWith("p")) pid = Number(line.slice(1));
     else if (line.startsWith("t")) input.set(pid, line.slice(1).trim());
   }
-  return children.some((child) => input.get(child) !== "unix");
+  return children.some((child) => input.has(child) && input.get(child) !== "unix");
 }
 
 // Whether the `hc connect` replies list a live terminal whose parent is `terminal`.
