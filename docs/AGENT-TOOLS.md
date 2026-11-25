@@ -67,8 +67,7 @@ context.
 | Extension | Adds |
 | --- | --- |
 | `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) skill is on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows it as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
-| `session-controls.ts` | `/clear` and `/drop` |
-| `copy-prompt.ts` | `alt+shift+c` copies the draft |
+| `session-controls.ts` | `/drop` erases this session and starts a new one (Pi's `/new` keeps it) |
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears |
 | [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
 | [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
