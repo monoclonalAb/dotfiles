@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, stat, symlink, unlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -485,6 +485,32 @@ test("account-scoped Claude caches isolate quota/backoff and reuse readings acro
     now += 1_200_001;
     await expect(reader("full")("anthropic", signal())).rejects.toMatchObject({ code: "rate-limit" });
     expect(calls).toEqual(["full", "work", "full"]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("account-scoped Claude caches delete other logins' folders untouched for a day", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "quota-prune-"));
+  try {
+    const now = Date.now();
+    const scope = (token: string) => createHash("sha256").update(token).digest("hex");
+    const current = scope("sk-ant-oat-current");
+    const refreshed = scope("sk-ant-oat-refreshed-two-days-ago");
+    const otherSession = scope("sk-ant-oat-other-session");
+    const hexFile = scope("a file, not a login folder");
+    for (const name of [current, refreshed, otherSession, "notes"]) {
+      await mkdir(join(dir, name));
+      await writeFile(join(dir, name, "anthropic.json"), "{}");
+    }
+    await writeFile(join(dir, hexFile), "");
+    await writeFile(join(dir, "anthropic.next"), String(now - 60 * 86_400_000));
+    const twoDaysAgo = new Date(now - 2 * 86_400_000);
+    const hourAgo = new Date(now - 3_600_000);
+    for (const name of [current, refreshed, hexFile, "notes", "anthropic.next"]) await utimes(join(dir, name), twoDaysAgo, twoDaysAgo);
+    await utimes(join(dir, otherSession), hourAgo, hourAgo);
+    const read = createQuotaReader(registry("sk-ant-oat-current"), async () => Response.json(claudeFixture()),
+      { throttleDir: dir, accountScoped: true, now: () => now });
+    expect(await read("anthropic", signal())).toMatchObject({ weekly: { usedPercent: 14 }, cached: false });
+    expect((await readdir(dir)).sort()).toEqual([current, otherSession, hexFile, "notes", "anthropic.next"].sort());
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
