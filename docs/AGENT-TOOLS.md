@@ -258,7 +258,13 @@ How it behaves:
 The global servers:
 
 - **gcloud** and **gcp-observability** use the same pinned packages as OMP and
-  start with every session (needs `npx` and the gcloud CLI). gcloud is read-only
+  start with every session (needs Node and the gcloud CLI). They start through
+  [`bin/npm-mcp`](../bin/npm-mcp), which installs the pinned version once into
+  `~/.local/share/npm-mcp/<package>@<version>/` (with npm, on first start) and
+  then runs Node on it directly. `npx` would leave an extra `npm exec` process
+  of about 47 MB beside each server for the whole session. To change a pin, edit
+  the version in `pi/mcp.json` and `omp/mcp.json`; the next start installs it,
+  and the old version's folder can be deleted. gcloud is read-only
   only because of the `-c` [allowlist](../omp/gcloud-mcp-allowlist.json); keep it.
   Neither restricts projects: they use your Google IAM, so pass explicit project
   IDs. If auth has expired, run `gcloud auth login` and

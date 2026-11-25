@@ -51,7 +51,7 @@ operator's shell.
 
 ```sh
 (
-  for file in bin/pi bin/dotfiles-update bin/install-herdr-focus bin/workspace-context-mcp bin/gmail-mcp bin/tailscale; do
+  for file in bin/pi bin/dotfiles-update bin/install-herdr-focus bin/workspace-context-mcp bin/gmail-mcp bin/npm-mcp bin/tailscale; do
     sh -n "$file" || exit 1
   done
 )
@@ -140,7 +140,7 @@ and side effects first; use them when the affected live path is in scope.
 | HTML artifact store | `artifact list -n 5` | Reads the real store only; `new`, `add`, `update` and `index` write to it, and `open` starts the browser |
 | Workspace Context MCP | `bin/workspace-context-mcp doctor`, then `call <tool> '<json>'` | Reads the real workspace roots; no writes or network |
 | New-Mac bootstrap | `bin/dotfiles-bootstrap --check`; for a blank machine's view, `(t=$(mktemp -d) && env -i HOME="$t" PATH=/usr/bin:/bin bin/dotfiles-bootstrap --check; rm -rf "$t")` | Changes no configuration, but runs `brew bundle check`, `dotfiles-link check` and Herdr status queries, which may write their own caches and locks. The default mode installs software; never run it as a check |
-| Pi MCP registration | `pi mcp list` from the project directory, then `/reload` and `/mcp` in Pi | Starts every enabled server (npx, gcloud, local HTTP) and exits 1 on a config error or a server that did not connect; reads project `.pi/mcp.json` only in trusted projects. `pi mcp add`/`remove` write through the link into the repository |
+| Pi MCP registration | `pi mcp list` from the project directory, then `/reload` and `/mcp` in Pi | Starts every enabled server (local launchers, gcloud, local HTTP) and exits 1 on a config error or a server that did not connect; reads project `.pi/mcp.json` only in trusted projects. `pi mcp add`/`remove` write through the link into the repository |
 | Pi extension loading | Fresh Pi session and the affected command/UI | Startup hooks run. The [Anthropic route's OMP update check and model probe](../pi/extensions/omp-anthropic-route/README.md#request-preflight) wait for the first direct Claude OAuth request (including SDK/extension requests), which may upgrade OMP and uses probe quota |
 | Herdr app mods | `herdr-app check ~/.config/herdr-app/mods/<name>`, then `touch -h` the edited link and `herdr-app status` (expect `"errors": []`) | `check` loads and renders the mod once outside the window; `status` reports the running app's file and mod errors. `herdr-app shot <file.png>` saves the window for a visual check. Mods run `git`, `gh` and `hc` in the real environment |
 | Herdr app commands | `herdr-app do <mod>.<command>` (for example `next-agent.jump`) with the `eric` layout showing | Changes focus or opens dialogs in the live window. Test agents: `hc run --bg --no-parent -- <script>` reporting OSC 7501 (`\e]7501;state=done:app=fake\e\\`), never existing conversations |
