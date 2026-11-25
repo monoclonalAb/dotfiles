@@ -160,6 +160,9 @@ export function registerHerdrTaskSummary(
   }
 
   pi.on("session_start", (_event, ctx) => {
+    // Only an interactive Pi owns its pane. A `pi -p` that an agent runs from its
+    // shell inherits the pane's variables too, and must not retitle the agent's Pi.
+    if (ctx.mode !== "tui") return;
     started = true;
     cache.clear();
     restore(ctx);
@@ -181,6 +184,7 @@ export function registerHerdrTaskSummary(
   });
 
   pi.on("session_shutdown", async () => {
+    if (!started) return;
     started = false;
     cancel();
     cache.clear();
