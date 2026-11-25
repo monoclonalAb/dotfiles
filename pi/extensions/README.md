@@ -77,7 +77,6 @@ This README is a development policy only. Pi does not load it into model context
 
 - [`compact-ui/`](compact-ui/README.md) replaces the quiet-startup header with one expandable line and shows a right-aligned `MCP: N/M` (enabled/total servers in Pi's `mcp.json` files) in the footer.
 - [`quota-footer/`](quota-footer/README.md) polls quota endpoints with Pi's own logins in interactive sessions and shows usage in the footer; `/usage` covers every saved account. Claude readings are cached privately per login outside Git.
-- `long-context/` adds `/long-context [on|off|status]` for direct OpenAI and OpenAI Codex GPT-5.6 Sol, Terra, Luna, and GPT-6 Astra. With no argument it toggles the active model between Pi's 272K default and the model's 1.05M window for the current session. It changes only the active model metadata, shows `ctx:1.05M` while enabled, and warns that requests above 272K may use long-context pricing; it does not alter conversation content or provider payloads.
 
 Workflows that only need a prompt belong in [`../prompts/`](../prompts/) as templates,
 not extensions: they enter context only when the user invokes them.

@@ -223,8 +223,8 @@ Proposed controls (to implement; **not commands/settings available today**):
 Use a single dispatcher for manual, threshold, overflow, and between-tool-turn
 checks. Native thresholds must leave room for output, tool-result bursts, images,
 MCP schemas and estimation error. Derive them from current model metadata and
-provider limits; do not hard-code one threshold for every model or `/long-context`
-setting. Start conservatively (roughly 70–80% only where the resulting budget is
+provider limits; do not hard-code one threshold for every model.
+Start conservatively (roughly 70–80% only where the resulting budget is
 valid) and tune from measurements.
 
 Do not turn off Pi auto-compaction globally to make inline compaction win. Instead,
@@ -239,7 +239,7 @@ credentials, or billing product. Bound retries; honor abort without fallback wor
 
 Keep branch summarization portable initially, and exclude naming/BTW/read-only
 worker side requests from inheriting native mode automatically. Exercise `/fast`,
-`/long-context`, account routing, goal hooks, compact UI, and observer/usage
+account routing, goal hooks, compact UI, and observer/usage
 consumers together before any global activation.
 
 ### 5. Validate Codex subscription support separately
@@ -352,7 +352,7 @@ implementation ships, existing `compaction.enabled`, `reserveTokens`, and
    exactly once; steering/follow-up/goal behavior; SSE and WebSocket cache resets.
 4. Real Pi integration in isolated profiles, then relevant existing repo suites
    from [VERIFICATION.md](../../VERIFICATION.md): Codex fast, account routing,
-   long-context, workers, agent-stuff, observer, compact UI and quota usage.
+   workers, agent-stuff, observer, compact UI and quota usage.
    Use synthetic providers; extend test cases rather than treating old passes as
    evidence for new checkpoint behavior.
 5. Separately authorized real-provider trials: verify endpoint/compaction event,
