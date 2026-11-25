@@ -30,6 +30,15 @@ scrolling; pass `--tui-mode regular` explicitly to opt out.
 clearing it, including full large pastes and image paths. Pi's clear/exit timing
 and undo are unchanged; other deletions do not copy. A failed copy only warns.
 
+## `/copy` copies the session path
+
+Pi's own `/copy` copies the last reply. Pi checks its own commands before
+extension commands, so no extension can take over the name. This editor therefore
+sends an exact `/copy` as `/copy-session` ([`../copy-session.ts`](../copy-session.ts)),
+which copies this session's file path, and the command menu describes `/copy` that
+way. `/copy` with anything after it is sent unchanged. If `copy-session.ts` is not
+loaded, `/copy` is Pi's again. To copy the last reply, select its text.
+
 ## Clipboard images
 
 - **Ctrl+V** pastes a clipboard image (falling back to text). **Cmd+V** in Alacritty
