@@ -115,13 +115,13 @@ raywhite-ai #486 and ckc-de04 #293 (119 files); tests on a made-up repo for a PR
 over 8 MiB, one oversized file, and a push while the snapshot loads.
 
 **Step 4 — Overview and guided tour (items 2, 3).** Waits for step 3.
-`bin/review-analyse tour`: Pi agent (GPT-6.1 Sol, as in the prototype) limited to the `read` tool (no shell, edit or write; PR text can try to steer it), with a 5-minute limit, empty git
+`bin/review-analyse tour`: Pi agent (GPT-6.1 Sol, as in the prototype) with no tools at all (PR text can try to steer it): `bin/review-analyse` puts the labelled diff and the changed files, bounded, into its prompt; 5-minute limit, empty git
 and `gh` setup, cached per snapshot; coverage validator (every hunk exactly
 once) with fallback to Files; outline, Part N of M, explanation, reviewer
 concern, Guide | Files.
 Done: trident #231 tour covers all 35 hunks; malformed output falls back
-(test); the agent is started with only the `read` tool (test on the command line it builds); a pass/fail check (output discarded) shows its environment has
-no `gh` login and no git credential for github.com; tour quality without a shell compared with the prototype; time and cost recorded.
+(test); the agent is started with no tools (test on the command line it builds); a pass/fail check (output discarded) shows its environment has
+no `gh` login and no git credential for github.com; tour quality without tools compared with the prototype (if it needs more context, a read tool confined to the snapshot, with a test that outside reads are refused, is a separate later change); time and cost recorded.
 **Gate:** Eric reads one real tour and says whether it is right.
 
 **Step 9 — Draft comments (item 7, part 1).** Waits for step 4.
@@ -225,6 +225,8 @@ Rules:
    `~/.herdr/worktrees/dotfiles/review-mode-step-N`, on goal-owned branches
    `review-mode/step-N`. Base: `origin/main` if the step it waits for is merged,
    else that step's open `review-mode/step-M` branch (stacked, also across runs).
+   A stacked draft PR targets that dependency branch; once the dependency merges,
+   the next run retargets it to `main` (`gh pr edit --base main`) before working on it.
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
 4. **Checks:** run the checks a step names plus the existing suites for files it
    touches (the `lib/review-analyse` suite only once it exists). Advance only on
@@ -253,7 +255,7 @@ Rules:
    #293) are used for file counts, not sent to a model, unless Eric approves.
 9. **Cost and time:** the goal budget excludes cache reads and `pi-agent`
    subprocesses, so also: at most 3 review rounds per PR, tour runs of at most 5
-   minutes and 5 per step, CI waits of at most 20 minutes, and every reviewer or
+   minutes and 5 per step, CI waits of at most 20 minutes and never past the deadline, and every reviewer or
    agent call run with a shell timeout no longer than the time left before the
    deadline (at most 30 minutes); on timeout, stop rather than retry.
 10. **Reviewer route:** `pi-agent -m other` from a Claude session resolves to GPT,
