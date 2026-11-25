@@ -1,10 +1,13 @@
 // bun test ./pi/extensions/herdr-app-resume/*.test.ts
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { registerHerdrAppResume } from "./index.ts";
 
 function harness(env: Record<string, string> = { HC_TERMINAL_ID: "t7" },
-  { file = "/s/one.jsonl", pid = 4242 as unknown, mode = "tui" } = {}) {
+  { file = "/s/one.jsonl", pid = 4242 as unknown, mode = "tui", parent = 1 } = {}) {
   const handlers = new Map<string, (...args: any[]) => any>();
   const calls: string[][] = [];
   let sessionFile: string | undefined = file;
@@ -16,7 +19,7 @@ function harness(env: Record<string, string> = { HC_TERMINAL_ID: "t7" },
       return { code: 0, stdout: "", stderr: "", killed: false };
     },
   };
-  registerHerdrAppResume(pi as never, env);
+  registerHerdrAppResume(pi as never, env, parent);
   const ctx = { mode, sessionManager: { getSessionFile: () => sessionFile } };
   return {
     calls, handlers,
@@ -79,4 +82,26 @@ test("a failing hc never throws into Pi", async () => {
   const ctx = { mode: "tui", sessionManager: { getSessionFile: () => "/s/x.jsonl" } };
   await handlers.get("session_start")!({ reason: "startup" }, ctx);
   await handlers.get("session_shutdown")!({ reason: "quit" }, ctx);
+});
+
+test("parking keeps the labels, so a reboot still reopens the conversation", async () => {
+  const park = join(mkdtempSync(join(tmpdir(), "herdr-app-resume-")), "park");
+  const env = { HC_TERMINAL_ID: "t7", PI_PARK_FILE: park, PI_PARK_PID: "900" };
+  const parked = harness(env, { parent: 900 });
+  await parked.emit("session_start", { reason: "startup" });
+  writeFileSync(park, "/s/one.jsonl");
+  await parked.emit("session_shutdown", { reason: "quit" });
+  assert.deepEqual(parked.labels(), [["pi.session=/s/one.jsonl", "pi.shell=4242"]]);
+
+  const quit = harness(env, { parent: 900 });
+  await quit.emit("session_start", { reason: "startup" });
+  writeFileSync(park, "");
+  await quit.emit("session_shutdown", { reason: "quit" });
+  assert.deepEqual(quit.labels().at(-1), ["pi.session=", "pi.shell="], "an empty park file is a quit");
+
+  const nested = harness(env, { parent: 901 });
+  await nested.emit("session_start", { reason: "startup" });
+  writeFileSync(park, "/s/one.jsonl");
+  await nested.emit("session_shutdown", { reason: "quit" });
+  assert.deepEqual(nested.labels().at(-1), ["pi.session=", "pi.shell="], "another Pi's park file");
 });
