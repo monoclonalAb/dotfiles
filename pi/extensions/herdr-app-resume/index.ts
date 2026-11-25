@@ -14,6 +14,8 @@
 // shell pid changed, i.e. one that was recovered. Quitting Pi clears both labels,
 // so a conversation you ended is never reopened. Metadata only: nothing reaches
 // the model, and outside the Herdr app (no HC_TERMINAL_ID) it does nothing.
+// Only an interactive Pi owns its terminal. A `pi -p` that an agent runs from
+// its shell inherits HC_TERMINAL_ID too, and must not unlabel the agent's Pi.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export const SESSION_LABEL = "pi.session";
@@ -51,6 +53,7 @@ export function registerHerdrAppResume(pi: ExtensionAPI, environment: AppEnviron
   }
 
   pi.on("session_start", async (_event, ctx) => {
+    if (ctx.mode !== "tui") return;
     const file = ctx.sessionManager.getSessionFile();
     const pid = file ? await shellPid() : undefined;
     // An ephemeral session (--no-session) has no file to reopen.
@@ -59,8 +62,8 @@ export function registerHerdrAppResume(pi: ExtensionAPI, environment: AppEnviron
 
   // Reload, /new, /resume and fork start another session right after; only a
   // quit ends the conversation in this terminal.
-  pi.on("session_shutdown", async (event) => {
-    if (event.reason === "quit") await label([`${SESSION_LABEL}=`, `${SHELL_LABEL}=`]);
+  pi.on("session_shutdown", async (event, ctx) => {
+    if (event.reason === "quit" && ctx.mode === "tui") await label([`${SESSION_LABEL}=`, `${SHELL_LABEL}=`]);
   });
 }
 

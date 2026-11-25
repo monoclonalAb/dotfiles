@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { registerHerdrAppResume } from "./index.ts";
 
-function harness(env: Record<string, string> = { HC_TERMINAL_ID: "t7" }, { file = "/s/one.jsonl", pid = 4242 as unknown } = {}) {
+function harness(env: Record<string, string> = { HC_TERMINAL_ID: "t7" },
+  { file = "/s/one.jsonl", pid = 4242 as unknown, mode = "tui" } = {}) {
   const handlers = new Map<string, (...args: any[]) => any>();
   const calls: string[][] = [];
   let sessionFile: string | undefined = file;
@@ -16,7 +17,7 @@ function harness(env: Record<string, string> = { HC_TERMINAL_ID: "t7" }, { file 
     },
   };
   registerHerdrAppResume(pi as never, env);
-  const ctx = { sessionManager: { getSessionFile: () => sessionFile } };
+  const ctx = { mode, sessionManager: { getSessionFile: () => sessionFile } };
   return {
     calls, handlers,
     setFile(next: string | undefined) { sessionFile = next; },
@@ -60,13 +61,22 @@ test("an ephemeral session or an unknown shell leaves nothing to resume", async 
   assert.deepEqual(unknown.labels(), [["pi.session=", "pi.shell="]]);
 });
 
+test("a Pi that a program in this terminal runs, such as `pi -p` from an agent's shell, leaves its labels alone", async () => {
+  for (const mode of ["print", "json", "rpc"]) {
+    const h = harness({ HC_TERMINAL_ID: "t7" }, { mode });
+    await h.emit("session_start", { reason: "startup" });
+    await h.emit("session_shutdown", { reason: "quit" });
+    assert.deepEqual(h.calls, [], mode);
+  }
+});
+
 test("a failing hc never throws into Pi", async () => {
   const handlers = new Map<string, (...args: any[]) => any>();
   registerHerdrAppResume({
     on(name: string, handler: (...args: any[]) => any) { handlers.set(name, handler); },
     async exec() { throw new Error("hc missing"); },
   } as never, { HC_TERMINAL_ID: "t7" });
-  const ctx = { sessionManager: { getSessionFile: () => "/s/x.jsonl" } };
+  const ctx = { mode: "tui", sessionManager: { getSessionFile: () => "/s/x.jsonl" } };
   await handlers.get("session_start")!({ reason: "startup" }, ctx);
   await handlers.get("session_shutdown")!({ reason: "quit" }, ctx);
 });
