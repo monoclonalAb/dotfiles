@@ -206,7 +206,7 @@ that only enter context when invoked. The [Pi wrapper](../bin/pi)
 disables automatic skill discovery; `/skill` enables selected skills per session.
 In a terminal it runs Pi as a child: when Pi writes its session file to
 `PI_PARK_FILE` and exits, the wrapper keeps the terminal, reports an idle Pi to
-Herdr and reopens that session on focus, a click or a key.
+Herdr and reopens that session when its pane gets focus or a key.
 OMP defaults are not automatically Pi defaults, and a catalogue entry does not
 prove a tool is exposed in the current session.
 

@@ -6,7 +6,7 @@
 # Parking: in a terminal, Pi runs as a child so it can quit while idle and come
 # back. The park-idle extension writes the session file to PI_PARK_FILE and quits
 # Pi; this script then waits in the terminal, still reported to Herdr as an idle
-# Pi, and reopens that session on focus-in, a click or a key. Runs whose options
+# Pi, and reopens that session when its pane gets focus or a key. Runs whose options
 # a reopen could not repeat are exec'd as before and never park.
 set -eu
 
@@ -127,8 +127,7 @@ fi
 [ "$parkable" = true ] || exec "$real_pi" "$@"
 
 park_dir=${XDG_STATE_HOME:-$HOME/.local/state}/pi-park
-mkdir -p "$park_dir"
-chmod 700 "$park_dir"
+mkdir -p "$park_dir" 2>/dev/null && chmod 700 "$park_dir" || exec "$real_pi" "$@"
 PI_PARK_FILE=$park_dir/$$
 PI_PARK_PID=$$
 export PI_PARK_FILE PI_PARK_PID
@@ -137,12 +136,12 @@ terminal=$(stty -g)
 
 # Herdr keeps listing the terminal as an idle Pi. Every key wakes it (Ctrl+C
 # too: the terminal is raw); a focus-out alone does not, or leaving a parked pane
-# would reopen it. A click's release is drained so it never reaches Pi.
+# would reopen it.
 wait_for_return() {
     printf '\033]7501;state=idle:app=pi\033\\'
-    printf '\n%s\n' 'Pi closed while idle to free memory. Click or press a key to reopen this conversation.'
+    printf '\n%s\n' 'Pi closed while idle to free memory. Press a key to reopen this conversation.'
     stty raw -echo
-    printf '\033[?1004h\033[?1000h\033[?1006h'
+    printf '\033[?1004h'
     while :; do
         input=$(dd bs=64 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
         [ -n "$input" ] || exit 129
@@ -155,13 +154,7 @@ wait_for_return() {
         done
         [ -z "$rest" ] || break
     done
-    printf '\033[?1006l\033[?1000l\033[?1004l'
-    case "$input" in
-        1b5b3c*)
-            stty min 0 time 3
-            dd bs=256 count=1 >/dev/null 2>&1 || :
-            ;;
-    esac
+    printf '\033[?1004l'
     stty "$terminal"
     stty -echo -icanon -isig
 }

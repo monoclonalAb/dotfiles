@@ -137,8 +137,8 @@ class PiParkingTest(unittest.TestCase):
                                                   "--no-skills", "--tui-mode", "fullscreen", "--session", self.session])
         self.assertEqual(t.proc.wait(10), 0)
 
-    def test_focus_a_click_or_any_key_reopens_it(self):
-        for wake in (FOCUS_IN, b"\x1b[<0;3;4M", b"\x03", b"\x04", b"q"):
+    def test_focus_or_any_key_reopens_it(self):
+        for wake in (FOCUS_IN, b"\x03", b"\x04", b"q"):
             with self.subTest(wake=wake):
                 self.log.unlink(missing_ok=True)
                 t = self.start()
@@ -148,7 +148,7 @@ class PiParkingTest(unittest.TestCase):
                 self.assertEqual(self.runs()[1]["args"][-2:], ["--session", self.session])
                 self.assertEqual(t.proc.wait(10), 0)
 
-    def test_keys_typed_after_waking_reach_pi_but_a_click_release_does_not(self):
+    def test_keys_typed_after_waking_reach_pi(self):
         t = self.start(FAKE_PI_READ="1")
         self.parked(t)
         t.type(b"x")
@@ -158,17 +158,6 @@ class PiParkingTest(unittest.TestCase):
         self.assertEqual(bytes.fromhex(self.runs()[1]["stdin"]), b"yz")
         self.assertEqual(t.proc.wait(10), 0)
 
-        self.log.unlink()
-        t = self.start(FAKE_PI_READ="1")
-        self.parked(t)
-        t.type(b"\x1b[<0;3;4M")
-        time.sleep(0.05)
-        t.type(b"\x1b[<0;3;4m")
-        time.sleep(0.4)
-        t.type(b"hi")
-        self.assertTrue(t.wait_for(lambda: len(self.runs()) == 2))
-        self.assertEqual(bytes.fromhex(self.runs()[1]["stdin"]), b"hi")
-
     def test_quitting_passes_the_status_through_and_a_failed_park_is_not_parked(self):
         for plan, code in (("quit3", 3), ("quit", 0), ("park7", 7)):
             with self.subTest(plan=plan):
@@ -177,6 +166,15 @@ class PiParkingTest(unittest.TestCase):
                 self.assertEqual(t.proc.wait(10), code)
                 self.assertNotIn(NOTE, t.output)
                 self.assertEqual(len(self.runs()), 1)
+
+    def test_an_unusable_park_folder_still_runs_pi(self):
+        state = Path(self.env["XDG_STATE_HOME"])
+        state.mkdir()
+        (state / "pi-park").write_text("not a folder")
+        t = self.start(FAKE_PI_PLAN="park")
+        self.assertEqual(t.proc.wait(10), 0)
+        [run] = self.runs()
+        self.assertEqual(run["pid"], t.proc.pid)
 
     def test_runs_that_cannot_be_replayed_still_exec(self):
         for args, env in ((["-p", "hi"], {}), (["--no-tools"], {}), (["--no-session"], {}), (["--tools", "read"], {}),
