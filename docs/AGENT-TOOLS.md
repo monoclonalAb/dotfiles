@@ -106,12 +106,6 @@ has the same commands. Use only placeholders both harnesses expand (`$ARGUMENTS`
 
 - `/discuss`: interview, then an implementation-ready summary.
 - `/eli5 <topic>`: a throwaway visual HTML explainer.
-- `/tutor <topic>`: Socratic tutoring to mastery. Adapted from the
-  `socratic-tutor` skill in
-  [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills)
-  (commit `7c6715c`) without its intent check, which only matters when a skill
-  starts itself. Its MIT licence is in
-  [`pi/prompts/tutor/`](../pi/prompts/tutor/LICENSE.md).
 - `/domain-first [scope]`, `/test-sweep [scope]`, `/feedback [correction]`.
 - `/pr [notes]`: commit, push, and open or update a draft PR by following the
   [`pr` skill](../pi/skills/pr/SKILL.md). The skill holds the rules: it
@@ -420,7 +414,12 @@ trace lookup.
   frontmatter.
 - **Skill scope:** keep only cross-repository skills in `pi/skills/`:
   `agent-handoff`, `llm-eval`, `omp-repo-setup`, `pr`, `repo-recon`,
-  `secret-sast-sweep` and `visual-verify`. Repository-specific skills live in
+  `secret-sast-sweep`, `socratic-tutor` and `visual-verify`.
+  [`socratic-tutor`](../pi/skills/socratic-tutor/SKILL.md) is Jane Street's
+  skill from [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills),
+  unchanged from commit `7c6715c`, with its MIT
+  [licence](../pi/skills/socratic-tutor/LICENSE.md); it teaches by questions
+  when asked "teach me" or "quiz me". Repository-specific skills live in
   [`pi/scoped-skills/`](../pi/scoped-skills/) (`~/.pi/agent/scoped-skills/`),
   which neither harness auto-discovers; link each into the repositories it
   applies to at `.omp/skills/<name>` (both OMP and `/skill` scan that folder):
