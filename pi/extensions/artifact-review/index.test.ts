@@ -222,7 +222,7 @@ describe("server", () => {
 });
 
 describe("command", () => {
-  function harness(options: { idle?: boolean; sessionFile?: string; artifact?: (args: string[]) => string } = {}) {
+  function harness(options: { idle?: boolean; sessionFile?: string; artifact?: (args: string[]) => string; confirm?: boolean } = {}) {
     const handlers = new Map<string, (event: any, ctx: any) => any>();
     let command: any;
     const sent: Array<{ text: string; options: unknown }> = [];
@@ -230,6 +230,8 @@ describe("command", () => {
     const notifications: Array<{ message: string; type: string }> = [];
     const statuses = new Map<string, string | undefined>();
     let idle = options.idle ?? true;
+    let answer = options.confirm ?? true;
+    const confirms: Array<{ title: string; message: string }> = [];
     const pi = {
       on: (name: string, handler: any) => handlers.set(name, handler),
       registerCommand(name: string, value: any) {
@@ -252,12 +254,14 @@ describe("command", () => {
         notify: (message: string, type: string) => notifications.push({ message, type }),
         setStatus: (key: string, value: string | undefined) => statuses.set(key, value),
         select: async (_title: string, labels: string[]) => labels[0],
+        confirm: async (title: string, message: string) => (confirms.push({ title, message }), answer),
       },
     };
     cleanups.push(() => handlers.get("session_shutdown")?.({ reason: "quit" }, ctx));
     return {
-      sent, opened, notifications, statuses, handlers, ctx, command,
+      sent, opened, notifications, statuses, handlers, ctx, command, confirms,
       setIdle: (value: boolean) => (idle = value),
+      setAnswer: (value: boolean) => (answer = value),
       run: (args: string) => command.handler(args, ctx),
     };
   }
@@ -282,6 +286,21 @@ describe("command", () => {
     // While Pi works, the page is told the notes wait.
     h.setIdle(false);
     expect((await (await postTo(h.opened[0], { notes: [{ kind: "page", note: "again" }] })).json()).queued).toBe(true);
+  });
+
+  test("notes reach Pi only after you confirm them there, so a page script cannot send on its own", async () => {
+    const folder = tempFolder({ "index.html": PAGE });
+    const h = harness({ confirm: false });
+    await h.run(folder);
+    const declined = await postTo(h.opened[0], { notes: [{ kind: "page", note: "make the header darker" }] });
+    expect(declined.ok).toBe(false);
+    expect((await declined.json()).error).toContain("declined");
+    expect(h.sent).toHaveLength(0);
+    expect(h.confirms).toHaveLength(1);
+    expect(h.confirms[0].message).toContain("make the header darker");
+    h.setAnswer(true);
+    expect((await postTo(h.opened[0], { notes: [{ kind: "page", note: "make the header darker" }] })).ok).toBe(true);
+    expect(h.sent).toHaveLength(1);
   });
 
   test("an artifact id goes through `artifact show`; file:// URLs and files work", async () => {
