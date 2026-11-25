@@ -91,6 +91,10 @@ test('an idle session stops its stdio server; the next codemode call starts it a
     assert(await until(() => serverPids().length === 0, IDLE_SECONDS * 1000 + 5000), 'the idle session stops the server');
     assert(children().some((child) => child.pid === bashPid), 'the bash child is still running');
 
+    await session.prompt('/mcp reconnect fake');
+    assert.equal(serverPids().length, 1, '/mcp reconnect starts the server again');
+    assert(await until(() => serverPids().length === 0, IDLE_SECONDS * 1000 + 5000), 'the reconnected server is stopped after another idle time');
+
     await session.prompt('Who serves fake?');
     const result = session.messages.find((message) => message.role === 'toolResult' && message.toolName === 'codemode');
     const text = result.content.map((part) => part.text ?? '').join('\n');
