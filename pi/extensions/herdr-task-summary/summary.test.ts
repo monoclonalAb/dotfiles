@@ -431,6 +431,29 @@ test("a Pi that a program in this terminal runs, such as `pi -p` from an agent's
   }
 });
 
+test("a second shutdown, such as a quit during /new, still waits for the stable title", async () => {
+  const gate = deferred();
+  const h = harness(async () => deferred().promise);
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const titles: string[] = [];
+  registerHerdrTaskSummary({
+    on(name: string, handler: (...args: any[]) => any) { handlers.set(name, handler); },
+    async exec(_command: string, args: string[]) {
+      titles.push(args.at(-1)!);
+      await gate.promise;
+      return { code: 0 };
+    },
+  } as never, environment, { debounceMs: 0, animationMs: 1 });
+  h.entries.push(user("Fix login"));
+  handlers.get("session_start")!({}, h.ctx);
+  // An animation frame is being sent when /new shuts the session down.
+  await until(() => titles.length === 1 && h.calls.length === 1);
+  void handlers.get("session_shutdown")!({ reason: "new" }, h.ctx);
+  setTimeout(() => gate.resolve(undefined), 20);
+  await handlers.get("session_shutdown")!({ reason: "quit" }, h.ctx);
+  assert.equal(titles.at(-1), `${HERDR_SUMMARY_TOKEN}=${EMPTY_SESSION_SUMMARY}`);
+});
+
 test("empty sessions get a placeholder; only observational lifecycle hooks are registered", async () => {
   const h = harness();
   await h.emit("session_start");
