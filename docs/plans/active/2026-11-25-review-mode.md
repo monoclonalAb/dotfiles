@@ -237,10 +237,12 @@ Rules:
    A stacked draft PR targets that dependency branch. Once the dependency
    merges, the next run, before working on the step, retargets its PR
    (`gh pr edit review-mode/step-N --base main`), then on its branch merges the
-   dependency's local branch (bringing in its review fixes) and then
-   `origin/main`, pushes normally, and checks with `gh pr view
-   review-mode/step-N --json files` that the PR lists only this step's files.
-   If a merge conflicts, `git merge --abort` and stop.
+   dependency's local branch (bringing in its review fixes), notes this step's
+   own change as `git diff -U0 review-mode/step-M HEAD | git patch-id --stable`,
+   merges `origin/main`, checks that `git diff -U0 origin/main HEAD | git
+   patch-id --stable` gives the same id, and pushes normally. A merge conflict
+   (`git merge --abort`) or a different id means stop without pushing: a clean
+   merge can still undo a line this step set back to its value before step M.
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
 4. **Checks:** run the checks a step names plus the existing suites for files it
    touches (the `lib/review-analyse` suite only once it exists). Advance only on
