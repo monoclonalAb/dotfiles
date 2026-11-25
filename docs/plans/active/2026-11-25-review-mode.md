@@ -115,13 +115,13 @@ raywhite-ai #486 and ckc-de04 #293 (119 files); tests on a made-up repo for a PR
 over 8 MiB, one oversized file, and a push while the snapshot loads.
 
 **Step 4 — Overview and guided tour (items 2, 3).** Waits for step 3.
-`bin/review-analyse tour`: Pi agent (GPT-6.1 Sol, as in the prototype) with a 5-minute limit, empty git
+`bin/review-analyse tour`: Pi agent (GPT-6.1 Sol, as in the prototype) limited to the `read` tool (no shell, edit or write; PR text can try to steer it), with a 5-minute limit, empty git
 and `gh` setup, cached per snapshot; coverage validator (every hunk exactly
 once) with fallback to Files; outline, Part N of M, explanation, reviewer
 concern, Guide | Files.
 Done: trident #231 tour covers all 35 hunks; malformed output falls back
-(test); a pass/fail check (output discarded) shows the agent's environment has
-no `gh` login and no git credential for github.com; time and cost recorded.
+(test); the agent is started with only the `read` tool (test on the command line it builds); a pass/fail check (output discarded) shows its environment has
+no `gh` login and no git credential for github.com; tour quality without a shell compared with the prototype; time and cost recorded.
 **Gate:** Eric reads one real tour and says whether it is right.
 
 **Step 9 — Draft comments (item 7, part 1).** Waits for step 4.
@@ -191,7 +191,8 @@ and retarget each run a full analysis; tour covers the full current diff;
 
 A goal runs a few steps at a time; merges, gates and live key checks are
 Eric's. Preconditions: this plan is merged to `main` (worktrees start from
-`origin/main`), and the previous run's PRs are merged or explicitly stacked on.
+`origin/main`); the previous run's gate, if any, is approved by Eric (step 4's
+tour check before run 3; step 6's fallback choice before run 5).
 
 **Runs:** 1: steps 1-3. 2: step 4 (ends at its gate). 3: steps 9-10. 4: steps 5,
 6. 5: steps 7-8. 6: steps 11-12. Launch each in a fresh Pi session on a Claude
@@ -204,30 +205,36 @@ model in this repository, naming the run, its permissions and a deadline, e.g.:
 Rules:
 
 1. **Finish line:** each step named by the run has a draft PR whose step checks
-   passed on the PR's pushed head SHA, recorded in Progress (branch, base SHA,
-   PR, tested SHA). Then mark the goal complete. The project's acceptance
-   criteria are not a run's finish line.
+   passed on the PR's pushed head SHA. Record branch, base SHA, PR and tested SHA
+   in that PR's description (editing it doesn't change the head) and in the
+   local note `$(git rev-parse --git-common-dir)/rho/review-mode.md`. Then mark
+   the goal complete, even if the step ends at a gate; the gate's approval is the
+   next run's precondition. The plan's Progress boxes are ticked in a later
+   step's branch once PRs merge. The project's acceptance criteria are not a
+   run's finish line.
 2. **Permissions:** only what the launch line grants. These rules override
-   `/rho`'s merge rule, review-bot replies and handoff pushes. Never: merge, force-push,
-   write to any GitHub repository other than `monoclonalAb/dotfiles` (draft PRs
-   on goal branches) and, when the launch line says "sandbox writes",
-   `monoclonalAb/review-mode-sandbox`; send messages; deploy; run
-   `dotfiles-link apply` on the real home; edit or relink existing files under
-   `$HOME`. Sandbox approvals and reviews use Eric's login on PRs opened by
-   `monoclonal-bot`; sandbox merges are allowed with "sandbox writes".
-   Force-push and retarget tests use a local bare-repository fixture.
+   `/rho`'s merge rule, review-bot replies and handoff pushes. Allowed GitHub
+   writes: draft PRs and pushes to goal branches in `monoclonalAb/dotfiles`;
+   and, only when the launch line says "sandbox writes", PRs, branches, reviews
+   and merges in `monoclonalAb/review-mode-sandbox` (approvals by Eric's login on
+   PRs opened by `monoclonal-bot`). Never: any other GitHub write, any merge
+   outside the sandbox, any force-push to GitHub (force-push and retarget tests
+   use a local bare-repository fixture), messages, deploys, `dotfiles-link
+   apply` on the real home, edits or relinks of existing files under `$HOME`.
 3. **Branches:** one worktree per step at
    `~/.herdr/worktrees/dotfiles/review-mode-step-N`, on goal-owned branches
-   `review-mode/step-N`, from `origin/main` or the run's previous step (stacked).
+   `review-mode/step-N`. Base: `origin/main` if the step it waits for is merged,
+   else that step's open `review-mode/step-M` branch (stacked, also across runs).
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
 4. **Checks:** run the checks a step names plus the existing suites for files it
    touches (the `lib/review-analyse` suite only once it exists). Advance only on
    passing checks at the pushed SHA. Follow `/rho`: three failed fix attempts, a
    reviewer that fails twice, or review rounds capped with open findings mean
    stop.
-5. **Stop (mark blocked, with a note in Progress)** at a gate, when a needed
-   permission isn't granted, when three of the run's PRs are stacked unmerged,
-   after two turns without progress, or at the deadline. Never loop on retries.
+5. **Stop (mark blocked, with a note in the local file from rule 1)** when a
+   needed permission isn't granted, when starting a step would make four
+   unmerged `review-mode/step-*` PRs, after two turns without progress, or at
+   the deadline. Never loop on retries.
 6. **Live app:** no layout switches, terminals or screenshots in the real window
    unless the launch line says "live checks allowed". Before merge, render with
    `herdr-app check` on worktree mods (side effects guarded by `checking()`) and
@@ -236,15 +243,19 @@ Rules:
    `review-mode.test=1`); end them before stopping.
 7. **Screenshots** stay local (`/tmp`), are never committed or uploaded, and
    show only Review mode with sandbox or public PRs.
-8. **Credentials and data:** read the bot token only inside the one command that
-   uses it (`GH_TOKEN=$(security find-generic-password -s
-   review-mode-sandbox-bot -w) gh ...`); never echo it, put it in a prompt or
-   pass it to an agent. Credential checks report pass/fail only. Model runs read
+8. **Credentials and data:** bot writes go through one helper in
+   `bin/review-analyse` that reads the token from Keychain, refuses if the
+   lookup fails or is empty, checks `gh api user` reports `monoclonal-bot`, and
+   only then runs the write with that token; never fall back to Eric's login,
+   echo the token, put it in a prompt or pass it to an agent. Eric's sandbox
+   approvals use his normal login explicitly, never through that helper. Credential checks report pass/fail only. Model runs read
    only public PRs and sandbox PRs; work-repo PRs (raywhite-ai #486, ckc-de04
    #293) are used for file counts, not sent to a model, unless Eric approves.
-9. **Cost:** the goal budget excludes cache reads and `pi-agent` subprocesses,
-   so also: at most 3 review rounds per PR, tour runs of at most 5 minutes and 5
-   per step, CI waits of at most 20 minutes.
+9. **Cost and time:** the goal budget excludes cache reads and `pi-agent`
+   subprocesses, so also: at most 3 review rounds per PR, tour runs of at most 5
+   minutes and 5 per step, CI waits of at most 20 minutes, and every reviewer or
+   agent call run with a shell timeout no longer than the time left before the
+   deadline (at most 30 minutes); on timeout, stop rather than retry.
 10. **Reviewer route:** `pi-agent -m other` from a Claude session resolves to GPT,
     which skips the OMP update preflight that a session's first direct Claude
     request can run (`pi/extensions/omp-anthropic-route/README.md`).
