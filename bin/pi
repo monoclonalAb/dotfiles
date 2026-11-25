@@ -135,12 +135,12 @@ trap 'rm -f "$PI_PARK_FILE"' EXIT
 terminal=$(stty -g)
 
 # Herdr keeps listing the terminal as an idle Pi. Every key wakes it (Ctrl+C
-# too: the terminal is raw); a focus-out alone does not, or leaving a parked pane
-# would reopen it.
+# too: the terminal goes raw before the note shows); a focus-out alone does not,
+# or leaving a parked pane would reopen it.
 wait_for_return() {
-    printf '\033]7501;state=idle:app=pi\033\\'
-    printf '\n%s\n' 'Pi closed while idle to free memory. Press a key to reopen this conversation.'
     stty raw -echo
+    printf '\033]7501;state=idle:app=pi\033\\'
+    printf '\r\n%s\r\n' 'Pi closed while idle to free memory. Press a key to reopen this conversation.'
     printf '\033[?1004h'
     while :; do
         input=$(dd bs=64 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
@@ -163,8 +163,8 @@ while :; do
     rm -f "$PI_PARK_FILE"
     status=0
     "$real_pi" "$@" || status=$?
-    stty "$terminal" 2>/dev/null || :
     if [ "$status" -ne 0 ] || ! [ -s "$PI_PARK_FILE" ]; then
+        stty "$terminal" 2>/dev/null || :
         exit "$status"
     fi
     session=$(cat "$PI_PARK_FILE")
