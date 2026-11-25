@@ -1,0 +1,80 @@
+#!/bin/sh
+# Runs a pinned npm MCP server package (stdio) without npx:
+#   npm-mcp @google-cloud/gcloud-mcp@0.5.3 [server arguments...]
+# `npx -y` leaves an `npm exec` process (~47 MB) beside the server for the whole
+# session. This installs the exact version once under ~/.local/share/npm-mcp/
+# (override with NPM_MCP_HOME), then replaces itself with Node running the
+# package's command of the same name, so only the server process remains.
+# MCP hosts start this without a login shell, so resolve Node explicitly:
+# NPM_MCP_NODE, then PATH, then nvm's newest install, then Homebrew.
+set -eu
+
+spec=${1-}
+case $spec in
+    ?*@[0-9]*.[0-9]*.[0-9]*) ;;
+    *)
+        printf '%s\n' 'usage: npm-mcp <package>@<exact version> [server arguments...]' >&2
+        exit 2
+        ;;
+esac
+shift
+package=${spec%@*}
+data_home=${NPM_MCP_HOME:-$HOME/.local/share/npm-mcp}
+install_dir=$data_home/$spec
+entry=$install_dir/node_modules/.bin/${package##*/}
+
+node_bin=${NPM_MCP_NODE:-}
+if [ -z "$node_bin" ] && command -v node >/dev/null 2>&1; then
+    node_bin=$(command -v node)
+fi
+if [ -z "$node_bin" ]; then
+    for candidate in "$HOME"/.nvm/versions/node/v*/bin/node; do
+        [ -x "$candidate" ] && node_bin=$candidate
+    done
+fi
+if [ -z "$node_bin" ]; then
+    for candidate in /opt/homebrew/bin/node /usr/local/bin/node; do
+        if [ -x "$candidate" ]; then
+            node_bin=$candidate
+            break
+        fi
+    done
+fi
+if [ -z "$node_bin" ]; then
+    printf '%s\n' 'npm-mcp: could not find a Node.js executable (set NPM_MCP_NODE)' >&2
+    exit 127
+fi
+
+if [ ! -e "$entry" ]; then
+    node_dir=$(dirname "$node_bin")
+    npm_bin=$node_dir/npm
+    if [ ! -x "$npm_bin" ]; then
+        npm_bin=$(command -v npm) || {
+            printf '%s\n' "npm-mcp: npm is needed to install $spec" >&2
+            exit 127
+        }
+    fi
+    mkdir -p "$(dirname "$install_dir")"
+    # Install beside the target and rename it into place, so a session that
+    # starts during an install never runs a half-written package.
+    staging=$(mktemp -d "$data_home/.install.XXXXXX")
+    trap 'rm -rf "$staging"' EXIT
+    trap 'exit 1' HUP INT TERM
+    printf '%s\n' "npm-mcp: installing $spec into $install_dir" >&2
+    # stdin and stdout belong to the MCP client, so npm gets neither.
+    PATH=$node_dir:$PATH "$npm_bin" install --prefix "$staging" \
+        --no-audit --no-fund "$spec" </dev/null >&2
+    # rename(2) fails on an existing non-empty directory, so when two sessions
+    # install at once the first one wins and the other discards its copy.
+    "$node_bin" -e '
+        try { require("fs").renameSync(process.argv[1], process.argv[2]); }
+        catch (error) { if (error.code !== "ENOTEMPTY" && error.code !== "EEXIST") throw error; }
+    ' "$staging" "$install_dir"
+    rm -rf "$staging"
+    if [ ! -e "$entry" ]; then
+        printf '%s\n' "npm-mcp: $spec has no command named ${package##*/} in $install_dir" >&2
+        exit 1
+    fi
+fi
+
+exec "$node_bin" "$entry" "$@"
