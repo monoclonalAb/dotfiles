@@ -164,6 +164,27 @@ export function openNow(open, list) {
   return now ?? (open.gone ? open : { ...open, gone: true });
 }
 
+// The last list, kept so Review mode opens on it while a fresh one loads:
+// C-a p restarts this mod, and GitHub takes seconds. Only a list shaped as
+// loadPullRequests makes it is drawn.
+const KEPT = "list", KEPT_VERSION = 1, KEPT_MAX = 512 * 1024;
+const text = (v) => typeof v === "string";
+const keptPr = (p) => text(p?.id) && text(p.url) && text(p.title) && text(p.repo) && text(p.body) && Number.isInteger(p.number)
+  && p.chip in CHIPS && Array.isArray(p.labels) && p.labels.every(text)
+  && Array.isArray(p.reviewers) && p.reviewers.every((r) => text(r?.name) && text(r.state));
+
+export function keptList(stored) {
+  try {
+    const kept = JSON.parse(stored ?? "null");
+    const list = kept?.version === KEPT_VERSION ? kept.list : null;
+    if (!Array.isArray(list?.sections)) return null;
+    const fine = list.sections.every((s) => text(s?.key) && text(s.title) && Array.isArray(s.prs) && s.prs.every(keptPr));
+    return fine ? list : null;
+  } catch {
+    return null;
+  }
+}
+
 // The key's move through the list (1 or -1), "open", "back" (Esc, to the
 // list from the Files view), "viewed" (v), or null for any key the list leaves
 // alone: everything with Ctrl, Alt, Cmd or Shift, so chords like C-a p reach
@@ -253,6 +274,7 @@ const answer = (result) => {
 export default class ReviewNav extends View {
   init(_props, cx) {
     this.list = null;
+    try { this.list = keptList(localStorage.getItem(KEPT)); } catch { /* nothing kept */ }
     this.error = null;
     this.loading = false;
     // The Files view of the open pull request, not the list: as it was before
@@ -263,6 +285,7 @@ export default class ReviewNav extends View {
     this.files = snap?.status === "ready" && snap.pr === shared(OPEN)?.url;
     if (!this.files && shared(FILE)) setShared(FILE, null);
     this.selected = shared(OPEN)?.url ?? null;
+    if (this.list) this.show(this.list);
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.scroll = ScrollHandle.new();
@@ -278,7 +301,7 @@ export default class ReviewNav extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        this.show(await loadPullRequests(gh));
+        this.fresh(await loadPullRequests(gh));
         this.error = null;
         this.recheck(cx, 0);
       } catch (e) {
@@ -296,11 +319,18 @@ export default class ReviewNav extends View {
       try {
         const { list } = await recheckUnknown(gh, this.list);
         if (this.list.at !== at) return; // a full refresh came in meanwhile
-        this.show(list);
+        this.fresh(list);
         cx.notify();
         this.recheck(cx, attempt + 1);
       } catch { /* the next refresh asks again */ }
     }));
+  }
+
+  // Shows a freshly loaded list and keeps it for the next start.
+  fresh(list) {
+    this.show(list);
+    const stored = JSON.stringify({ version: KEPT_VERSION, list });
+    try { if (utf8Bytes(stored) <= KEPT_MAX) localStorage.setItem(KEPT, stored); } catch { /* outside the app */ }
   }
 
   show(list) {
