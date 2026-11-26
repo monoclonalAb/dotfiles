@@ -62,6 +62,7 @@ consumer; do not fix generated output or add a second writer.
 | Start a Pi task from Herdr | `herdr/plugins/task-launcher/README.md` | `prefix+t` → plugin popup → Herdr worktree API → Pi tab; Node suite and PTY smoke test |
 | Review a pull request in its own Space | `bin/review` | `C-a R` (popups mod) → `review` in a popup, asking for the link → `space.new` and `hc label review.pr=<link>` → spaces-tree's Reviews section; unittest suite, then `--dry-run` |
 | Review an agent's changes | `bin/herdr-review` | `prefix+v` / `prefix+V` (`--branch`) popups → tuicr in the agent's cwd → `herdr agent prompt`; unittest suite, then `--check` |
+| Review mode (pull requests in the Herdr app) | `herdr-app/layouts/review.json`, `herdr-app/mods/review-{nav,page,side}/main.js`, [plan](plans/active/2026-11-25-review-mode.md) | `C-a p` (`layout:eric` / `layout:review` in `keys.json`) → `layout.switch`; rules in `lib/herdr-app-mods/test_review_mode.test.mjs`, then `herdr-app check` per mod |
 | Herdr app look, sidebar or status bar | `herdr-app/layouts/eric.json`, `herdr-app/mods/<name>/main.js` | `herdr-app check` per mod → `touch -h` the link → `herdr-app status` errors → `herdr-app shot`; rules in `lib/herdr-app-mods/` |
 | Herdr app keys | `herdr-app/keys.json` (`layout:eric` for mod commands) | `touch -h ~/.config/herdr-app/keys.json` → no `keys.error` → `herdr-app do <command>` |
 | Move terminal Herdr workspaces to the app | `bin/herdr-import` | `--dry-run`, then `--workspace <id> --shells-only`; `lib/herdr-import/` with fake app and server |

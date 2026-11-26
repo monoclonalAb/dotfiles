@@ -198,6 +198,11 @@
 
     "ctrl-a g": "pane-keys.worktree:open",
     "ctrl-a shift-g": "pane-keys.worktree:new",
-    "ctrl-a ctrl-g": "pane-keys.worktree:remove"
+    "ctrl-a ctrl-g": "pane-keys.worktree:remove",
+
+    "ctrl-a p": "layout.switch:review"
+  },
+  "layout:review": {
+    "ctrl-a p": "layout.switch:eric"
   }
 }

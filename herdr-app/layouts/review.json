@@ -1,0 +1,87 @@
+{
+  "id": "root",
+  "type": "column",
+  "children": [
+    {
+      "id": "review-bar",
+      "type": "block",
+      "content": {
+        "mod": "review-page",
+        "props": {
+          "part": "bar"
+        }
+      },
+      "size": {
+        "px": 42
+      },
+      "window_drag": true
+    },
+    {
+      "id": "review-body",
+      "type": "row",
+      "children": [
+        {
+          "id": "review-nav",
+          "type": "block",
+          "content": {
+            "mod": "review-nav"
+          },
+          "size": {
+            "px": 300
+          },
+          "min": 220,
+          "max": 600,
+          "background": "chrome",
+          "border": {
+            "width": 1,
+            "color": "border"
+          },
+          "radius": 10
+        },
+        {
+          "id": "review-page",
+          "type": "block",
+          "content": {
+            "mod": "review-page"
+          },
+          "background": "background",
+          "border": {
+            "width": 1,
+            "color": "border"
+          },
+          "radius": 10
+        },
+        {
+          "id": "review-side",
+          "type": "block",
+          "content": {
+            "mod": "review-side"
+          },
+          "size": {
+            "px": 340
+          },
+          "min": 260,
+          "max": 700,
+          "background": "chrome",
+          "border": {
+            "width": 1,
+            "color": "border"
+          },
+          "radius": 10
+        }
+      ],
+      "padding": 8,
+      "gap": 8
+    }
+  ],
+  "background": "canvas",
+  "window_blur": true,
+  "font": "Maple Mono NF",
+  "ui_font": "Nunito",
+  "titlebar": "none",
+  "traffic_lights": [
+    12,
+    6
+  ],
+  "toast": "toast-filter"
+}
