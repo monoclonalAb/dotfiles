@@ -150,7 +150,7 @@ export async function recheckUnknown(gh, list) {
 // longer listed (merged, closed, or no longer waiting for your review).
 export function openNow(open, list) {
   if (!open) return null;
-  const now = list.sections.flatMap((s) => s.prs).find((p) => p.url === open.url);
+  const now = list.sections.flatMap((s) => s.prs).find((p) => p.id === open.id || p.url === open.url);
   return now ?? (open.gone ? open : { ...open, gone: true });
 }
 
@@ -272,7 +272,7 @@ export default class ReviewNav extends View {
             .child(div().text_size(11).text_color(tone).child(CHIPS[p.chip]))));
       }
     }
-    const status = this.error ? this.error : this.loading && !this.list ? "Loading your pull requests…" : !this.prs().length && this.list ? "No open pull requests." : null;
+    const status = this.error ? this.error : this.loading && !this.list ? "Loading your pull requests…" : this.list && !this.prs().length && !this.list.sections.some((s) => s.missing) ? "No open pull requests." : null;
     return v_flex().id("review-nav").size_full().track_focus(this.handle)
       .on_key_down((e, cx) => {
         const step = navKey(e);
