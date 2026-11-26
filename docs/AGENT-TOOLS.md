@@ -86,9 +86,10 @@ context.
 `/reload` does two things:
 
 1. It tries to update Homebrew `omp` to the latest stable release. CLI updates
-   trust upstream binaries but allow only version and hash changes in a reviewed
-   formula recipe; the bridge code stays pinned. A failed or refused update only
-   warns and keeps the installed CLI (retried next session).
+   trust upstream binaries but allow only version, build ID and hash changes in a
+   reviewed formula recipe; the bridge code stays pinned. A failed or refused
+   update only warns and keeps the installed CLI (retried next session). An `omp`
+   earlier on PATH from another installer is left to it without a warning.
 2. It sends one small synthetic request to check the requested model (uses
    quota). A missing CLI or failed check blocks instead of falling back.
 

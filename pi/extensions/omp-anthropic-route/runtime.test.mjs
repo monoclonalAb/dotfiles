@@ -30,7 +30,7 @@ const updateLog = join(root, "updates.jsonl");
 const brewModeFile = join(root, "brew-mode");
 const ompBrokenFile = join(root, "omp-broken");
 const currentVersion = "18.3.2";
-const formula = OMP_FORMULA_TEMPLATE.replace("@VERSION@", currentVersion).replaceAll("@SHA256@", "a".repeat(64));
+const formula = OMP_FORMULA_TEMPLATE.replaceAll("@VERSION@", currentVersion).replaceAll("@BUILD@", "20261125-171106-b55cd1b").replaceAll("@SHA256@", "a".repeat(64));
 writeFileSync(modeFile, "text");
 writeFileSync(releaseFile, currentVersion);
 writeFileSync(installedFile, currentVersion);
@@ -56,9 +56,11 @@ executable("brew", `
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(updateLog)}, JSON.stringify(['brew', ...args]) + '\\n');
-if (args.join(' ') === '--repository can1357/tap') console.log(${JSON.stringify(join(root, 'tap'))});
+const mode = fs.existsSync(${JSON.stringify(brewModeFile)}) ? fs.readFileSync(${JSON.stringify(brewModeFile)}, 'utf8') : '';
+// 'other-prefix': the omp in root/bin is not Homebrew's (another installer's copy first on PATH).
+if (args.join(' ') === '--prefix') console.log(mode === 'other-prefix' ? ${JSON.stringify(join(root, 'homebrew'))} : ${JSON.stringify(root)});
+else if (args.join(' ') === '--repository can1357/tap') console.log(${JSON.stringify(join(root, 'tap'))});
 else if (args.join(' ') === 'upgrade can1357/tap/omp') {
-  const mode = fs.existsSync(${JSON.stringify(brewModeFile)}) ? fs.readFileSync(${JSON.stringify(brewModeFile)}, 'utf8') : '';
   const finish = () => fs.writeFileSync(${JSON.stringify(installedFile)}, fs.readFileSync(${JSON.stringify(releaseFile)}));
   if (mode === 'fail') {
     console.error('Warning: A newer Command Line Tools release is available.');
@@ -426,7 +428,7 @@ test("first Claude prompt auto-upgrades a newer stable CLI before probing; wire 
     assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
     assert.equal(readFileSync(installedFile, "utf8"), currentVersion);
     assert.deepEqual(lines(updateLog).slice(updatesBefore).filter(args => args[0] === "brew"), [
-      ["brew", "--repository", "can1357/tap"], ["brew", "upgrade", "can1357/tap/omp"],
+      ["brew", "--prefix"], ["brew", "--repository", "can1357/tap"], ["brew", "upgrade", "can1357/tap/omp"],
     ]);
     assert.equal(lines(requestLog).length, before + 2);
     assert.match(JSON.stringify(lines(requestLog)[before].body.messages), /PI_ROUTE_OK/);
@@ -456,6 +458,23 @@ test("new release with changed formula is not installed; Claude continues on the
     assert.match(f.notices.at(-1).message, /last request verified/);
     assert.match(f.notices.at(-1).message, /OMP update: skipped: Latest OMP formula needs review/);
   } finally { await f.close(); writeFileSync(installedFile, currentVersion); writeFileSync(formulaFile, formula); }
+});
+
+test("an omp that is not Homebrew's is left to its own installer without a warning", async () => {
+  writeFileSync(installedFile, "18.3.1");
+  writeFileSync(brewModeFile, "other-prefix");
+  const before = lines(requestLog).length, updatesBefore = lines(updateLog).length;
+  const f = await fixture();
+  try {
+    await f.session.prompt("Continues on the other installer's CLI");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+    assert.equal(readFileSync(installedFile, "utf8"), "18.3.1");
+    assert.deepEqual(lines(updateLog).slice(updatesBefore), [["brew", "--prefix"]]);
+    assert.equal(lines(requestLog).length, before + 2);
+    assert.equal(f.notices.filter(n => n.type === "warning").length, 0);
+    await f.session.prompt("/omp-anthropic-route");
+    assert.match(f.notices.at(-1).message, /OMP update: left alone: omp on PATH is .*\/bin\/omp, not Homebrew's/);
+  } finally { await f.close(); writeFileSync(installedFile, currentVersion); rmSync(brewModeFile, { force: true }); }
 });
 
 test("a failed Homebrew upgrade reports Homebrew's reason and does not block Claude", async () => {

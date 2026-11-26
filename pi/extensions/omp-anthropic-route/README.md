@@ -33,15 +33,19 @@ The **first direct Claude OAuth request** in each session/reloaded runtime runs:
 1. `omp --version`. A missing or broken CLI blocks; the next prompt rechecks it,
    so install/fix OMP and resend (no `/reload` needed).
 2. **Best-effort update.** An unauthenticated HEAD request finds the latest stable
-   OMP release. If the installed OMP is an older stable release, run
+   OMP release. If the installed OMP is an older stable release, check that the
+   `omp` on PATH is Homebrew's. If another installer's copy comes first (for
+   example one in `~/.local/bin`), leave it to that installer: no upgrade and
+   no warning; `/omp-anthropic-route` shows `left alone`. Otherwise run
    `brew upgrade can1357/tap/omp` under a cross-process lock
    (`~/.local/state/pi-omp-update.lock`). The tap must be clean, have the expected
    upstream origin, and fast-forward successfully. Its formula must match the exact
    reviewed recipe in [`omp-compat.ts`](omp-compat.ts), with only the matching
-   stable version and four binary SHA-256 values substituted. URLs, install
-   commands, dependencies and all other bytes cannot change. Worktree/formula
-   bytes are rechecked before Homebrew. No downgrades, pre-release replacement,
-   unrelated package upgrades or cleanup.
+   stable version (also in the GitHub mirror URLs), one `build.stencil.so` build
+   ID and four binary SHA-256 values substituted. Hosts, install commands,
+   dependencies and all other bytes cannot change. Worktree/formula bytes are
+   rechecked before Homebrew. No downgrades, pre-release replacement, unrelated
+   package upgrades or cleanup.
 3. Re-verify the installed CLI, then use Pi's request credential to send one
    synthetic, tool-free request to the **requested model** (512 output tokens,
    45 s, no retries). It must stream the expected reply from that model before
@@ -116,7 +120,9 @@ Fable 5.2 needs 2.1.290+). To move it, review OMP's `claude-code-fingerprint.ts`
 port the delta to `transport.ts` with its tests. The route never adopts the
 version named in a rejection.
 Automatic CLI updates trust upstream release binaries and checksums; those binaries
-are **not individually source-reviewed**. The recipe guard constrains installation,
+are **not individually source-reviewed**. Since OMP 18.9.0 the formula downloads
+them from `build.stencil.so`, which OMP's own release CI publishes to, with the
+GitHub release as Homebrew's mirror; the formula's SHA-256 pins the bytes from either. The recipe guard constrains installation,
 not the binary's behavior, and a successful probe is not a complete protocol or
 security audit. OMP and Anthropic can change this private wire contract at any time.
 This is not an Anthropic-supported integration, does not control which quota or billing bucket
@@ -139,11 +145,11 @@ node --test pi/extensions/omp-anthropic-route/{native,runtime}.test.mjs
 
 The Bun suites cover transport, token-specific identity lookup, future-release
 upgrades, exact formula recipe validation, non-blocking update failures,
-downgrade/race guards, stale-lock
+leaving a non-Homebrew `omp` alone, downgrade/race guards, stale-lock
 recovery and a real cross-process lock. The Node suites load the extension through
 per-file links in a real Pi SDK session with fake OMP/Homebrew/Git/Bun commands:
 lazy preflight, automatic upgrade, formula drift and Homebrew failure continuing on
-the installed CLI, broken-CLI recovery without reload, interrupted upgrades, effort,
+the installed CLI, a non-Homebrew `omp` left alone without a warning, broken-CLI recovery without reload, interrupted upgrades, effort,
 tools, reloads, `/accounts use`, automatic same-turn 429 fallback, concurrent
 credential isolation and credential-specific failed probes. None upgrade the real
 CLI or contact Anthropic.
