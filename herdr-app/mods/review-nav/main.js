@@ -22,7 +22,10 @@ export const SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWE
 const SNAPSHOT_TIMEOUT = 600000; // the first one clones the repository
 export const PAGE = 100; // GitHub's most search results per page
 export const CAP = 1000; // GitHub's search returns no more than this
-const BATCH = 25; // pull requests per details query: GitHub allows 100, but 50 long ones can time out (HTTP 502)
+// Pull requests per details query, and queries at once. GitHub's time grows
+// with the pull requests in one query (1: 0.9 s, 6: 1.4 s, 18: 3.5 s; 50 long
+// ones can time out, HTTP 502), so small queries run side by side.
+const BATCH = 6, AT_ONCE = 4;
 const REFRESH = 120000;
 // GitHub answers UNKNOWN until it has worked out a merge verdict (11 of 27
 // pull requests on a first load), so those are asked again after these waits.
@@ -100,11 +103,14 @@ export function toPullRequest(n) {
 
 async function details(gh, ids) {
   const byId = new Map();
-  for (let i = 0; i < ids.length; i += BATCH) {
-    for (const n of reply(await gh(detailArgs(ids.slice(i, i + BATCH)))).data?.nodes ?? []) {
-      if (n?.id) byId.set(n.id, toPullRequest(n));
+  const batches = [];
+  for (let i = 0; i < ids.length; i += BATCH) batches.push(ids.slice(i, i + BATCH));
+  const next = async () => {
+    for (let batch; (batch = batches.shift());) {
+      for (const n of reply(await gh(detailArgs(batch))).data?.nodes ?? []) if (n?.id) byId.set(n.id, toPullRequest(n));
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(AT_ONCE, batches.length) }, next));
   return byId;
 }
 
@@ -128,8 +134,7 @@ async function search(gh, query) {
 // those it found but gave no details for.
 // gh(args) runs gh and resolves with { code, stdout, stderr }.
 export async function loadPullRequests(gh) {
-  const found = [];
-  for (const s of SEARCHES) found.push({ ...s, ...(await search(gh, s.query)) });
+  const found = await Promise.all(SEARCHES.map(async (s) => ({ ...s, ...(await search(gh, s.query)) })));
   const byId = await details(gh, [...new Set(found.flatMap((s) => s.ids))]);
   return {
     at: Date.now(),
