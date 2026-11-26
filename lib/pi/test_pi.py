@@ -37,6 +37,7 @@ if runs and os.environ.get("FAKE_PI_READ"):
 with open(log, "a") as f:
     f.write(json.dumps({"args": sys.argv[1:], "pid": os.getpid(), "ppid": os.getppid(),
                         "park_file": os.environ.get("PI_PARK_FILE"), "park_pid": os.environ.get("PI_PARK_PID"),
+                        "park_args": os.environ.get("PI_PARK_ARGS"),
                         "stdin": got.hex()}) + "\\n")
 if step.startswith("park") and "PI_PARK_FILE" in os.environ:
     with open(os.environ["PI_PARK_FILE"], "w") as f:
@@ -138,6 +139,8 @@ class PiParkingTest(unittest.TestCase):
                                          "--", "hello", "--no-tools"])
         self.assertEqual((first["ppid"], first["park_pid"]), (t.proc.pid, str(t.proc.pid)))
         self.assertTrue(first["park_file"].startswith(self.env["XDG_STATE_HOME"]))
+        self.assertEqual(first["park_args"], "-a\n--session-dir\n/s d/x\n-ne\n-e\nbuiltin:mcp\n--no-skills\n--tui-mode\nfullscreen\n",
+                         "the replayed flags, one per line, for herdr-app-resume to label")
         self.assertIsNone(t.proc.poll())
 
         t.type(FOCUS_OUT)
@@ -199,8 +202,33 @@ class PiParkingTest(unittest.TestCase):
         [run] = self.runs()
         self.assertEqual(run["pid"], t.proc.pid)
 
+    def test_a_parked_start_waits_before_running_pi(self):
+        # What pi-resume types into a terminal that a reboot brought back while it was parked.
+        t = self.start("--parked", "-a", "--session", self.session, FAKE_PI_PLAN="quit")
+        self.parked(t)
+        self.assertIn(IDLE, t.output)
+        time.sleep(0.3)
+        self.assertEqual(self.runs(), [], "no Pi until you come back")
+        t.type(FOCUS_IN)
+        self.assertTrue(t.wait_for(lambda: len(self.runs()) == 1))
+        self.assertEqual(self.runs()[0]["args"], ["-a", "--no-skills", "--tui-mode", "fullscreen", "--session", self.session])
+        self.assertEqual(t.proc.wait(10), 0)
+
+    def test_a_parked_start_without_a_session_or_a_terminal_just_runs_pi(self):
+        t = self.start("--parked", FAKE_PI_PLAN="quit")
+        self.assertEqual(t.proc.wait(10), 0)
+        self.assertEqual([r["args"] for r in self.runs()], [["--no-skills", "--tui-mode", "fullscreen"]])
+        self.assertNotIn(NOTE, t.output)
+        self.log.unlink()
+        proc = subprocess.Popen([str(WRAPPER), "--parked", "--session", self.session], env={**self.env, "FAKE_PI_PLAN": "quit"},
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc.communicate(timeout=10)
+        [run] = self.runs()
+        self.assertEqual((run["pid"], run["args"][:2]), (proc.pid, ["--session", self.session]))
+
     def test_runs_that_cannot_be_replayed_still_exec(self):
         for args, env in ((["-p", "hi"], {}), (["--no-tools"], {}), (["--no-session"], {}), (["--tools", "read"], {}),
+                          (["--session-dir", "/two\nlines"], {}),
                           ([], {"PI_PARK_AFTER": "0"}), (["auth", "status"], {})):
             with self.subTest(args=args, env=env):
                 self.log.unlink(missing_ok=True)
