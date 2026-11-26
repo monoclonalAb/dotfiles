@@ -7,13 +7,14 @@
       read uses: its head, where it branched off (the merge base) and the
       branch it targets. Prints the snapshot as JSON: its id
       <head>:<merge base>:<base branch>, and each changed file with its status
-      and +/- counts, as GitHub lists them. A push while it loads changes
-      nothing here: everything comes from the pinned commits.
+      and +/- counts, as GitHub lists them: the first 500 files, within
+      2 MiB, with changed_files counting them all. A push while it loads
+      changes nothing here: everything comes from the pinned commits.
 
   review-analyse diff <link> <snapshot id> [--from N] [--lines N] [--] <path>
       Prints one piece of one file's diff in that snapshot as JSON:
       {path, from, lines, more}, at most --lines lines (default 2000) of at
-      most 1000 characters each and at most 2 MiB in all, so a piece stays
+      most 1000 characters each and at most 2 MiB of JSON, so a piece stays
       under the Herdr app's 8 MiB limit for one command's output. Lines before
       the first hunk that say something (a mode change, a rename) come first,
       as "\\ old mode 100644". A file with more than 20,000 changed lines, or a
@@ -39,8 +40,8 @@ LINK = re.compile(r"^https?://(?:www\.)?github\.com/([\w.-]+)/([\w.-]+)/pull/(\d
 SHA = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 PIECE = 2000  # diff lines per piece
 WIDTH = 1000  # characters kept of each diff line
-BUDGET = 2 << 20  # bytes of JSON per piece
-MAX_FILES = 3000  # files listed, as many as GitHub lists for a pull request
+BUDGET = 2 << 20  # bytes of JSON per piece, and per snapshot's file list
+MAX_FILES = 500  # files listed: Review mode's Files view draws each one
 # Header lines worth showing, before a file's first hunk.
 SAYS = re.compile(r"^(old mode|new mode|new file mode|deleted file mode|similarity index|rename from|rename to|copy from|copy to|Binary files) ")
 TOO_LARGE = 20000  # changed lines past which a file's diff is not shown
@@ -170,10 +171,16 @@ def snapshot(link, env):
     head = run(["git", "rev-parse", f"refs/review/pull/{number}"], env, cwd=path).decode().strip()
     merge_base = run(["git", "merge-base", head, base_commit], env, cwd=path).decode().strip()
     files = changed_files(path, merge_base, head, env)
+    listed, size = [], 0
+    for entry in files[:MAX_FILES]:
+        size += len(json.dumps(entry)) + 2
+        if size > BUDGET:
+            break
+        listed.append(entry)
     return {
         "pr": link, "snapshot": f"{head}:{merge_base}:{base}", "head": head, "merge_base": merge_base, "base": base,
         "base_commit": base_commit, "listed_head": pr["headRefOid"], "state": pr["state"],
-        "changed_files": len(files), "files": files[:MAX_FILES],
+        "changed_files": len(files), "files": listed,
         "additions": sum(f["additions"] for f in files), "deletions": sum(f["deletions"] for f in files),
     }
 
@@ -194,16 +201,23 @@ def diff(link, snapshot_id, path, start, count, env):
     if entry["too_large"]:
         return answer
     paths = [entry["old_path"], path] if entry["old_path"] else [path]
-    process = subprocess.Popen([*GIT_DIFF, "--no-color", merge_base, head, "--", *paths],
+    process = subprocess.Popen([*GIT_DIFF[:1], "-c", "core.quotePath=false", *GIT_DIFF[1:], "--no-color", merge_base, head, "--", *paths],
                                cwd=repo_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # A path also matches what lies under it (a folder that replaced the
+    # file), so only patches whose header names this file count.
+    ours = f"diff --git a/{entry['old_path'] or path} b/{path}"
     try:
         index = -1
         header = False
-        size = 0
+        mine = False
+        size = len(json.dumps(answer)) + len(json.dumps(path))
         for raw in process.stdout:
             line = raw.decode("utf-8", "replace").rstrip("\n")
             if line.startswith("diff --git "):  # a header: a type change has two
                 header = True
+                mine = line == ours or line.startswith('diff --git "')  # quoted names: can't tell
+                continue
+            if not mine:
                 continue
             if header:
                 if line.startswith("@@"):

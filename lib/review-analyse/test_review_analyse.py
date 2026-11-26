@@ -241,7 +241,7 @@ class ReviewAnalyse(unittest.TestCase):
         self.publish(head, git("rev-parse", "main", cwd=self.work))
         snapshot, _ = self.answer("snapshot", LINK)
         lines, sizes = self.pieces(snapshot, "faces.txt")
-        self.assertTrue(all(size < EIGHT_MIB for size in sizes), sizes)
+        self.assertTrue(all(size <= 2 << 20 for size in sizes), sizes)
         self.assertEqual([line[1:] for line in lines if line.startswith("+")], text)
 
     def test_a_merged_pull_request_whose_target_branch_is_gone(self):
@@ -273,6 +273,31 @@ class ReviewAnalyse(unittest.TestCase):
         self.assertEqual([line for line in lines if line.startswith("+")], ["+export const id = 1;"])
         lines, _ = self.pieces(snapshot, "-rules.txt")
         self.assertEqual([line for line in lines if line.startswith("+")], ["+no dashes please"])
+
+    def test_a_file_replaced_by_a_folder_of_its_name_shows_only_its_own_diff(self):
+        self.base_repo()
+        self.write("rules", "old rule\n")
+        base = self.commit("rules as a file")
+        self.git("switch", "-q", "-c", "feature")
+        (self.work / "rules").unlink()
+        self.write("rules/new.txt", "new rule\n")
+        head = self.commit("rules as a folder")
+        self.publish(head, base)
+        snapshot, _ = self.answer("snapshot", LINK)
+        self.assertEqual(self.files(snapshot), {"rules": ("removed", 0, 1), "rules/new.txt": ("added", 1, 0)})
+        lines, _ = self.pieces(snapshot, "rules")
+        self.assertEqual([line for line in lines if line[:1] in "+-"], ["-old rule"])
+
+    def test_a_huge_pull_request_lists_its_first_500_files_and_counts_the_rest(self):
+        self.base_repo()
+        self.git("switch", "-q", "-c", "feature")
+        for i in range(501):
+            self.write(f"many/{i:04d}.txt", f"{i}\n")
+        head = self.commit("501 files")
+        self.publish(head, git("rev-parse", "main", cwd=self.work))
+        snapshot, _ = self.answer("snapshot", LINK)
+        self.assertEqual((len(snapshot["files"]), snapshot["changed_files"]), (500, 501))
+        self.assertEqual((snapshot["additions"], snapshot["deletions"]), (501, 0))
 
     def test_a_mode_change_says_so(self):
         base = self.base_repo()
