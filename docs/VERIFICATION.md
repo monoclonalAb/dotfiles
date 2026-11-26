@@ -43,6 +43,24 @@ Run Pi suites as separate commands: some install module mocks for the installed
 Pi packages. None make real provider requests, so they do not prove provider
 acceptance, billing, or rendered UI.
 
+### Closing the pane in pseudo-terminal tests
+
+A terminal program that keeps files while it runs (a park file, a request, a pid
+file) needs a test that closes its pane the way `hc kill` does, then checks the
+files are gone:
+
+1. Run it under the shell that starts it for real, interactive:
+   `zsh -fic '<command>'`. Make the pseudo-terminal the controlling terminal
+   (in Python, `start_new_session=True` and `TIOCSCTTY` in `preexec_fn`).
+2. Bring it to the state that holds the file.
+3. Send `SIGHUP` to the shell, then close the pseudo-terminal's master side.
+4. Check that its state folder is empty.
+
+Closing only the master is not enough: on 2026-11-25 the `pi` wrapper's park file
+survived `hc kill` under zsh, and only this order reproduced it. Read the master
+side with `select`, so closing it does not hang a reader blocked in `read` on
+macOS.
+
 ### Shell syntax
 
 Parse each file separately; passing several filenames to a shell does not check
