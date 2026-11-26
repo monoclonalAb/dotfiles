@@ -126,7 +126,9 @@ GitHub release as Homebrew's mirror; the formula's SHA-256 pins the bytes from e
 not the binary's behavior, and a successful probe is not a complete protocol or
 security audit. OMP and Anthropic can change this private wire contract at any time.
 This is not an Anthropic-supported integration, does not control which quota or billing bucket
-applies, and may conflict with Anthropic's terms; Pi's extra-usage warning stays on.
+applies, and may conflict with Anthropic's terms. The route never hides Pi's extra-usage
+warning, but that warning is turned off in [`pi/settings.json`](../../settings.json)
+(`warnings.anthropicExtraUsage`; **Anthropic extra usage** in `/settings` turns it back on).
 It does not reproduce OMP's multi-account rotation, cache-decimation, subscription
 slow mode or fallback-credit redemption.
 
