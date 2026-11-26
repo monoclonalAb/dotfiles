@@ -65,30 +65,60 @@ context.
 
 | Extension | Adds |
 | --- | --- |
-| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) skill is on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows it as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
+| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) and [`socratic-tutor`](../pi/skills/socratic-tutor/SKILL.md) skills are on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows them as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
 | `session-controls.ts` | `/drop` erases this session and starts a new one (Pi's `/new` keeps it) |
 | `copy-session.ts` | `/copy-session`, or `/copy` through `modal-vim-navigation`, copies this session's file path (to paste into another session), without `/session`'s slow statistics |
-| [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears; `/copy` runs `/copy-session` instead of copying the last reply |
+| [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim editing of the prompt (the cursor's shape shows the mode; yanks and puts use the system clipboard), with the same keys scrolling the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears; `/copy` runs `/copy-session` instead of copying the last reply |
 | [`artifact-review`](../pi/extensions/artifact-review/README.md) | `/artifact-review <page>` opens a page in the browser; Option-click or select text to write notes, Send delivers them to the session, and edits reload the page (below) |
 | [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
-| [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
+| [`codex-fast`](../pi/extensions/codex-fast/README.md) | Codex fast mode (priority tier, uses more credits), on by default for the Codex models that support it; `fast` beside the model in the footer; `/fast` toggles it |
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
 | [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` picker: switch logins, choose main, manage saved accounts and automation; `/route` controls fallback when a login hits a limit |
-| [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and an `MCP: N/M` footer |
+| [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and a two-row coloured footer: folder and model, then statuses and usage |
 | `mcp-idle-stop` | Stops the session's local (stdio) MCP servers after 10 idle minutes; Pi starts each again on the next call to its tools |
+| `restart` | A line just above the input box when the session is out of date: a newer Pi is installed (`/restart` reopens the same conversation in a new Pi in the same Herdr app pane; `/reload` does not update Pi itself), or extensions, prompt templates, settings, keybindings, `mcp.json` or AGENTS.md files changed since it started (`/reload`) (below) |
+| [`pi-compat`](../pi/extensions/pi-compat/README.md) | After each Pi update, runs once the tests of the workflows that use Pi internals (Vim editing, Pi Tasks, account switching, compact footer, Claude via OMP and others); failures show in the footer, `pi-compat-check --status` has the logs |
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
 | [`readable-transcript`](../pi/extensions/readable-transcript/README.md) | Frames thinking blocks behind a `│` rail and tidies `codemode` and multi-line `bash` script rows (display only) |
+| [`park-idle`](../pi/extensions/park-idle/README.md) | Quits a Pi idle for two hours to free its memory; the [`pi`](../bin/pi) wrapper keeps the terminal and reopens the conversation on focus or a key ([Herdr app](HERDR-APP.md#idle-conversations)) |
 | `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task; see [`HERDR.md`](HERDR.md#agent-state)); titles only, no background conversation summaries |
 | [`omp-anthropic-route`](../pi/extensions/omp-anthropic-route/README.md) | Sends Claude OAuth requests in OMP's reviewed shape (below) |
+
+**After a Pi update.** A running Pi keeps the version it started with; the
+conversation is in its session file, so a new process continues it:
+
+1. Nov 20: a pane starts Pi 1.5.2. Nov 23: Pi 1.6.0 is installed.
+2. Within a minute that pane shows, just above its input box: `Pi 1.6.0 is
+   installed; this session runs 1.5.2. Type /restart to reopen it on 1.6.0.`
+3. When you next use it, type `/restart`. Pi quits and the same conversation
+   reopens on 1.6.0 in that pane. Pi never restarts by itself.
+
+Meanwhile [`pi-compat`](../pi/extensions/pi-compat/README.md) tests the workflows
+that use Pi internals against 1.6.0. If its footer shows `Pi 1.6.0: 2 checks
+failed`, run `pi-compat-check --status` before restarting old sessions: they keep
+working on 1.5.2 until you do.
+
+**After an extension or setting changes.** The same line says what `/reload`
+would load, for example `Changed since this session started: restart extension
+and ~/dotfiles/AGENTS.md. Type /reload to load them.` It names added, edited or
+removed extensions, prompt templates, `settings.json`, `keybindings.json`,
+`mcp.json` and the AGENTS.md files the session loaded (a trusted project's `.pi/`
+ones too). Tests, READMEs, skills and settings Pi records itself (the model and
+thinking level you last picked, the changelog it showed) are left out. A Pi
+update wins: `/restart` loads everything.
+
+A Pi started before the `restart` extension existed shows neither: `/reload` it
+once idle, or quit and run the `To resume this session` command Pi prints.
 
 **Claude via OMP.** The first direct Claude OAuth request after starting Pi or
 `/reload` does two things:
 
 1. It tries to update Homebrew `omp` to the latest stable release. CLI updates
-   trust upstream binaries but allow only version and hash changes in a reviewed
-   formula recipe; the bridge code stays pinned. A failed or refused update only
-   warns and keeps the installed CLI (retried next session).
+   trust upstream binaries but allow only version, build ID and hash changes in a
+   reviewed formula recipe; the bridge code stays pinned. A failed or refused
+   update only warns and keeps the installed CLI (retried next session). An `omp`
+   earlier on PATH from another installer is left to it without a warning.
 2. It sends one small synthetic request to check the requested model (uses
    quota). A missing CLI or failed check blocks instead of falling back.
 
@@ -196,9 +226,10 @@ with no session, skills or MCP servers, and no extensions except
 `omp-anthropic-route`, so it cannot touch the caller's Herdr pane. `-m other`
 picks the other model family than the calling session (Claude or GPT), which is
 how `/rho` gets its second opinion. `-m claude`, `gpt` (GPT-6.2 Sol), `fast`
-(GPT-6 Luna) and pstack's names also work. `-f` loads `codex-fast` and starts
-it on, so a GPT child uses Codex fast mode (more ChatGPT credits); `/rho`
-passes it to its reviewer, and it does nothing for Claude. Each Claude child runs the route's preflight,
+(GPT-6 Luna) and pstack's names also work. `-f` loads `codex-fast`, which is
+on by default, so a GPT child uses Codex fast mode (more ChatGPT credits);
+without `-f` a child runs at the normal tier. `/rho` passes it to its reviewer,
+and it does nothing for Claude. Each Claude child runs the route's preflight,
 including one small probe request. See `pi-agent --help`.
 
 ### pstack
@@ -226,8 +257,9 @@ reviewed commit, and change the pin above.
 - `/poteto <task>` ([`pi/prompts/poteto.md`](../pi/prompts/poteto.md)) is the
   entry point. The agent reads `poteto-mode` by path, and the prompt maps
   pstack's Claude Code tools to what exists here.
-- `/skill` also lists every pstack skill, because Pi's `skills` setting names the
-  clone. Enable one to use it directly, for example `how` or `interrogate`.
+- `/skill` does not list pstack's skills: their entry in Pi's `skills` setting
+  was removed on 2026-11-26 after none had been used. `/poteto` and `pi-agent -a`
+  still read the clone by path.
 - Subagents run through `pi-agent` (above), which maps pstack's `opus` and
   `fable` to Claude and `sonnet` and `haiku` to GPT-6.1 Sol and GPT-6 Luna.
 
@@ -249,6 +281,9 @@ How it behaves:
 - Every enabled server connects when a session starts. After 10 minutes with no
   agent run, `mcp-idle-stop` stops the local (stdio) ones; `/mcp` shows them as
   disconnected, and the next call to a server's tools starts it again.
+  [`pi-mcp-stop`](../bin/pi-mcp-stop) does the same at once for every session
+  Herdr shows as done or idle, or only the terminals it is given, including
+  sessions that never loaded `mcp-idle-stop` (`--dry-run` lists them).
   `pi mcp list` connects each one and reports errors; `/reload` applies changes to
   a running session.
 - OAuth sign-ins (`pi mcp login <server>`) are stored in `~/.pi/agent/mcp-auth.json`.
@@ -355,8 +390,8 @@ To enable a reviewed server for one repository, add it to `<repo>/.omp/mcp.json`
 - Hosted OAuth credentials are keyed by profile and URL, so they work in a project
   file without signing in again.
 
-Semgrep is CLI-only: `uv tool install semgrep`, then `semgrep scan --config auto`
-per the `secret-sast-sweep` skill. Its MCP catalogue entry stays disabled.
+Semgrep is CLI-only: `uv tool install semgrep`, then `semgrep scan --config auto`.
+Its MCP catalogue entry stays disabled.
 
 **Authentication and prerequisites:**
 
@@ -425,24 +460,19 @@ trace lookup.
   non-recursive, one level below `skills/`, and need `name` and `description`
   frontmatter.
 - **Skill scope:** keep only cross-repository skills in `pi/skills/`:
-  `agent-handoff`, `llm-eval`, `omp-repo-setup`, `pr`, `repo-recon`,
-  `secret-sast-sweep`, `socratic-tutor` and `visual-verify`.
+  `agent-handoff`, `pr`, `repo-recon`, `socratic-tutor` and `visual-verify`.
   [`socratic-tutor`](../pi/skills/socratic-tutor/SKILL.md) is Jane Street's
   skill from [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills),
   unchanged from commit `7c6715c`, with its MIT
   [licence](../pi/skills/socratic-tutor/LICENSE.md); it teaches by questions
-  when asked "teach me" or "quiz me". Repository-specific skills live in
-  [`pi/scoped-skills/`](../pi/scoped-skills/) (`~/.pi/agent/scoped-skills/`),
-  which neither harness auto-discovers; link each into the repositories it
-  applies to at `.omp/skills/<name>` (both OMP and `/skill` scan that folder):
-  - `lintmax`: repositories with `pnpm-lock.yaml`
-  - `agent-test-author`: prompt-behemoth consumers
-  - `everyday-ai-frontend-styleguide`: `de-dashboard`
-  - `perform-dangerous-action`: DE service repositories
-  - `kpi-tracking`: Hono-based DE service repositories
-  - `policy-guide-setup` and `system-design-template`: established DE service
-    repositories
-  - `gcp-investigate`: DE service repositories and `de-dashboard`
+  when asked "teach me" or "quiz me". This repository keeps no
+  repository-specific skills. Those belong in the repository they apply to
+  (for example its `.agents/skills/`), or, for DE work, in the team's
+  `shared-agent-skills` repository, which Pi's `skills` setting offers in
+  `/skill` (for example `lintmax`, `kpi-tracking` and
+  `perform-dangerous-action`). The former `pi/scoped-skills/` copies of those
+  skills, `gcp-investigate`, `llm-eval`, `omp-repo-setup` and
+  `secret-sast-sweep` were removed on 2026-11-26 after almost no use.
 - **Custom subagents:** `~/.omp/agent/agents/*.md` and `<cwd>/.omp/agents/*.md`.
   Required frontmatter: `name`, `description`; optional: `tools`, `spawns`,
   `model`, `thinking-level`, `autoloadSkills`, `prewalk`, `advisor`. Bundled

@@ -192,6 +192,7 @@ export default function ompAnthropicRoute(pi: ExtensionAPI) {
         : compatibility?.error || probe?.state === "failed" ? "blocked" : "pending (first Claude request)";
       const update = !compatibility?.latestVersion && !compatibility?.updateError ? "not checked"
         : compatibility?.updateError ? `skipped: ${compatibility.updateError} (using installed CLI; retries next session or /reload)`
+        : compatibility?.updateSkipped ? `left alone: ${compatibility.updateSkipped}`
         : compatibility?.updateAttempted ? "upgraded" : "not needed";
       ctx.ui.notify([
         `OMP-style Anthropic route: ${state}`,

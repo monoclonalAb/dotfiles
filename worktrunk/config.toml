@@ -1,5 +1,4 @@
 # Worktrunk (`wt`) user config, linked to ~/.config/worktrunk/config.toml.
-# `tw` in zsh/zshrc builds on it; see docs/HERDR.md#worktrees-in-tern.
 # Approvals for project hooks stay in Worktrunk's own approvals.toml beside the
 # link, never in this repository.
 

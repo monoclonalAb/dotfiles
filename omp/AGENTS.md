@@ -82,7 +82,7 @@ system of record; promote elsewhere only what no repository can own.
 - Ephemeral result → keep nothing.
 - Durable project fact or decision → the owning repository's committed docs, not memory.
 - Durable personal or cross-repository fact no repository can own → memory (rare).
-- Repeatable procedure for one repository or repo class → scoped skill in `~/dotfiles/pi/scoped-skills/`, linked per repo.
+- Repeatable procedure for one repository or repo class → a skill in that repository (DE work: the team's `shared-agent-skills` repository).
 - Repeatable procedure genuinely useful in any repository → global skill (rare; keep the global set small).
 - An existing skill nearly covers it → update that skill; never add a near-duplicate.
 

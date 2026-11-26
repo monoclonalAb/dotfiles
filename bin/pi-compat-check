@@ -1,0 +1,316 @@
+#!/usr/bin/python3
+"""pi-compat-check: test the workflows that rely on Pi internals against the installed Pi.
+
+Some extensions and Pi Tasks use parts of Pi that are not public (private editor
+members, files inside Pi's package, Pi's exact prompt text). A Pi update can
+break them. This runs their suites against the installed Pi and keeps the
+result per Pi version:
+
+    ~/.local/state/pi/compat/<version>/result.json    what ran, what failed
+    ~/.local/state/pi/compat/<version>/logs/<suite>.log
+    ~/.local/state/pi/compat/running.json             while a check runs
+
+The pi-compat Pi extension runs `pi-compat-check --if-new` in the background
+when no result exists for the installed version, and shows failures in Pi's
+footer. Example:
+
+    1. 10:00: `pi update` installs Pi 1.7.0.
+    2. 10:01: an open Pi session notices 1.7.0 has no result and starts this
+       script; its footer shows "checking Pi 1.7.0".
+    3. 10:02: two suites fail. Every Pi session's footer shows
+       "Pi 1.7.0: 2 checks failed"; `pi-compat-check --status` names them and
+       their logs.
+
+Commands:
+    pi-compat-check             run every suite now (exit 1 if any fails)
+    pi-compat-check --if-new    run only if the installed version has no result
+                                and no check is running
+    pi-compat-check --status    show the installed version's result
+
+The suites use temporary HOMEs, fake providers and fake Herdr; none sends a
+model request. They run from this repository's working tree, so local edits to
+the tested code count too.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+PACKAGE = "@earendil-works/pi-coding-agent"
+SUITE_TIMEOUT = int(os.environ.get("PI_COMPAT_TIMEOUT") or 600)  # seconds per suite
+
+# (suite, workflow it protects, command run from the repository root)
+SUITES = [
+    ("modal-vim-navigation", "Vim editing and image paste", "bun test ./pi/extensions/modal-vim-navigation/index.test.ts"),
+    ("modal-vim-navigation-pty", "Vim editing and image paste", "python3 pi/extensions/modal-vim-navigation/pty-smoke.py"),
+    ("agent-stuff", "/btw, /goal and /session-breakdown", "node --test pi/extensions/agent-stuff/*.test.mjs"),
+    ("agent-stuff-types", "/btw, /goal and /session-breakdown", "node pi/extensions/agent-stuff/typecheck.mjs"),
+    ("pi-tasks", "Pi Tasks (C-a t)", "node --test herdr/plugins/task-launcher/*.test.mjs"),
+    ("pi-tasks-prerequisites", "Pi Tasks (C-a t)",
+     'env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/sh herdr/plugins/task-launcher/launch.sh --check'),
+    ("pi-tasks-pty", "Pi Tasks (C-a t)", "python3 herdr/plugins/task-launcher/pty-smoke.py"),
+    ("quota-router", "Account switching (/accounts)", "bun test ./pi/extensions/quota-router/*.test.ts"),
+    ("quota-router-native", "Account switching (/accounts)", "node --test pi/extensions/quota-router/*.test.mjs"),
+    ("quota-router-pty", "Account switching (/accounts)", "python3 pi/extensions/quota-router/pty-smoke.py"),
+    ("quota-footer", "Usage in the footer (/usage)", "bun test ./pi/extensions/quota-footer/*.test.ts"),
+    ("quota-footer-native", "Usage in the footer (/usage)", "node --test pi/extensions/quota-footer/*.test.mjs"),
+    ("quota-footer-pty", "Usage in the footer, compact header and footer",
+     "python3 pi/extensions/quota-footer/pty-smoke.py"),
+    ("compact-ui", "Compact header and footer", "bun test ./pi/extensions/compact-ui/*.test.ts"),
+    ("mcp-idle-stop", "Stopping idle MCP servers", "bun test ./pi/extensions/mcp-idle-stop/*.test.ts"),
+    ("mcp-idle-stop-native", "Stopping idle MCP servers", "node --test pi/extensions/mcp-idle-stop/*.test.mjs"),
+    ("omp-anthropic-route", "Claude via OMP", "bun test ./pi/extensions/omp-anthropic-route/*.test.ts"),
+    ("omp-anthropic-route-native", "Claude via OMP", "node --test pi/extensions/omp-anthropic-route/*.test.mjs"),
+    ("restart", "/restart and the out-of-date line", "bun test ./pi/extensions/restart/*.test.ts"),
+]
+
+
+def repo_root() -> Path:
+    # ~/.local/bin/pi-compat-check links to <repo>/bin/pi-compat-check.
+    return Path(__file__).resolve().parents[1]
+
+
+def state_dir() -> Path:
+    return Path(os.environ.get("PI_COMPAT_STATE") or Path.home() / ".local/state/pi/compat")
+
+
+def suites() -> list[dict]:
+    # PI_COMPAT_SUITES: a JSON list of {name, workflow, command}, for tests.
+    override = os.environ.get("PI_COMPAT_SUITES")
+    if override:
+        return json.loads(Path(override).read_text())
+    return [{"name": n, "workflow": w, "command": c} for n, w, c in SUITES]
+
+
+def child_env() -> dict:
+    env = dict(os.environ)
+    path = env.get("PATH", "").split(":")
+    for directory in ("/opt/homebrew/bin", "/usr/bin", "/bin"):
+        if directory not in path:
+            path.append(directory)
+    env["PATH"] = ":".join(p for p in path if p)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
+
+
+def installed_pi() -> tuple[str, Path]:
+    """The npm Pi the suites test: the one under `npm root -g`."""
+    root = subprocess.run(["npm", "root", "-g"], capture_output=True, text=True,
+                          env=child_env(), check=True, timeout=60).stdout.strip()
+    package = Path(root) / PACKAGE
+    meta = json.loads((package / "package.json").read_text())
+    if meta.get("name") != PACKAGE or not isinstance(meta.get("version"), str):
+        raise RuntimeError(f"{package} is not {PACKAGE}")
+    return meta["version"], package
+
+
+def now() -> str:
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def running() -> dict | None:
+    """The check in progress, if its process is still alive."""
+    try:
+        lock = json.loads((state_dir() / "running.json").read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    pid = lock.get("pid")
+    return lock if isinstance(pid, int) and alive(pid) else None
+
+
+def acquire(version: str) -> bool:
+    """Take the one-check-at-a-time lock; replace a lock left by a dead process."""
+    state = state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    path = state / "running.json"
+    for _ in range(2):
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            if running():
+                return False
+            path.unlink(missing_ok=True)
+            continue
+        with os.fdopen(fd, "w") as file:
+            json.dump({"pid": os.getpid(), "version": version, "started": now()}, file)
+        return True
+    return False
+
+
+def release() -> None:
+    path = state_dir() / "running.json"
+    try:
+        if json.loads(path.read_text()).get("pid") == os.getpid():
+            path.unlink()
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+
+def result_path(version: str) -> Path:
+    return state_dir() / version / "result.json"
+
+
+def read_result(version: str) -> dict | None:
+    try:
+        return json.loads(result_path(version).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def git(repo: Path, *args: str) -> str:
+    try:
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                              text=True, timeout=30).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def run_suite(suite: dict, repo: Path, log: Path) -> tuple[str, int | None, float]:
+    started = time.monotonic()
+    with log.open("w") as out:
+        out.write(f"$ {suite['command']}\n\n")
+        out.flush()
+        # Its own process group, so a timeout or our exit stops everything it started.
+        process = subprocess.Popen(suite["command"], shell=True, cwd=repo, env=child_env(),
+                                   stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+        try:
+            code = process.wait(timeout=SUITE_TIMEOUT)
+        except BaseException as error:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            if not isinstance(error, subprocess.TimeoutExpired):
+                raise
+            out.write(f"\npi-compat-check: stopped after {SUITE_TIMEOUT}s\n")
+            return "timeout", None, time.monotonic() - started
+    return ("pass" if code == 0 else "fail"), code, time.monotonic() - started
+
+
+def failed_workflows(result: dict) -> list[str]:
+    names: list[str] = []
+    for suite in result["suites"]:
+        if suite["status"] != "pass" and suite["workflow"] not in names:
+            names.append(suite["workflow"])
+    return names
+
+
+def summary(result: dict) -> str:
+    total = len(result["suites"])
+    bad = [s for s in result["suites"] if s["status"] != "pass"]
+    if not bad:
+        return f"Pi {result['version']}: all {total} checks passed ({result['seconds']}s)."
+    return (f"Pi {result['version']}: {len(bad)} of {total} checks failed. "
+            f"Affected: {'; '.join(failed_workflows(result))}.")
+
+
+def check(version: str, package: Path, quiet: bool) -> int:
+    repo = repo_root()
+    folder = state_dir() / version
+    logs = folder / "logs"
+    shutil.rmtree(logs, ignore_errors=True)
+    logs.mkdir(parents=True)
+    result = {
+        "version": version, "package": str(package), "started": now(),
+        "repo": str(repo), "commit": git(repo, "rev-parse", "--short", "HEAD"),
+        "dirty": bool(git(repo, "status", "--porcelain")), "suites": [],
+    }
+    began = time.monotonic()
+    if not quiet:
+        print(f"Checking Pi {version} ({package}); logs in {logs}")
+    for suite in suites():
+        log = logs / f"{suite['name']}.log"
+        status, code, seconds = run_suite(suite, repo, log)
+        result["suites"].append({**suite, "status": status, "exit": code,
+                                 "seconds": round(seconds, 1), "log": str(log)})
+        if not quiet:
+            print(f"{status.upper():7} {seconds:5.0f}s  {suite['name']}", flush=True)
+    result["finished"] = now()
+    result["seconds"] = round(time.monotonic() - began)
+    result["passed"] = all(s["status"] == "pass" for s in result["suites"])
+    temporary = folder / "result.json.tmp"
+    temporary.write_text(json.dumps(result, indent=2) + "\n")
+    os.replace(temporary, result_path(version))
+    if not quiet:
+        print(summary(result))
+        if not result["passed"]:
+            print("Details: pi-compat-check --status")
+    return 0 if result["passed"] else 1
+
+
+def status(version: str) -> int:
+    lock = running()
+    if lock:
+        print(f"A check for Pi {lock.get('version')} is running (pid {lock['pid']}, since {lock.get('started')}).")
+    result = read_result(version)
+    if not result:
+        print(f"No check has run for the installed Pi {version}. Run: pi-compat-check")
+        return 3
+    print(summary(result))
+    print(f"Ran {result['started']} on {result['repo']} at {result['commit']}"
+          f"{' with local changes' if result.get('dirty') else ''}.")
+    for suite in result["suites"]:
+        if suite["status"] != "pass":
+            print(f"  {suite['status'].upper():7} {suite['name']} ({suite['workflow']})")
+            print(f"          {suite['command']}")
+            print(f"          log: {suite['log']}")
+    return 0 if result["passed"] else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--if-new", action="store_true",
+                      help="run only if the installed Pi has no result and no check is running")
+    mode.add_argument("--status", action="store_true", help="show the installed Pi's result")
+    parser.add_argument("--quiet", action="store_true", help="print nothing while checking")
+    args = parser.parse_args()
+
+    try:
+        version, package = installed_pi()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"pi-compat-check: cannot find the installed npm Pi: {error}", file=sys.stderr)
+        return 2
+    if args.status:
+        return status(version)
+    if args.if_new and read_result(version):
+        return 0
+    if not acquire(version):
+        if not args.if_new:
+            lock = running() or {}
+            print(f"A check for Pi {lock.get('version')} is already running (pid {lock.get('pid')}).",
+                  file=sys.stderr)
+            return 2
+        return 0
+    # A terminal closing or a kill still releases the lock and stops the suite.
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, lambda number, _frame: sys.exit(128 + number))
+    try:
+        return check(version, package, args.quiet)
+    finally:
+        release()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

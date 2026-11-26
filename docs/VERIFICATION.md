@@ -24,25 +24,46 @@ Use temporary directories outside the repository for generated output.
 | Pi task launcher | `node --test herdr/plugins/task-launcher/*.test.mjs`, then `python3 herdr/plugins/task-launcher/pty-smoke.py` | Installed npm Pi/Node; temporary Git fixtures (including a local `origin`), fake Herdr/Pi, loopback naming provider, closed-tab hangup; `app-rpc.test.mjs` runs a launch against a fake `herdr-app`. No real clipboard or agent |
 | Pi task launcher prerequisites | `env -i HOME="$HOME" PATH=/usr/bin:/bin /bin/sh herdr/plugins/task-launcher/launch.sh --check` | Minimal-PATH Pi/Node resolution; no model requests |
 | `/rho` merge rule (`rho-may-merge`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/rho -p 'test_*.py'` | Temporary repositories, worktree and HOME; reads only local Git metadata |
+| Stop finished sessions' MCP servers (`pi-mcp-stop`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/pi-mcp-stop -p 'test_*.py'` | Real process trees of fake Pi sessions and stdio servers in a temporary HOME, fake `herdr-core`; never signals a live session |
+| Pi wrapper parking (`bin/pi`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/pi -p 'test_*.py'` | Fake `pi` on `PATH` in a pseudo-terminal with a temporary HOME: a parked run waits, reports an idle Pi and reopens its session with the replayed flags on focus-in or a key (not a focus-out); quit and failure statuses pass through; non-interactive and non-replayable runs still `exec`. No real Pi or Herdr |
 | pstack helper agents (`pi-agent`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/pi-agent -p 'test_*.py'`, then `pi-agent -m haiku -t low -p 'Reply exactly: ok'` | Fake `pi` on `PATH` and temporary HOME; no model request. The second command is one small real request |
 | Herdr review popup | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/herdr-review -p 'test_*.py'` | Fake Herdr, `hc` and tuicr (both backends); with tuicr installed, also drives real tuicr in a PTY. No live Herdr or agent input |
 | Pull request reviews (`review`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/review -p 'test_*.py'` | Fake `herdr-app`, `hc` and `gh`, real Git clones and worktrees in a temporary HOME; runs the Space's shell command with a fake Pi and the popup's prompt in a pseudo-terminal. No live app, GitHub request or agent |
-| Herdr app mods' rules | `node --test lib/herdr-app-mods/*.test.mjs` | Imports each mod's `main.js` with stand-ins for the app's `gpui-kit`, `gpui-base` and `herdr` modules: next-agent's ledger and jumps, spaces-env, pull-request and title rules, the sidebar's folded worktrees, which panes count as Neovim editors, their names and their tab-by-tab order, pi-resume's recovery rule, mission-control's cards, grid and key moves, conversation-picker's matching, order and list layout (editors after conversations), the sidebar's review Spaces, pane-keys' panel toggle, recent-conversation list (agents and editors), zoom rule, resize keys (bound to the app's `pane.resize`) and resize repeat keys, toast-filter's rule (which notifications show). Also checks that the configured panel and its keys expose only sidebar/Files, and that `C-a p` switches between the `eric` and `review` layouts and only there, with the review layout made of the three Review mode mods. Review mode's pull request list against a fake `gh` that answers like GitHub (two pages, the 1000-result cap, incomplete results, a state chip per merge state, the UNKNOWN recheck), its keys, Viewed ticks in the state file (a lost race, the 1 MiB cap) and the diff's line numbers. Does not render a mod; use `herdr-app check` below |
+| Herdr app mods' rules | `node --test lib/herdr-app-mods/*.test.mjs` | Imports each mod's `main.js` with stand-ins for the app's `gpui-kit`, `gpui-base` and `herdr` modules: next-agent's ledger and jumps, spaces-env, pull-request and title rules, the sidebar's folded worktrees and the tree a restarted sidebar draws before git answers, which panes count as Neovim editors, their names and their tab-by-tab order, pi-resume's recovery rule, mission-control's cards, grid and key moves, conversation-picker's matching, order and list layout (editors after conversations), the sidebar's review Spaces, pane-keys' panel toggle, recent-conversation list (agents and editors), zoom rule, resize keys (bound to the app's `pane.resize`) and resize repeat keys, toast-filter's rule (which notifications show). Also checks that the configured panel and its keys expose only sidebar/Files, and that `C-a p` switches between the `eric` and `review` layouts and only there, with the review layout made of the three Review mode mods. Review mode's pull request list against a fake `gh` that answers like GitHub (two pages, the 1000-result cap, incomplete results, a state chip per merge state, the UNKNOWN recheck), its keys, Viewed ticks in the state file (a lost race, the 1 MiB cap) and the diff's line numbers. Does not render a mod; use `herdr-app check` below |
 | Review mode snapshots (`review-analyse`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/review-analyse -p 'test_*.py'` | Real Git repositories in a temporary HOME, a local bare repository standing in for GitHub through `url.insteadOf`, and a fake `gh`: files and +/- of added, removed, renamed and binary files, a merged pull request, a pull request over 8 MiB read in bounded pieces, a file too large to show, a push while the snapshot loads. No GitHub request |
 | HTML artifact store (`artifact`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/artifact -p 'test_*.py'` | Temporary store, HOME and Git worktree, fake `open`; never touches the real store or a browser |
 | Herdr session import (`herdr-import`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/herdr-import -p 'test_*.py'` | Fake `herdr-app` window and fake terminal Herdr server; split rebuilding, Pi resume, the still-open-conversation guard |
-| Tern worktree sessions (`tw`) | [Tern `tw` smoke](#tern-tw-smoke) below | Temporary repository, isolated Tern daemon and fake `omp`; no live Tern window, agent or model request |
 | Terminal Neovim opener | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s lib/terminal-links -p 'test_*.py'` | Hint TOML/argv and headless Neovim; GUI launches mocked |
 | Workspace Context MCP | `node --test lib/workspace-context-mcp/*.test.mjs` | Temporary fixture workspace and a spawned stdio server; never reads the real workspace |
-| Pi extensions (Bun) | `bun test ./pi/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `herdr-app-resume`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links`, `readable-transcript`, `token-speed`, `artifact-review`, `mcp-idle-stop` |
+| Pi extensions (Bun) | `bun test ./pi/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `herdr-app-resume`, `park-idle`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links`, `readable-transcript`, `token-speed`, `artifact-review`, `mcp-idle-stop`, `restart`, `pi-compat` |
 | Pi extensions (Node native) | `node --test pi/extensions/<name>/*.test.mjs` | Real Pi SDK sessions with isolated HOME and synthetic providers. Applies to `agent-stuff`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route`, `token-speed`, `artifact-review` (whose `browser.test.mjs` drives real headless Google Chrome on a temporary page and profile; skipped without Chrome), `mcp-idle-stop` (a fake stdio MCP server: stopped when idle, restarted by a codemode call) |
-| Pi always-on and `/skill` skills (`selective-skills.ts`) | `node --test pi/extensions/selective-skills.test.mjs` | Real Pi SDK sessions with isolated HOME, fixture skills and a faux provider: the always-on `pr` reaches the model in new and older sessions, `/skill list`, `on`, `off` and `clear`, the footer count, and a `pr` outside `~/.pi/agent/skills/` stays optional. Does not read the real `pr` skill or render the TUI picker |
+| Pi always-on and `/skill` skills (`selective-skills.ts`) | `node --test pi/extensions/selective-skills.test.mjs` | Real Pi SDK sessions with isolated HOME, fixture skills and a faux provider: the always-on `pr` and `socratic-tutor` reach the model in new and older sessions, `/skill list`, `on`, `off` and `clear`, the footer count, and a `pr` outside `~/.pi/agent/skills/` stays optional. Does not read the real skills or render the TUI picker |
 | Pi agent-stuff public API | `node pi/extensions/agent-stuff/typecheck.mjs` | Installed `tsc` and Pi public types |
-| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `quota-router` (account picker/main selection) and `quota-footer` (which also covers `compact-ui`) |
+| Pi update check runner (`pi-compat-check`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/pi-compat -p 'test_*.py'` | Fake suites, fake npm Pi and temporary state: results, `--if-new`, `--status`, the one-run lock, timeouts and termination; every file named in its `SUITES` exists. Does not run the real suites |
+| Workflows that rely on Pi internals, against the installed Pi | `pi-compat-check` (from any folder) | Runs the 19 suites in [`SUITES`](../bin/pi-compat-check) (about 90 s) and saves the result under `~/.local/state/pi/compat/<version>/`, which the `pi-compat` extension reads: a run replaces the footer status in every Pi session. `--status` shows the last result |
+| Pi terminal flows | `PYTHONDONTWRITEBYTECODE=1 python3 pi/extensions/<name>/pty-smoke.py` | Fullscreen Pi in its own PTY with isolated HOME. Applies to `quota-router` (account picker/main selection), `quota-footer` (which also covers `compact-ui`), `modal-vim-navigation` (cursor-shape sequences, Vim edits through a clipboard stand-in, transcript keys) and `pi-compat` (the deployed extension starts the real check script with a fixture suite; a saved failure shows in the footer) |
 
 Run Pi suites as separate commands: some install module mocks for the installed
 Pi packages. None make real provider requests, so they do not prove provider
 acceptance, billing, or rendered UI.
+
+### Closing the pane in pseudo-terminal tests
+
+A terminal program that keeps files while it runs (a park file, a request, a pid
+file) needs a test that closes its pane the way `hc kill` does, then checks the
+files are gone:
+
+1. Run it under the shell that starts it for real, interactive:
+   `zsh -fic '<command>'`. Make the pseudo-terminal the controlling terminal
+   (in Python, `start_new_session=True` and `TIOCSCTTY` in `preexec_fn`).
+2. Bring it to the state that holds the file.
+3. Send `SIGHUP` to the shell, then close the pseudo-terminal's master side.
+4. Check that its state folder is empty.
+
+Closing only the master is not enough: on 2026-11-25 the `pi` wrapper's park file
+survived `hc kill` under zsh, and only this order reproduced it. Read the master
+side with `select`, so closing it does not hang a reader blocked in `read` on
+macOS.
 
 ### Shell syntax
 
@@ -65,29 +86,6 @@ sh -n herdr/plugins/task-launcher/launch.sh
   done
 )
 ```
-
-### Tern `tw` smoke
-
-Tern panes ignore the daemon's `HOME` and load the real `~/.zshrc`, so a fake
-`omp` placed early on `PATH` is not enough: the real agent starts, runs the test
-prompt and spends quota. Tern puts `$TERN_CONFIG_DIR/omp/bin` first on every
-pane's `PATH`, so put the fake there and prove it before typing a prompt.
-
-1. In `d=$(mktemp -d)`, write an executable `$d/config/omp/bin/omp` that prints
-   its arguments and `$PWD`.
-2. With every other `TERN_*` variable unset, set `TERN_CONFIG_DIR=$d/config` and
-   `TERN_DAEMON_SOCKET=$d/daemon.sock`, then run `tern daemon --socket
-   $d/daemon.sock` in the background. `tern ls --json` with the same variables
-   must list no sessions; the live window's sessions mean it is not isolated.
-3. Open a guard session in a temporary repository (`tern new session guard
-   --cwd <repo>`) and `tern run` `whence -a omp > <file>` in it. The fake must
-   come first.
-4. Source the `tw` function into `zsh -f` with
-   `WORKTRUNK_CONFIG_PATH=<repo>/worktrunk/config.toml` and a temporary `HOME`
-   (Worktrunk honours it, so worktrees land there). Run `tw`, then check
-   `tern ls --json` (session name, `cwd`, `shown`) and `tern capture` for the
-   fake's output.
-5. Stop the daemon and delete `$d`.
 
 ## Documentation and links
 
@@ -138,6 +136,7 @@ and side effects first; use them when the affected live path is in scope.
 | Pi Tasks native UI | [Pi Tasks verification](../herdr/plugins/task-launcher/README.md#verification) | Needs the deployed plugin and regenerated config; keep the task text empty |
 | tmux | `tmux source-file ~/.config/tmux/tmux.conf` | Changes the running server and executes configured hooks/plugins; not syntax-only |
 | Neovim | `nvim --headless '+qa'`, then `nvim +checkhealth` when appropriate | Startup can bootstrap/download plugins and language tools; only run against a reviewed, provisioned environment |
+| Finished sessions' MCP servers | `pi-mcp-stop --dry-run` | Read-only: lists the servers of done and idle Pi sessions it would stop. Without `--dry-run` it stops them |
 | HTML artifact store | `artifact list -n 5` | Reads the real store only; `new`, `add`, `update` and `index` write to it, and `open` starts the browser |
 | Workspace Context MCP | `bin/workspace-context-mcp doctor`, then `call <tool> '<json>'` | Reads the real workspace roots; no writes or network |
 | New-Mac bootstrap | `bin/dotfiles-bootstrap --check`; for a blank machine's view, `(t=$(mktemp -d) && env -i HOME="$t" PATH=/usr/bin:/bin bin/dotfiles-bootstrap --check; rm -rf "$t")` | Changes no configuration, but runs `brew bundle check`, `dotfiles-link check` and Herdr status queries, which may write their own caches and locks. The default mode installs software; never run it as a check |
@@ -148,6 +147,8 @@ and side effects first; use them when the affected live path is in scope.
 | Herdr app mods | `herdr-app check ~/.config/herdr-app/mods/<name>`, then `touch -h` the edited link and `herdr-app status` (expect `"errors": []`) | `check` loads and renders the mod once outside the window; `status` reports the running app's file and mod errors. `herdr-app shot <file.png>` saves the window for a visual check. Mods run `git`, `gh` and `hc` in the real environment. A new mod not linked yet: check it inside the temporary home of [the empty-home check](#documentation-and-links), never in the repository |
 | Herdr app commands | `herdr-app do <mod>.<command>` (for example `next-agent.jump`) with the `eric` layout showing | Changes focus or opens dialogs in the live window. Test agents: `hc run --bg --no-parent -- <script>` reporting OSC 7501 (`\e]7501;state=done:app=fake\e\\`), never existing conversations |
 | Herdr app Pi resume | In a throwaway Space, a fresh shell tab labelled `hc label <t> pi.session=<a throwaway conversation's file> pi.shell=1` (a recovered terminal: same labels, new shell) | `pi-resume` types `pi --session` into it and labels `pi.resumed`. Never use a file another Pi has open. A real recovery needs the holder lost (reboot); rehearse that on a separate core with `HC_SESSION=<name> XDG_STATE_HOME=<temporary dir>` |
+| Pi `/restart` | A throwaway shell terminal (`hc run --bg --name restart-live --no-notify -- /bin/zsh -l`) running `PI_PACKAGE_DIR=<dir of links to Pi's package, with a copied package.json> pi --no-extensions --no-mcp -e pi/extensions/restart/index.ts --session <throwaway file>`; then edit that copy's version | Within a minute a line above the input box says `Pi <version> is installed; this session runs …`. Type `/restart` with `hc keys <t> / r e s t a r t` then `hc keys <t> enter`: `hc send` to an agent arrives as an `<hc from=…>` message to the model, not a command. A new Pi then opens the same file in that terminal. `hc kill` and `hc rm` it after |
+| Pi `/reload` notice | The same throwaway terminal, started in a folder with its own `AGENTS.md`, running `pi --no-mcp --session <throwaway file whose folder that is>`; then edit that `AGENTS.md` | Within a minute the line says `Changed since this session started: …/AGENTS.md. Type /reload to load them.` (it also names extensions others changed meanwhile); `/reload`, typed with `hc keys`, removes it |
 | Pull request review plan | `review --dry-run <link>` | Read-only: `gh pr view`, the clone, the environment and the Space's command. Without `--dry-run` it makes the Space and starts Pi; rehearse with `REVIEW_PI=<fake script>` and close the Space after |
 | Herdr app review target | `HERDR_REVIEW_TERMINAL=<t> bin/herdr-review --check [--branch]` | Read-only: resolves the agent through `hc get`, its directory and the tuicr command |
 | Herdr session import | `herdr-import --dry-run`, then `herdr-import --workspace <id> --shells-only --state <temporary file>` | The dry run only reads. The rehearsal makes one Space of shells in the live app (close it after) and records it only in the temporary file |

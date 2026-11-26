@@ -44,7 +44,7 @@ than assuming a linked README was automatically loaded.
 | Root `AGENTS.md` and this knowledge base | Maintaining this dotfiles repository |
 | [OMP `AGENTS.md`](../omp/AGENTS.md) | Deployed to `~/.omp/agent/AGENTS.md`; cross-project defaults for OMP |
 | [OMP `TOOLING.md`](../omp/TOOLING.md) | Optional capabilities, prerequisites, and alternatives; not a live tool inventory |
-| [Global skills](../pi/skills/) and [scoped skills](../pi/scoped-skills/) | Read the matching `SKILL.md` only for its declared task; references/templates belong to that skill, not the dotfiles setup path |
+| [Global skills](../pi/skills/) | Read the matching `SKILL.md` only for its declared task; references/templates belong to that skill, not the dotfiles setup path |
 | [OMP agents](../omp/agents/) | Task-specific subagent prompts; model roles resolve from [OMP config](../omp/config.yml) |
 | [Pi extension policy](../pi/extensions/README.md) | Maintainer policy, not automatically loaded model context; includes approved exceptions |
 | [Review rules](../REVIEW_GUIDELINES.md) | Given by `/rho` to the reviewer of changes in this repository; what counts as a real bug here and what to skip |
@@ -53,9 +53,8 @@ than assuming a linked README was automatically loaded.
 | [Completed plans](plans/completed/) | Historical decisions and checks, not current system health or standing permission to deploy |
 | [Vendored Catppuccin README](../alacritty/themes/catppuccin/README.md) | Upstream reference; use this repository's [theme workflow](THEME.md), not its standalone install recipe |
 
-A documentation review may inspect skills without invoking their procedures.
-Private-repository references inside scoped skills resolve in the consuming
-project; do not fetch customer data or run cloud actions for a docs-only audit.
+A documentation review may inspect skills without invoking their procedures;
+do not fetch customer data or run cloud actions for a docs-only audit.
 
 ## Reading paths
 

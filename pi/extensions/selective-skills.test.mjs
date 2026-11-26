@@ -81,20 +81,23 @@ async function fixture({ state } = {}) {
 
 const userSkills = join(agentDir, 'skills');
 const prPath = writeSkill(userSkills, 'pr');
+const tutorPath = writeSkill(userSkills, 'socratic-tutor');
 const otherPath = writeSkill(userSkills, 'other');
 
-test('pr reaches the model in a new session with no /skill choice; other skills stay off', async () => {
+test('pr and socratic-tutor reach the model in a new session with no /skill choice; other skills stay off', async () => {
   const f = await fixture();
   try {
     assert(f.session.systemPrompt.includes(`<location>${prPath}</location>`));
+    assert(f.session.systemPrompt.includes(`<location>${tutorPath}</location>`));
     assert(!f.session.systemPrompt.includes(otherPath));
     await f.session.prompt('hello');
     assert.equal(f.calls.length, 1);
     const sent = systemPromptOf(f.calls[0]);
     assert(sent.includes('<name>pr</name>'), sent);
+    assert(sent.includes('<name>socratic-tutor</name>'), sent);
     assert(!sent.includes('<name>other</name>'));
     // The footer counts every loaded skill, always-on ones included.
-    assert.equal(f.footerCount(), 1);
+    assert.equal(f.footerCount(), 2);
   } finally { await f.close(); }
 });
 
@@ -102,6 +105,7 @@ test('a session that saved a /skill choice before pr was always on still loads p
   const f = await fixture({ state: { enabledPaths: [] } });
   try {
     assert(f.session.systemPrompt.includes(prPath));
+    assert(f.session.systemPrompt.includes(tutorPath));
     assert(!f.session.systemPrompt.includes(otherPath));
   } finally { await f.close(); }
 });
@@ -110,7 +114,7 @@ test('/skill lists pr as always on, cannot turn it off, and keeps it through on 
   const f = await fixture();
   try {
     await f.session.prompt('/skill list');
-    assert.equal(f.lastNotice(), 'always  pr\noff     other');
+    assert.equal(f.lastNotice(), 'always  pr\nalways  socratic-tutor\noff     other');
 
     await f.session.prompt('/skill off pr');
     assert.equal(f.lastNotice(), 'pr is always on');
@@ -119,12 +123,12 @@ test('/skill lists pr as always on, cannot turn it off, and keeps it through on 
     await f.session.prompt('/skill on other');
     assert(f.session.systemPrompt.includes(prPath));
     assert(f.session.systemPrompt.includes(otherPath));
-    assert.equal(f.footerCount(), 2);
+    assert.equal(f.footerCount(), 3);
 
     await f.session.prompt('/skill clear');
     assert(f.session.systemPrompt.includes(prPath));
     assert(!f.session.systemPrompt.includes(otherPath));
-    assert.equal(f.footerCount(), 1);
+    assert.equal(f.footerCount(), 2);
     assert.equal(f.calls.length, 0, 'commands must not send model requests');
   } finally { await f.close(); }
 });
@@ -136,9 +140,10 @@ test('a pr skill outside Pi\'s own skills folder is an ordinary /skill choice, o
     const f = await fixture();
     try {
       assert(!f.session.systemPrompt.includes(elsewhere));
-      assert.equal(f.footerCount(), 0);
+      // Only socratic-tutor, still in Pi's own folder, is always on.
+      assert.equal(f.footerCount(), 1);
       await f.session.prompt('/skill list');
-      assert.equal(f.lastNotice(), 'off     other\noff     pr');
+      assert.equal(f.lastNotice(), 'always  socratic-tutor\noff     other\noff     pr');
     } finally { await f.close(); }
   } finally {
     rmSync(join(root, '.agents'), { recursive: true });

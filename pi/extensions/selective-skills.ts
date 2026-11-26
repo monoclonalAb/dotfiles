@@ -31,7 +31,7 @@ interface SkillsState {
 // (~/.pi/agent/skills) only, so a project's skill of the same name never takes
 // its place. /skill lists them as "always" and cannot turn them off; the
 // footer count includes them.
-const ALWAYS_ON_SKILLS = ["pr"];
+const ALWAYS_ON_SKILLS = ["pr", "socratic-tutor"];
 
 function isAlwaysOn(skill: Skill): boolean {
   return ALWAYS_ON_SKILLS.includes(skill.name)
