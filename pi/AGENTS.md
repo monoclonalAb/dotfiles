@@ -1,5 +1,10 @@
 # Personal defaults for every Pi session
 
+This file changes while sessions run, and a session keeps the copy it loaded at
+the start. Before doing anything a section below covers (opening something in
+Herdr, making an HTML page), re-read that section from `~/.pi/agent/AGENTS.md`
+and follow the current text.
+
 ## Explanations
 
 I often have to reply "I don't understand". Explain so the first answer lands:
