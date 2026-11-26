@@ -27,8 +27,6 @@ assert NPM, "npm must already be installed"
 PACKAGE = Path(subprocess.check_output([NPM, "root", "-g"], text=True).strip()) / "@earendil-works/pi-coding-agent"
 ANSI = re.compile(rb"\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]")
 QUOTA_VALUES = "31% | 14% · 0%".encode()
-MCP_STATUS = "MCP: 0/2".encode()
-MCP_EDITED = "MCP: 1/2".encode()
 SUMMARY = "Context: AGENTS.md · Extensions: 1 · ctrl+o".encode()
 
 
@@ -43,13 +41,12 @@ def main(theme):
             "quietStartup": True,
         }))
         (base / "AGENTS.md").write_text("Synthetic context; no secrets.\n")
-        # Native MCP config; --no-extensions leaves builtin:mcp unloaded, so nothing connects.
-        mcp_config = agent / "mcp.json"
-        mcp_servers = {
+        # MCP servers configured, so the footer would show a count if one were drawn.
+        # --no-extensions leaves builtin:mcp unloaded, so nothing connects.
+        (agent / "mcp.json").write_text(json.dumps({"mcpServers": {
             "stdio": {"command": "false", "enabled": False},
             "http": {"url": "http://127.0.0.1:1/mcp", "enabled": False},
-        }
-        mcp_config.write_text(json.dumps({"mcpServers": mcp_servers}))
+        }}))
         (agent / "models.json").write_text(json.dumps({"providers": {"quota-test": {
             "baseUrl": "http://127.0.0.1:1/v1", "api": "openai-completions", "apiKey": "synthetic-only",
             "models": [{"id": "fixture", "reasoning": False}],
@@ -126,33 +123,24 @@ export default function(pi) {{
             fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
             os.kill(child.pid, signal.SIGWINCH)
             wait_for(QUOTA_VALUES, start)
-            wait_for(MCP_STATUS, start)
 
         try:
             wait_for(QUOTA_VALUES)
-            wait_for(MCP_STATUS)
             wait_for(SUMMARY)
             startup = ANSI.sub(b"", bytes(output))
             for unwanted in (b"escape interrupt", b"Press ctrl+o", b"Pi can explain", b"[Context]", b"Codex", b"Claude"):
                 assert unwanted not in startup, f"Unexpected startup fluff {unwanted!r}: {startup[-3000:]!r}"
+            # Pi draws the context share dim; compact-ui makes it bold in a colour.
+            assert b"\x1b[1m0.0%\x1b[22m" in bytes(output), "compact-ui must colour the footer's usage line"
+            # compact-ui's two footer rows: folder with model, then statuses with usage figures.
+            rows = [ANSI.sub(b"", row) for row in re.split(rb"\x1b\[\d+;1H", bytes(output))]
+            assert any(b"pi-quota-pty-" in row and b"fixture" in row for row in rows), "Model must share the folder row"
+            assert any(QUOTA_VALUES in row and b"0.0%/128k (auto)" in row for row in rows), \
+                "Usage figures must share the status row"
             os.write(master, b"draft stays editable")
             wait_for(b"draft stays editable")
             resize(100)
             resize(50)
-            resize(80)
-            # A /mcp toggle rewrites mcp.json; the footer recounts on its next render.
-            mcp_servers["stdio"].pop("enabled")
-            mcp_config.write_text(json.dumps({"mcpServers": mcp_servers}, indent=2))
-            later = time.time() + 5
-            os.utime(mcp_config, (later, later))
-            start = len(output)
-            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 90, 0, 0))
-            os.kill(child.pid, signal.SIGWINCH)
-            wait_for(MCP_EDITED, start)
-            mcp_servers["stdio"]["enabled"] = False
-            mcp_config.write_text(json.dumps({"mcpServers": mcp_servers}))
-            later += 5
-            os.utime(mcp_config, (later, later))
             resize(80)
             os.write(master, b"\x03")  # Clear only this isolated draft.
             time.sleep(0.1)
@@ -169,7 +157,6 @@ export default function(pi) {{
             start = len(output)
             os.write(master, b"/reload\r")
             wait_for(QUOTA_VALUES + b"*", start)
-            wait_for(MCP_STATUS, start)
             resize(100)
             assert requests.read_text() == "GET\nGET\n", "Reload/backoff must reuse the shared snapshot without another quota GET"
             start = len(output)
@@ -180,10 +167,23 @@ export default function(pi) {{
             wait_for(b"Codex / main (parked): wk:31%", start)
             wait_for(b"Codex / work (active): wk:7%", start)
             assert requests.read_text() == "GET\nGET\n", "Account switch must retain Claude backoff"
+            # /new reloads every extension, and Pi drops extension footers until they are back. The
+            # footer must keep its two rows: never Pi's own layout, with the model beside the figures.
+            start = len(output)
+            os.write(master, b"/new\r")
+            wait_for(b"0.0%/128k (auto)", start)
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                if select.select([master], [], [], 0.1)[0]:
+                    output.extend(os.read(master, 65536))
+            rows = [ANSI.sub(b"", row) for row in re.split(rb"\x1b\[\d+;1H", bytes(output[start:]))]
+            assert not any(re.search(rb"\(auto\) +fixture", row) for row in rows), \
+                f"/new briefly showed Pi's three-line footer: {[row for row in rows if b'fixture' in row]!r}"
+            assert b"MCP:" not in ANSI.sub(b"", bytes(output)), "The footer must not show an MCP count"
             assert not network_marker.exists(), "Unexpected model request"
             assert not (agent / "sessions").exists(), "Unexpected session persistence"
             assert child.poll() is None, "Pi unexpectedly exited"
-            print(f"PASS ({theme}): quiet fullscreen Pi shows a one-line resource summary plus compact colored quotas/native MCP counts at 50/80/100 columns, recounts an edited mcp.json, preserves draft input and stale shared usage through all-account /usage, account switches, 429 backoff and /reload; no model request or session persistence.")
+            print(f"PASS ({theme}): quiet fullscreen Pi shows a one-line resource summary plus compact colored quotas and a coloured two-row footer (no MCP count) at 50/80/100 columns, preserves draft input and stale shared usage through all-account /usage, account switches, 429 backoff, /reload and /new; no model request or session persistence.")
         finally:
             if child.poll() is None:
                 child.terminate()

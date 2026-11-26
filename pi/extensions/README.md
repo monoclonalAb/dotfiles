@@ -77,7 +77,7 @@ This README is a development policy only. Pi does not load it into model context
 
 ## Runtime controls
 
-- [`compact-ui/`](compact-ui/README.md) replaces the quiet-startup header with one expandable line and shows a right-aligned `MCP: N/M` (enabled/total servers in Pi's `mcp.json` files) in the footer.
+- [`compact-ui/`](compact-ui/README.md) replaces the quiet-startup header with one expandable line, and redraws Pi's footer in two rows (folder and model, then extension statuses and usage figures) with each value coloured. The footer's text is Pi's own. It wraps `render` on Pi's own footer class rather than setting an extension footer, so the layout holds while `/new` or `/reload` loads extensions again.
 - [`quota-footer/`](quota-footer/README.md) polls quota endpoints with Pi's own logins in interactive sessions and shows usage in the footer; `/usage` covers every saved account. Claude readings are cached privately per login outside Git.
 - `mcp-idle-stop/` stops the session's local (stdio) MCP server processes once Pi has had no agent run for 10 minutes (`PI_MCP_IDLE_STOP_SECONDS` overrides it). A server that starts while Pi is idle, as after `/mcp reconnect`, restarts the clock, and a stop that finds Pi busy (compacting, say) waits another 10 minutes. `/mcp` then shows them as disconnected, and Pi starts one again on the next call to its tools. It wraps `child_process.spawn` to record the detached children Pi spawns, and signals only the process groups of those whose command and arguments are a stdio server in the `mcp.json` files Pi read. Tools, server instructions and the model's `mcp_servers` section are unchanged.
 

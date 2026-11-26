@@ -22,19 +22,49 @@ compact replacement. Pi writes the setting through the tracked `pi/settings.json
 link, so review and commit it like any other change (see the
 [Pi section](../../../docs/AGENT-TOOLS.md#pi) of the agent tools guide).
 
-The footer also shows a right-aligned `MCP: N/M`, where `N` is the number of enabled
-servers and `M` the total. Pi's built-in MCP support publishes no status, so the
-extension counts the servers as that support merges them: `~/.pi/agent/mcp.json`,
-then the trusted project's `.pi/mcp.json` replacing entries of the same name, then
-servers registered by extensions; `"enabled": false` disables one. It re-reads the
-files only when their modification time or size changes, so `/mcp` toggles show on
-the next render. The count says nothing about connections; `/mcp` shows those. It
-preserves Pi's native footer through a small wrapper so quota and other statuses
-stay left-aligned while MCP occupies the right edge. With no servers configured the
-entry is hidden.
+The footer shows Pi's own text, rearranged into two rows instead of Pi's three:
+
+```text
+~/dotfiles (main)                               (anthropic) claude-opus-4-5 • high
+1% | 57% · 68% · @main | 2 skills   ↑134 ↓51k R4.8M $2.595 (sub) 12.7%/1.0M (auto)
+```
+
+The first row is the folder, with the model on the right. The second is the
+extension statuses (quota, account, skills, tokens per second), with the usage
+figures on the right. A row too wide for the terminal splits in two: its right
+part moves to a row of its own below, still right-aligned. Before that, the model
+drops its `(provider)`, as in Pi's own footer.
+
+The folder, usage and model text get the colours of the extension statuses: each
+value in its own colour, numbers bold, labels and separators dim.
+
+- `~/dotfiles (main) • name`: folder teal, branch green, session name plain.
+- `↑1.2k ↓340 R56k W800 CH96.6% $0.420 (sub) 31.4%/200k (auto)`: token counts
+  blue, cost orange, context share green (yellow over 70%, red over 90%, as Pi
+  warns).
+- `(anthropic) claude-opus-4-5 • high`: model violet, thinking level yellow.
+
+The colour names are those of Pi's light theme; the dark theme uses its own
+shades of the same theme slots. The extension has Pi draw its footer 1000
+columns wide, so nothing is cut, then splits and fits the parts itself. It only
+moves and colours Pi's text: a word it does not recognise stays dim, and if the
+folder text ever differs from what it expects, Pi's is shown as is. The
+extension statuses keep their own colours. There is no MCP count: every
+configured server is always enabled, so `/mcp` is the place to check connections.
+
+The layout stays put through `/new`, `/resume`, `/fork` and `/reload`. Those
+commands load every extension again, and while they do, Pi removes any footer an
+extension set with `ctx.ui.setFooter` and draws its own three-line footer. So
+this extension does not set a footer. It changes how Pi's own footer draws, by
+wrapping `render` on Pi's `FooterComponent` class, which extensions share with
+Pi. It wraps it once, when it first loads; a reload swaps in the new drawing
+code and theme, so edits show after `/reload`. Before the first session has started, it reads Pi's theme from the global
+slot Pi keeps it in. If anything is missing, Pi's footer is drawn unchanged.
+Removing this extension and running `/reload` leaves the layout in place until
+Pi restarts.
 
 No messages, tools, context files, provider requests, credentials, or MCP payloads
-are added or changed; the extension only reads `mcp.json` files.
+are added or changed.
 
 ## Verification
 
@@ -47,7 +77,10 @@ dotfiles-link check
 ```
 
 The unit suite checks resource summarization, bounded rendering, separated expansion,
-the native `mcp.json` merge and recount, and the right-aligned enabled/total MCP
-fraction. The own-PTY test combines this extension with synthetic quotas and a
-synthetic `mcp.json` (edited mid-run) in an isolated quiet-startup Pi process with
-built-in MCP unloaded; it makes no real provider request or MCP connection.
+the colours, the two-row layout at 146 columns, that narrower rows split without
+losing text or overflowing, and that Pi's footer is wrapped only once and keeps
+the layout across a session change. The own-PTY test combines this extension with
+synthetic quotas and a synthetic `mcp.json` in an isolated quiet-startup Pi process
+with built-in MCP unloaded. It checks the two rows, the colours, that no MCP count
+appears, and that `/new` never shows Pi's own three-line footer, even briefly; it
+makes no real provider request or MCP connection.

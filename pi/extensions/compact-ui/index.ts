@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import {
   CONFIG_DIR_NAME,
   FooterComponent,
@@ -12,7 +13,7 @@ import {
   type SourceInfo,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 export interface ExtensionDescriptor {
   path: string;
@@ -20,7 +21,7 @@ export interface ExtensionDescriptor {
 }
 
 type UiTheme = Pick<Theme, "bold" | "fg">;
-type RegisterOptions = { agentDir?: string; version?: string };
+type RegisterOptions = { agentDir?: string; version?: string; footer?: FooterClass };
 type Source = Pick<SourceInfo, "path" | "source">;
 
 function canonical(path: string): string {
@@ -218,163 +219,212 @@ export class StartupSummary {
   invalidate(): void {}
 }
 
-export interface McpCounts {
-  enabled: number;
-  total: number;
-}
-
-type McpServerLike = { enabled?: unknown };
-type RegisteredMcpServerLike = { name: string; config: McpServerLike };
-
-const MCP_SERVER_NAME = /^[A-Za-z0-9_-]+$/;
-
-/** Entries Pi's built-in MCP loader keeps: a valid name with a stdio `command` or an HTTP `url`. */
-function mcpServerEntries(path: string): [string, McpServerLike][] {
-  try {
-    const servers = (JSON.parse(readFileSync(path, "utf8")) as { mcpServers?: unknown } | null)?.mcpServers;
-    if (!servers || typeof servers !== "object" || Array.isArray(servers)) return [];
-    return Object.entries(servers).filter((entry): entry is [string, McpServerLike] => {
-      const [name, value] = entry;
-      if (!MCP_SERVER_NAME.test(name) || !value || typeof value !== "object" || Array.isArray(value)) return false;
-      const server = value as { command?: unknown; url?: unknown; type?: unknown };
-      return server.type !== "sse" && (typeof server.command === "string" || typeof server.url === "string");
-    });
-  } catch {
-    return [];
-  }
+/** Pi's own footer folder: the home folder shown as `~`. */
+function footerCwd(cwd: string, home = process.env.HOME || process.env.USERPROFILE): string {
+  if (!home) return cwd;
+  const inHome = relative(resolve(home), resolve(cwd));
+  const inside = inHome === "" || (inHome !== ".." && !inHome.startsWith(`..${sep}`) && !isAbsolute(inHome));
+  if (!inside) return cwd;
+  return inHome === "" ? "~" : `~${sep}${inHome}`;
 }
 
 /**
- * Count servers as Pi's built-in MCP support merges them: later files (the trusted project's
- * `.pi/mcp.json`) replace earlier entries of the same name, extension-registered servers count
- * unless a file defines their name, and `enabled: false` disables a server.
+ * Pi's folder line, `~/dotfiles (main) • name`, with the folder in teal and the branch in green.
+ * Separators stay dim. Pi's own line is kept if it shows anything else.
  */
-export function mcpCounts(
-  configPaths: readonly string[],
-  registered: readonly RegisteredMcpServerLike[] = [],
-): McpCounts {
-  const servers = new Map<string, McpServerLike>();
-  for (const path of configPaths) {
-    for (const [name, config] of mcpServerEntries(path)) servers.set(name, config);
-  }
-  for (const { name, config } of registered) {
-    if (!servers.has(name)) servers.set(name, config);
-  }
-  let enabled = 0;
-  for (const config of servers.values()) if (config.enabled !== false) enabled++;
-  return { enabled, total: servers.size };
+export function colourPath(
+  native: string,
+  parts: { cwd: string; branch: string | null; sessionName?: string },
+  theme: UiTheme,
+): string {
+  const dim = (text: string) => theme.fg("dim", text);
+  let line = theme.fg("syntaxVariable", footerCwd(parts.cwd));
+  if (parts.branch) line += dim(" (") + theme.fg("success", parts.branch) + dim(")");
+  if (parts.sessionName) line += dim(" • ") + parts.sessionName;
+  return stripVTControlCharacters(line) === stripVTControlCharacters(native) ? line : native;
 }
 
-function fileSignature(path: string): string {
-  try {
-    const stats = statSync(path);
-    return `${stats.mtimeMs}:${stats.size}`;
-  } catch {
-    return "missing";
-  }
+/** Pi's usage line split into the usage figures on its left and the model on its right. */
+export function splitStatsLine(native: string): { stats: string; model: string } {
+  const plain = stripVTControlCharacters(native);
+  // Pi pads at least two spaces between the usage figures and the right-aligned model.
+  const split = /^(.*?) {2,}(.*)$/.exec(plain);
+  return split ? { stats: split[1]!, model: split[2]! } : { stats: plain, model: "" };
 }
+
+const TOKEN_COUNT = /^([↑↓RW])(\d+(?:\.\d+)?[kM]?)$/;
+const CACHE_HIT = /^CH(\d+(?:\.\d+)?%)$/;
+const COST = /^\$\d+\.\d+$/;
+const CONTEXT = /^(\d+(?:\.\d+)?)%(\/\S+)$/;
 
 /**
- * The footer asks on every render, so recount only when a config file or the registered servers
- * change. `/mcp` saves enable/disable toggles to the file that defines the server.
+ * Pi's usage figures, styled like the extension statuses: each value bold in its own colour,
+ * labels and separators dim. Token counts are blue, cost orange and the context share green
+ * (yellow over 70%, red over 90%, as Pi warns). Words it does not recognise stay dim, as Pi
+ * draws them.
  */
-export function createMcpCounter(
-  configPaths: () => readonly string[],
-  registered: () => readonly RegisteredMcpServerLike[],
-): () => McpCounts {
-  let key: string | undefined;
-  let counts: McpCounts = { enabled: 0, total: 0 };
-  return () => {
-    const paths = configPaths();
-    const servers = registered();
-    const next = JSON.stringify([
-      paths.map((path) => [path, fileSignature(path)]),
-      servers.map(({ name, config }) => [name, config.enabled]),
-    ]);
-    if (next !== key) {
-      key = next;
-      counts = mcpCounts(paths, servers);
+export function colourStats(stats: string, theme: UiTheme): string {
+  const dim = (text: string) => theme.fg("dim", text);
+  const value = (color: Parameters<UiTheme["fg"]>[0], text: string) => theme.fg(color, theme.bold(text));
+  const words = stats.split(" ");
+  return words.map((word, index) => {
+    let match: RegExpExecArray | null;
+    if ((match = TOKEN_COUNT.exec(word))) return dim(match[1]!) + value("mdLink", match[2]!);
+    if ((match = CACHE_HIT.exec(word))) return dim("CH") + value("mdLink", match[1]!);
+    if (COST.test(word)) return value("syntaxString", word);
+    if ((match = CONTEXT.exec(word))) {
+      const percent = Number(match[1]);
+      const color = percent > 90 ? "error" : percent > 70 ? "warning" : "success";
+      return value(color, `${match[1]}%`) + dim(match[2]!);
     }
-    return counts;
+    if (word === "xp" && words[index - 1] === "•") return value("warning", word);
+    return dim(word);
+  }).join(dim(" "));
+}
+
+/** `(provider) model • level`: provider dim, model violet, thinking level yellow. */
+export function colourModel(model: string, theme: UiTheme): string {
+  const dim = (text: string) => theme.fg("dim", text);
+  let line = "";
+  let rest = model;
+  const provider = /^(\([^)]*\) )(.*)$/.exec(model);
+  if (provider) {
+    line += dim(provider[1]!);
+    rest = provider[2]!;
+  }
+  // A virtual model adds ` → model • level` for where the latest response went.
+  return line + rest.split(" → ").map((part) => {
+    if (!part) return "";
+    const [name, ...levels] = part.split(" • ");
+    return theme.fg("accent", name!) + levels.map((level) =>
+      dim(" • ") + (level === "thinking off" ? dim(level) : theme.fg("mdHeading", level))).join("");
+  }).join(dim(" → "));
+}
+
+/**
+ * One footer row: `left` at the left edge, and at the right edge the first of `rights` that fits
+ * beside it with at least two spaces between. When none fits, the right part moves to its own
+ * row below, still right-aligned, so nothing is lost on a narrow terminal.
+ */
+export function footerRow(left: string, rights: readonly string[], width: number, ellipsis: string): string[] {
+  const fit = (text: string) => truncateToWidth(text, Math.max(0, width), ellipsis);
+  const alignRight = (text: string) => " ".repeat(Math.max(0, width - visibleWidth(text))) + text;
+  const options = rights.filter((right) => right.length > 0);
+  if (options.length === 0) return left ? [fit(left)] : [];
+  if (!left) return [alignRight(options.find((right) => visibleWidth(right) <= width) ?? fit(options.at(-1)!))];
+  for (const right of options) {
+    const gap = width - visibleWidth(left) - visibleWidth(right);
+    if (gap >= 2) return [left + " ".repeat(gap) + right];
+  }
+  return [fit(left), ...footerRow("", options, width, ellipsis)];
+}
+
+/** Pi draws its footer this wide so nothing is cut; `layoutFooter` fits the parts itself. */
+const UNCUT_WIDTH = 1000;
+
+/**
+ * Pi's footer lines, drawn at `UNCUT_WIDTH`, in two coloured rows: the folder with the model on
+ * the right, then the extension statuses with the usage figures on the right. A row too wide for
+ * the terminal splits in two.
+ */
+export function layoutFooter(
+  lines: readonly string[],
+  parts: { cwd: string; branch: string | null; sessionName?: string },
+  theme: UiTheme,
+  width: number,
+): string[] {
+  // Pi's lines: folder, usage figures with the model, then extension statuses (if any).
+  const [pathLine = "", statsLine = "", statusLine = ""] = lines;
+  const { stats, model } = splitStatsLine(statsLine);
+  // Like Pi, drop the provider before anything else when the model does not fit.
+  const withoutProvider = model.replace(/^\([^)]*\) /, "");
+  const models = withoutProvider === model ? [model] : [model, withoutProvider];
+  const ellipsis = theme.fg("dim", "...");
+  return [
+    ...footerRow(colourPath(pathLine, parts, theme), models.map((text) => colourModel(text, theme)), width, ellipsis),
+    ...footerRow(statusLine, [colourStats(stats, theme)], width, ellipsis),
+  ];
+}
+
+type FooterRender = (this: unknown, width: number) => string[];
+type FooterClass = { prototype: object };
+/** The fields of Pi's own footer that the layout reads. */
+type NativeFooter = {
+  session?: { sessionManager?: { getCwd(): string; getSessionName(): string | undefined } };
+  footerData?: Pick<ReadonlyFooterDataProvider, "getGitBranch">;
+};
+interface FooterPatch {
+  original: FooterRender;
+  /** The loaded extension's drawing code; a reload replaces it, the wrapper stays. */
+  draw: (footer: unknown, width: number, original: FooterRender) => string[];
+}
+
+const FOOTER_PATCH = Symbol.for("dotfiles.compact-ui.footer");
+// Pi keeps its theme here so every module loader sees the same one (see Pi's theme.js).
+const PI_THEME = Symbol.for("@earendil-works/pi-coding-agent:theme");
+
+/** Pi's current theme, from before the first session starts (when no `ctx` has one yet). */
+function piTheme(): UiTheme | undefined {
+  return (globalThis as Record<symbol, UiTheme | undefined>)[PI_THEME];
+}
+
+/**
+ * Give Pi's own footer the two-row layout, by wrapping its class's `render`.
+ *
+ * Not `ctx.ui.setFooter`: Pi removes every extension footer while it replaces a session (`/new`,
+ * `/resume`, `/fork`, `/reload`) and shows its own three-line footer until the new session's
+ * extensions start. Pi's own footer stays through that, so changing it keeps the footer still.
+ * Extensions share Pi's modules, so this is the class Pi draws. It is wrapped once per process;
+ * a reloaded extension swaps in its own drawing code and theme. Anything unexpected draws Pi's
+ * footer unchanged.
+ */
+export function installFooterLayout(target: FooterClass, theme: () => UiTheme | undefined): void {
+  const draw: FooterPatch["draw"] = (self, width, original) => {
+    const footer = self as NativeFooter;
+    const sessionManager = footer.session?.sessionManager;
+    const currentTheme = theme();
+    if (!currentTheme || !sessionManager || !footer.footerData) return original.call(self, width);
+    try {
+      return layoutFooter(original.call(self, UNCUT_WIDTH), {
+        cwd: sessionManager.getCwd(),
+        branch: footer.footerData.getGitBranch(),
+        sessionName: sessionManager.getSessionName(),
+      }, currentTheme, width);
+    } catch {
+      return original.call(self, width);
+    }
   };
+  const prototype = target.prototype as { render: FooterRender; [FOOTER_PATCH]?: FooterPatch };
+  const existing = prototype[FOOTER_PATCH];
+  if (existing) {
+    existing.draw = draw;
+    return;
+  }
+  const patch: FooterPatch = { original: prototype.render, draw };
+  prototype.render = function render(this: unknown, width: number): string[] {
+    return patch.draw(this, width, patch.original);
+  };
+  prototype[FOOTER_PATCH] = patch;
 }
 
-/** Keep Pi's native footer, but reserve its right edge for the MCP server count. */
-export class McpAlignedFooter implements Component {
-  private readonly native: FooterComponent;
-
-  constructor(
-    private readonly ctx: ExtensionContext,
-    private readonly footerData: ReadonlyFooterDataProvider,
-    private readonly mcpStatus: () => string | undefined,
-  ) {
-    const sessionView = {
-      get state() {
-        return { model: ctx.model, thinkingLevel: ctx.thinkingLevel };
-      },
-      sessionManager: ctx.sessionManager,
-      getContextUsage: () => ctx.getContextUsage(),
-      modelRuntime: {
-        isUsingSubscription: (provider: string) => {
-          const model = ctx.model;
-          return model?.provider === provider && ctx.modelRegistry.isUsingOAuth(model);
-        },
-      },
-    };
-    this.native = new FooterComponent(sessionView as never, footerData);
-  }
-
-  render(width: number): string[] {
-    const lines = this.native.render(width);
-    const mcp = this.mcpStatus();
-    if (mcp === undefined) return lines;
-
-    // Pi renders extension statuses as the footer's last line; share it with the MCP count.
-    const left = this.footerData.getExtensionStatuses().size > 0 ? lines.pop() ?? "" : "";
-    const right = truncateToWidth(mcp, Math.max(0, width), "");
-    if (right.length === 0) {
-      lines.push("");
-      return lines;
-    }
-    const rightWidth = visibleWidth(right);
-    const availableLeft = Math.max(0, width - rightWidth - (left ? 1 : 0));
-    const fittedLeft = truncateToWidth(left, availableLeft, "");
-    const spacing = Math.max(0, width - visibleWidth(fittedLeft) - rightWidth);
-    lines.push(`${fittedLeft}${" ".repeat(spacing)}${right}`);
-    return lines;
-  }
-
-  invalidate(): void {
-    this.native.invalidate();
-  }
-
-  dispose(): void {
-    this.native.dispose();
-  }
+/** Put Pi's own footer `render` back (tests; Pi itself keeps the layout until it exits). */
+export function removeFooterLayout(target: FooterClass): void {
+  const prototype = target.prototype as { render: FooterRender; [FOOTER_PATCH]?: FooterPatch };
+  const patch = prototype[FOOTER_PATCH];
+  if (!patch) return;
+  prototype.render = patch.original;
+  delete prototype[FOOTER_PATCH];
 }
 
 export function registerCompactUi(pi: ExtensionAPI, options: RegisterOptions = {}): void {
-  let restoreFooter: (() => void) | undefined;
+  // Before the first session starts there is no `ctx`; read Pi's theme directly until then.
+  let sessionTheme: UiTheme | undefined;
+  installFooterLayout(options.footer ?? FooterComponent, () => sessionTheme ?? piTheme());
 
   pi.on("session_start", (_event, ctx) => {
-    restoreFooter?.();
-    restoreFooter = undefined;
     if (ctx.mode !== "tui") return;
+    sessionTheme = ctx.ui.theme;
     const agentDir = options.agentDir ?? getAgentDir();
-    const countMcp = createMcpCounter(
-      () => [
-        join(agentDir, "mcp.json"),
-        ...(ctx.isProjectTrusted() ? [join(ctx.cwd, CONFIG_DIR_NAME, "mcp.json")] : []),
-      ],
-      () => pi.getMcpServers(),
-    );
-    const mcpStatus = () => {
-      const { enabled, total } = countMcp();
-      return total > 0 ? ctx.ui.theme.fg("dim", `MCP: ${enabled}/${total}`) : undefined;
-    };
-    const ui = ctx.ui;
-    ui.setFooter((_tui, _theme, footerData) => new McpAlignedFooter(ctx, footerData, mcpStatus));
-    restoreFooter = () => ui.setFooter(undefined);
     const contexts = contextPaths(ctx.getSystemPrompt());
     const extensions = extensionDescriptors(pi, ctx, agentDir);
     ctx.ui.setHeader((_tui, theme) => new StartupSummary(
@@ -383,11 +433,6 @@ export function registerCompactUi(pi: ExtensionAPI, options: RegisterOptions = {
       extensions,
       options.version ?? VERSION,
     ));
-  });
-
-  pi.on("session_shutdown", () => {
-    restoreFooter?.();
-    restoreFooter = undefined;
   });
 }
 
