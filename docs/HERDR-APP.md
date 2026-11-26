@@ -137,7 +137,8 @@ Everything else is dropped: Space switches, `C-a m`'s "Saved until you reply", "
 Pi", the app's own info notes. The `toast-filter` mod does this; the layout's
 `toast` field hands it every note, the app's and every mod's. Kept notes look like
 the app's own (`toast` mod, copied from 0.1.17). The alert sounds are separate and
-still play (Settings → Alerts). Another layout shows every note.
+still play (Settings → Alerts). [Review mode](#review-mode) uses the same
+filter; another layout shows every note.
 
 Each conversation has one dot. Example, three agents in one Space:
 
@@ -361,7 +362,7 @@ of the Space you work in. Example:
 ## Review mode
 
 `C-a p` turns the window into a screen for reviewing GitHub pull requests: the
-`review` layout. `C-a p` there brings back the `eric` layout as you left it. The
+`review` layout. `C-a p` there brings back the `eric` layout. The
 [Review mode plan](plans/active/2026-11-25-review-mode.md) builds it in steps;
 so far its three columns are empty. Example:
 
@@ -381,7 +382,9 @@ and the other keys of this repository's mods) do nothing in Review mode.
 Switching layouts restarts each layout's mods. Coming back, the sidebar and
 the status bar mods start again and reload what they keep in storage (folds,
 unread marks, recent visits); the focused pane and the panel's view and width
-belong to the app and do not change.
+belong to the app and do not change. ``C-a ` `` forgets the pane before, which
+`pane-keys` keeps only while it runs, so it does nothing until you move to
+another pane.
 
 ### State of a pull request's review
 
@@ -404,6 +407,8 @@ own storage, which is per mod and props.
   know, and save with `writeTextFile(path, text, expected)` using the text you
   read as `expected`. If another view saved first, the write is refused: read
   again and re-apply only your change.
+- **Size:** under 1 MiB, the most `readTextFile` reads. A save that would make
+  it larger is not written; the mod says so and keeps the change on screen.
 
 The file is your review work and lives outside this repository. Deleting it
 forgets that pull request's Viewed ticks, marks and drafts.
