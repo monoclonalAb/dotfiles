@@ -71,7 +71,7 @@ consumer; do not fix generated output or add a second writer.
 | Pi/OMP prompt template | `pi/prompts/*.md` (also linked to `~/.omp/agent/prompts/`) | Global prompt discovery in both harnesses → explicit `/name` invocation; only `$ARGUMENTS`/`$@`/`$N` placeholders. Both load only direct children, so `pi/prompts/rho/` holds checklists `/rho` reads by path, not commands |
 | Click Pi file links into Neovim | `pi/extensions/local-file-links/README.md` | File URLs → Alacritty hint → `bin/terminal-open` → Neovim |
 | Add an MCP server | `pi/mcp.json`, and `omp/mcp.json` to keep OMP in step | Pi's built-in MCP support; `pi mcp list` connects it, then `/reload` and `/mcp`; OMP `/mcp reload` and `/mcp reauth <name>` |
-| Global or scoped skills | `pi/skills/`, `pi/scoped-skills/` | `/skill` in Pi; OMP via `skills.customDirectories` in `omp/config.yml`; scoped skills only where a project links them |
+| Global skills | `pi/skills/` | `/skill` in Pi; OMP via `skills.customDirectories` in `omp/config.yml` |
 | OMP defaults, tools | `omp/` | Global deployment versus project `.omp/`; consuming task and installed harness, not the model name |
 | Where agents keep HTML pages | `bin/artifact`, the `HTML artifacts` section of `pi/AGENTS.md` | Store in `~/Desktop/artifacts/` (outside the repository) → `artifact list`; `lib/artifact/` with a temporary store |
 | Workspace repository index for agents | `lib/workspace-context-mcp/README.md` | Launcher → stdio MCP; Node suite, then `workspace-context-mcp doctor` |
@@ -194,10 +194,11 @@ imported is runtime state under `~/.local/state/herdr-app/`.
 agent capabilities for Pi first, then optionally mirror them to OMP. Pi's managed
 MCP registrations are in [`pi/mcp.json`](../pi/mcp.json), read
 by Pi's built-in MCP support; a trusted project's `.pi/mcp.json` replaces entries
-of the same name. [`pi/skills/`](../pi/skills/) and
-[`pi/scoped-skills/`](../pi/scoped-skills/) hold the skills both harnesses
-use; OMP reads the global ones through `skills.customDirectories`. Scoped skills
-are inert until a project links them. [`omp/`](../omp/) contains only
+of the same name. [`pi/skills/`](../pi/skills/) holds the skills both harnesses
+use; OMP reads them through `skills.customDirectories`. Repository-specific
+skills live in the repository they apply to, or for DE work in the team's
+`shared-agent-skills` repository, which Pi's `skills` setting adds to `/skill`.
+[`omp/`](../omp/) contains only
 OMP-specific defaults, tooling catalogues and agents.
 [`pi/extensions/`](../pi/extensions/) contains globally
 discovered Pi extensions and the policy for any hook that can alter model-visible
@@ -256,8 +257,8 @@ not valid for this boundary.
 - New mutable state: an application-owned directory or `~/.local/state/<tool>`.
 - New cross-application command: `bin/`, with minimal-`PATH` handling
   if reachable outside a shell.
-- New skill: `pi/skills/` only if useful in any repository; otherwise
-  `pi/scoped-skills/`, explicitly linked per repository.
+- New skill: `pi/skills/` only if useful in any repository; otherwise in the
+  repository it applies to (DE work: the team's `shared-agent-skills`).
 - New OMP-only capability: `omp/`.
 - New Pi extension: `pi/extensions/`, after applying that directory's
   context-neutrality policy.

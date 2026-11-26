@@ -226,8 +226,9 @@ reviewed commit, and change the pin above.
 - `/poteto <task>` ([`pi/prompts/poteto.md`](../pi/prompts/poteto.md)) is the
   entry point. The agent reads `poteto-mode` by path, and the prompt maps
   pstack's Claude Code tools to what exists here.
-- `/skill` also lists every pstack skill, because Pi's `skills` setting names the
-  clone. Enable one to use it directly, for example `how` or `interrogate`.
+- `/skill` does not list pstack's skills: their entry in Pi's `skills` setting
+  was removed on 2026-11-26 after none had been used. `/poteto` and `pi-agent -a`
+  still read the clone by path.
 - Subagents run through `pi-agent` (above), which maps pstack's `opus` and
   `fable` to Claude and `sonnet` and `haiku` to GPT-6.1 Sol and GPT-6 Luna.
 
@@ -355,8 +356,8 @@ To enable a reviewed server for one repository, add it to `<repo>/.omp/mcp.json`
 - Hosted OAuth credentials are keyed by profile and URL, so they work in a project
   file without signing in again.
 
-Semgrep is CLI-only: `uv tool install semgrep`, then `semgrep scan --config auto`
-per the `secret-sast-sweep` skill. Its MCP catalogue entry stays disabled.
+Semgrep is CLI-only: `uv tool install semgrep`, then `semgrep scan --config auto`.
+Its MCP catalogue entry stays disabled.
 
 **Authentication and prerequisites:**
 
@@ -425,24 +426,19 @@ trace lookup.
   non-recursive, one level below `skills/`, and need `name` and `description`
   frontmatter.
 - **Skill scope:** keep only cross-repository skills in `pi/skills/`:
-  `agent-handoff`, `llm-eval`, `omp-repo-setup`, `pr`, `repo-recon`,
-  `secret-sast-sweep`, `socratic-tutor` and `visual-verify`.
+  `agent-handoff`, `pr`, `repo-recon`, `socratic-tutor` and `visual-verify`.
   [`socratic-tutor`](../pi/skills/socratic-tutor/SKILL.md) is Jane Street's
   skill from [`janestreet/agent_skills`](https://github.com/janestreet/agent_skills),
   unchanged from commit `7c6715c`, with its MIT
   [licence](../pi/skills/socratic-tutor/LICENSE.md); it teaches by questions
-  when asked "teach me" or "quiz me". Repository-specific skills live in
-  [`pi/scoped-skills/`](../pi/scoped-skills/) (`~/.pi/agent/scoped-skills/`),
-  which neither harness auto-discovers; link each into the repositories it
-  applies to at `.omp/skills/<name>` (both OMP and `/skill` scan that folder):
-  - `lintmax`: repositories with `pnpm-lock.yaml`
-  - `agent-test-author`: prompt-behemoth consumers
-  - `everyday-ai-frontend-styleguide`: `de-dashboard`
-  - `perform-dangerous-action`: DE service repositories
-  - `kpi-tracking`: Hono-based DE service repositories
-  - `policy-guide-setup` and `system-design-template`: established DE service
-    repositories
-  - `gcp-investigate`: DE service repositories and `de-dashboard`
+  when asked "teach me" or "quiz me". This repository keeps no
+  repository-specific skills. Those belong in the repository they apply to
+  (for example its `.agents/skills/`), or, for DE work, in the team's
+  `shared-agent-skills` repository, which Pi's `skills` setting offers in
+  `/skill` (for example `lintmax`, `kpi-tracking` and
+  `perform-dangerous-action`). The former `pi/scoped-skills/` copies of those
+  skills, `gcp-investigate`, `llm-eval`, `omp-repo-setup` and
+  `secret-sast-sweep` were removed on 2026-11-26 after almost no use.
 - **Custom subagents:** `~/.omp/agent/agents/*.md` and `<cwd>/.omp/agents/*.md`.
   Required frontmatter: `name`, `description`; optional: `tools`, `spawns`,
   `model`, `thinking-level`, `autoloadSkills`, `prewalk`, `advisor`. Bundled
