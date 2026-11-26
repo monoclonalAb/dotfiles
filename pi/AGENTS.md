@@ -26,6 +26,15 @@ I often have to reply "I don't understand". Explain so the first answer lands:
 - When I say I don't understand, don't restate the same points. Start from what I
   already know and build up with simpler words and a worked example.
 
+## Missing tools
+
+When a command-line tool you need isn't installed, install it yourself and carry
+on; don't stop to ask. Use Homebrew (`brew install`) when it has the tool, and
+else the tool's usual installer (`npm install -g`, `pipx`, `uv tool install`).
+Tell me what you installed. This covers tools on this Mac, not a project's own
+dependencies: those still follow the project's rules. If the tool then needs me to
+log in, say so and give me the command.
+
 ## Herdr
 
 When I ask to open something "in Herdr" (a worktree, a space, a tab, an agent), open
