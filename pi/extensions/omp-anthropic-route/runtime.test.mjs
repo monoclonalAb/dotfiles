@@ -181,8 +181,8 @@ async function fixture(options = {}) {
   const loader = new sdk.DefaultResourceLoader({
     cwd: root, agentDir: process.env.PI_CODING_AGENT_DIR, settingsManager: settings,
     noExtensions: true, additionalExtensionPaths: [join(deployed, "index.ts"), ...(options.router ? [join(source, "../quota-router/index.ts")] : [])],
-    noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    systemPromptOverride: () => "Synthetic fixture only",
+    noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: !options.realPrompt,
+    ...(options.realPrompt ? {} : { systemPromptOverride: () => "Synthetic fixture only" }),
   });
   await loader.reload();
   assert.deepEqual(loader.getExtensions().errors, []);
@@ -324,6 +324,32 @@ test("native Pi loads the linked route, executes tools, changes tools/thinking, 
     }
     assert.deepEqual(f.errors, []);
   } finally { await f.close(); }
+});
+
+// Against Pi's own prompt rather than a fixture: if a Pi update rewords or moves its
+// documentation block, transport.ts's stripPiDocumentationBlock silently stops
+// matching it. This fails instead (pi-compat-check runs it after each Pi update).
+test("Pi's real system prompt: the route removes Pi's documentation block and keeps project context", async () => {
+  const context = join(process.env.PI_CODING_AGENT_DIR, "AGENTS.md");
+  writeFileSync(context, "ROUTE_CONTEXT_MARKER: keep this project instruction.\n");
+  const f = await fixture({ realPrompt: true });
+  try {
+    assert.match(f.session.systemPrompt, /^Pi documentation \(read only/m,
+      "Pi's documentation block was reworded or moved; update stripPiDocumentationBlock in transport.ts");
+    assert.match(f.session.systemPrompt, /ROUTE_CONTEXT_MARKER/);
+    const start = lines(requestLog).length;
+    await f.session.prompt("Request with Pi's real prompt");
+    assert.equal(f.session.messages.at(-1).stopReason, "stop", f.session.messages.at(-1).errorMessage);
+    const sent = lines(requestLog).slice(start).map(request => request.body)
+      .filter(body => !JSON.stringify(body.messages).includes("PI_ROUTE_OK"));
+    assert.equal(sent.length, 1);
+    const wire = JSON.stringify(sent[0]);
+    assert.doesNotMatch(wire, /Pi documentation|Additional docs:/);
+    assert.match(wire, /ROUTE_CONTEXT_MARKER/);
+  } finally {
+    await f.close();
+    rmSync(context, { force: true });
+  }
 });
 
 test("first Opus request verifies once; startup/status/reload are passive and later requests reuse the check", async () => {

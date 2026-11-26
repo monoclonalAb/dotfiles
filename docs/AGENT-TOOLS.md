@@ -77,6 +77,7 @@ context.
 | [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and a two-row coloured footer: folder and model, then statuses and usage |
 | `mcp-idle-stop` | Stops the session's local (stdio) MCP servers after 10 idle minutes; Pi starts each again on the next call to its tools |
 | `restart` | A line just above the input box when the session is out of date: a newer Pi is installed (`/restart` reopens the same conversation in a new Pi in the same Herdr app pane; `/reload` does not update Pi itself), or extensions, prompt templates, settings, keybindings, `mcp.json` or AGENTS.md files changed since it started (`/reload`) (below) |
+| [`pi-compat`](../pi/extensions/pi-compat/README.md) | After each Pi update, runs once the tests of the workflows that use Pi internals (Vim editing, Pi Tasks, account switching, compact footer, Claude via OMP and others); failures show in the footer, `pi-compat-check --status` has the logs |
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
 | [`readable-transcript`](../pi/extensions/readable-transcript/README.md) | Frames thinking blocks behind a `│` rail and tidies `codemode` and multi-line `bash` script rows (display only) |
@@ -92,6 +93,11 @@ conversation is in its session file, so a new process continues it:
    installed; this session runs 1.5.2. Type /restart to reopen it on 1.6.0.`
 3. When you next use it, type `/restart`. Pi quits and the same conversation
    reopens on 1.6.0 in that pane. Pi never restarts by itself.
+
+Meanwhile [`pi-compat`](../pi/extensions/pi-compat/README.md) tests the workflows
+that use Pi internals against 1.6.0. If its footer shows `Pi 1.6.0: 2 checks
+failed`, run `pi-compat-check --status` before restarting old sessions: they keep
+working on 1.5.2 until you do.
 
 **After an extension or setting changes.** The same line says what `/reload`
 would load, for example `Changed since this session started: restart extension

@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -646,6 +646,34 @@ test('usage parser: native disjoint cache buckets, summary usage, malformed tail
       for (const line of view.render(width)) assert(tui.visibleWidth(line) <= width);
     }
   }
+  rmSync(file);
+});
+
+// A file Pi writes itself, not a hand-written fixture: /session-breakdown reads
+// ~/.pi/agent/sessions directly, so a Pi change to session file names, folders or
+// entries fails here (pi-compat-check runs this after each Pi update).
+test('usage parser reads a session file written by Pi itself', async () => {
+  const cwd = mkdtempSync(join(root, 'breakdown-cwd-'));
+  const sm = sdk.SessionManager.create(cwd);
+  sm.appendModelChange('test', 'model');
+  sm.appendMessage({ role: 'user', content: [{ type: 'text', text: 'hello' }], timestamp: Date.now() });
+  sm.appendMessage({
+    role: 'assistant', content: [{ type: 'text', text: 'hi' }], api: 'openai-responses', provider: 'test', model: 'model',
+    usage: { input: 10, output: 5, cacheRead: 100, cacheWrite: 3, totalTokens: 118, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.25 } },
+    stopReason: 'stop', timestamp: Date.now(),
+  });
+  const file = sm.getSessionFile();
+  assert(file && existsSync(file), 'Pi wrote no session file');
+  assert(file.startsWith(join(agentDir, 'sessions')), file);
+  const parsed = await breakdown.parseSessionFile(file);
+  assert.equal(parsed.cwd, cwd);
+  assert(Math.abs(parsed.startedAt.getTime() - Date.now()) < 60_000, 'start time from the file name or header');
+  assert.equal(parsed.messages, 2);
+  assert.equal(parsed.tokens, 118);
+  assert.equal(parsed.totalCost, 0.25);
+  assert.deepEqual([...parsed.modelsUsed], ['test/model']);
+  const data = await breakdown.computeBreakdown();
+  assert.equal(data.ranges.get(7).totalTokens, 118, 'found under Pi sessions folder');
   rmSync(file);
 });
 

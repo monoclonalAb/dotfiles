@@ -67,6 +67,7 @@ consumer; do not fix generated output or add a second writer.
 | Herdr app keys | `herdr-app/keys.json` (`layout:eric` for mod commands) | `touch -h ~/.config/herdr-app/keys.json` → no `keys.error` → `herdr-app do <command>` |
 | Move terminal Herdr workspaces to the app | `bin/herdr-import` | `--dry-run`, then `--workspace <id> --shells-only`; `lib/herdr-import/` with fake app and server |
 | Pi extension command, UI, or display metadata | `pi/extensions/README.md`, then owning extension | `bin/pi` and installed Pi API → focused suite → safe fresh-session check |
+| Which workflows a Pi update breaks | `bin/pi-compat-check` (`SUITES`), `pi/extensions/pi-compat/README.md` | Installed Pi version with no result → `pi-compat` extension starts the check → `~/.local/state/pi/compat/<version>/` → footer status in every Pi session; `lib/pi-compat/` with fake suites, then the extension's PTY smoke |
 | Pi/OMP prompt template | `pi/prompts/*.md` (also linked to `~/.omp/agent/prompts/`) | Global prompt discovery in both harnesses → explicit `/name` invocation; only `$ARGUMENTS`/`$@`/`$N` placeholders. Both load only direct children, so `pi/prompts/rho/` holds checklists `/rho` reads by path, not commands |
 | Click Pi file links into Neovim | `pi/extensions/local-file-links/README.md` | File URLs → Alacritty hint → `bin/terminal-open` → Neovim |
 | Add an MCP server | `pi/mcp.json`, and `omp/mcp.json` to keep OMP in step | Pi's built-in MCP support; `pi mcp list` connects it, then `/reload` and `/mcp`; OMP `/mcp reload` and `/mcp reauth <name>` |
