@@ -236,8 +236,9 @@ Rules:
    because a switch silently carries uncommitted files into the next branch.
    A stacked draft PR targets that dependency branch. Once the dependency M
    merges, the next run moves the step onto main before working on it:
-   a. `git fetch origin`. Take M's merged head (`gh pr view <M> --json
-      headRefOid`) and its squash commit, which must be in `origin/main` (`git
+   a. `git fetch origin` and `git fetch origin pull/<M>/head` (M's branch may
+      be gone). Take M's merged head (`gh pr view <M> --json headRefOid`) and
+      its squash commit, which must be in `origin/main` (`git
       merge-base --is-ancestor <squash> origin/main`) and rebuild from it: `git
       merge-tree --write-tree <squash>^ <M's head>` prints `git rev-parse
       '<squash>^{tree}'`.
@@ -251,7 +252,8 @@ Rules:
    d. Check that `git diff origin/main HEAD | git patch-id --stable` gives the
       same id, and rerun the step's checks.
    e. Move the step's branch to the temporary one, push normally, and only then
-      retarget the PR (`gh pr edit review-mode/step-N --base main`).
+      retarget the PR (`gh pr edit review-mode/step-N --base main`). A run
+      stopped after d resumes here from the checked commit, not at b.
    A merge conflict (`git merge --abort`) or a different id stops an unattended
    run without pushing: a clean merge can still undo a line this step set back
    to its value before M, and main's edits within 3 lines of this step's also
