@@ -221,6 +221,71 @@ class ReviewAnalyse(unittest.TestCase):
         fresh, _ = self.answer("snapshot", LINK)
         self.assertEqual(fresh["head"], again)
 
+    def pieces(self, snapshot, path):
+        """Every piece of one file's diff: its lines and each piece's size."""
+        lines, sizes, start = [], [], 0
+        while True:
+            piece, size = self.answer("diff", LINK, snapshot["snapshot"], "--from", str(start), "--", path)
+            lines += piece["lines"]
+            sizes.append(size)
+            start += len(piece["lines"])
+            if not piece["more"]:
+                return lines, sizes
+
+    def test_a_piece_stays_under_8_mib_whatever_the_characters(self):
+        self.base_repo()
+        self.git("switch", "-q", "-c", "feature")
+        text = [f"{i:05d}" + "\U0001F600" * 500 for i in range(4000)]
+        self.write("faces.txt", "\n".join(text) + "\n")
+        head = self.commit("emoji")
+        self.publish(head, git("rev-parse", "main", cwd=self.work))
+        snapshot, _ = self.answer("snapshot", LINK)
+        lines, sizes = self.pieces(snapshot, "faces.txt")
+        self.assertTrue(all(size < EIGHT_MIB for size in sizes), sizes)
+        self.assertEqual([line[1:] for line in lines if line.startswith("+")], text)
+
+    def test_a_merged_pull_request_whose_target_branch_is_gone(self):
+        self.base_repo()
+        self.git("switch", "-q", "-c", "release")
+        release = self.git("rev-parse", "HEAD")
+        head = self.feature()
+        self.git("switch", "-q", "release")
+        self.git("merge", "-q", "--no-ff", "-m", "Merge #7", "feature")
+        self.git("push", "-q", "origin", "main", "release", f"{head}:refs/pull/7/head")
+        self.git("push", "-q", "origin", "--delete", "release")
+        (self.home / "gh.json").write_text(json.dumps({"pr": {
+            "url": LINK, "state": "MERGED", "headRefOid": head, "baseRefName": "release", "baseRefOid": release,
+        }}))
+        snapshot, _ = self.answer("snapshot", LINK)
+        self.assertEqual(self.files(snapshot), self.FEATURE_FILES)
+        self.assertEqual(snapshot["base"], "release")
+
+    def test_file_names_are_names_not_patterns_or_options(self):
+        self.base_repo()
+        self.git("switch", "-q", "-c", "feature")
+        self.write("pages/[id].tsx", "export const id = 1;\n")
+        self.write("pages/i.tsx", "export const i = 2;\n")
+        self.write("-rules.txt", "no dashes please\n")
+        head = self.commit("names")
+        self.publish(head, git("rev-parse", "main", cwd=self.work))
+        snapshot, _ = self.answer("snapshot", LINK)
+        lines, _ = self.pieces(snapshot, "pages/[id].tsx")
+        self.assertEqual([line for line in lines if line.startswith("+")], ["+export const id = 1;"])
+        lines, _ = self.pieces(snapshot, "-rules.txt")
+        self.assertEqual([line for line in lines if line.startswith("+")], ["+no dashes please"])
+
+    def test_a_mode_change_says_so(self):
+        base = self.base_repo()
+        self.git("switch", "-q", "-c", "feature")
+        self.git("update-index", "--chmod=+x", "a.txt")
+        self.git("commit", "-q", "-m", "executable")
+        head = self.git("rev-parse", "HEAD")
+        self.publish(head, base)
+        snapshot, _ = self.answer("snapshot", LINK)
+        self.assertEqual(self.files(snapshot), {"a.txt": ("modified", 0, 0)})
+        lines, _ = self.pieces(snapshot, "a.txt")
+        self.assertEqual(lines, ["\\ old mode 100644", "\\ new mode 100755"])
+
     def test_mistakes_say_what_went_wrong(self):
         result = self.run_command("snapshot", "not a link")
         self.assertEqual(result.returncode, 1)
