@@ -406,8 +406,8 @@ off and the branch it targets. Files, counts and diffs all come from that
 snapshot, so a push while you read changes nothing on screen; opening the pull
 request again takes a new one. A merged or closed pull request is compared with
 its base as it was then, so it still shows its own files. The header's counts
-are the snapshot's too. A pull request with more than 3000 changed files lists
-the first 3000, as GitHub does, and says how many more. Diffs come in pieces
+are the snapshot's too. A pull request with more than 500 changed files lists
+the first 500 and says how many more. Diffs come in pieces
 of 2000 lines or 2 MiB (`Load 2000 more lines` at the end), with mode changes
 and renames noted above the first hunk; a binary file, or one with
 more than 20,000 changed lines, says `Too large to show here` with a link to

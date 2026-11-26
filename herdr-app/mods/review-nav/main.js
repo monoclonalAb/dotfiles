@@ -354,7 +354,8 @@ export default class ReviewNav extends View {
       if (next.status === "ready") {
         if (next.files.length && this.files) setShared(FILE, { pr: pr.url, snapshot: next.snapshot, path: next.files[0].path });
         const text = await readTextFile(statePath(home(), pr.url)).catch(() => null);
-        if (shared(SNAPSHOT)?.snapshot === next.snapshot && shared(SNAPSHOT)?.pr === pr.url) {
+        // Unless a tick saved meanwhile (it set VIEWED from a newer read).
+        if (shared(SNAPSHOT)?.snapshot === next.snapshot && shared(SNAPSHOT)?.pr === pr.url && !shared(VIEWED)) {
           setShared(VIEWED, { pr: pr.url, snapshot: next.snapshot, paths: viewedIn(text, pr.url, next.snapshot) });
         }
       }
