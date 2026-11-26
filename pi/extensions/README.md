@@ -24,9 +24,12 @@ Display-only extensions (no approval needed, but keep them that way):
   `codemode` and multi-line `bash` tool rows (human-readable nested call args,
   one-line JSON return summaries when collapsed, unescaped `[key]` sections when
   expanded). Rendering only: sessions, tool execution and model input are unchanged.
-- `modal-vim-navigation/` owns the editor. Its `[img #N]` markers expand to Pi's
+- `modal-vim-navigation/` owns the editor (Vim editing, transcript keys, the
+  terminal cursor's shape). Its `[img #N]` markers expand to Pi's
   native image file references when the draft is submitted, and it reads the
-  clipboard only on an explicit paste. Ctrl+C copies a nonempty draft it clears.
+  clipboard only on an explicit paste (Ctrl+V, Cmd+V, Vim's `p` and `P`). Ctrl+C
+  copies a nonempty draft it clears, and Vim's yanks, deletes and changes copy
+  their text, as Neovim's `clipboard=unnamedplus` does.
   An exact `/copy` submitted with Enter, or with Alt+Enter while Pi is idle, is
   sent as `/copy-session` (a local command; see its README), so it never reaches
   the model. Queued with Alt+Enter while Pi works, `/copy` is sent unchanged, as
