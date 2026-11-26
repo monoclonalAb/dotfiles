@@ -30,7 +30,6 @@ Use temporary directories outside the repository for generated output.
 | Herdr app mods' rules | `node --test lib/herdr-app-mods/*.test.mjs` | Imports each mod's `main.js` with stand-ins for the app's `gpui-kit`, `gpui-base` and `herdr` modules: next-agent's ledger and jumps, spaces-env, pull-request and title rules, the sidebar's folded worktrees, which panes count as Neovim editors, their names and their tab-by-tab order, pi-resume's recovery rule, mission-control's cards, grid and key moves, conversation-picker's matching, order and list layout (editors after conversations), the sidebar's review Spaces, pane-keys' panel toggle, recent-conversation list (agents and editors), zoom rule, resize keys (bound to the app's `pane.resize`) and resize repeat keys, toast-filter's rule (which notifications show). Also checks that the configured panel and its keys expose only sidebar/Files, and that `C-a p` switches between the `eric` and `review` layouts and only there, with the review layout made of the three Review mode mods. Does not render a mod; use `herdr-app check` below |
 | HTML artifact store (`artifact`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/artifact -p 'test_*.py'` | Temporary store, HOME and Git worktree, fake `open`; never touches the real store or a browser |
 | Herdr session import (`herdr-import`) | `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s lib/herdr-import -p 'test_*.py'` | Fake `herdr-app` window and fake terminal Herdr server; split rebuilding, Pi resume, the still-open-conversation guard |
-| Tern worktree sessions (`tw`) | [Tern `tw` smoke](#tern-tw-smoke) below | Temporary repository, isolated Tern daemon and fake `omp`; no live Tern window, agent or model request |
 | Terminal Neovim opener | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s lib/terminal-links -p 'test_*.py'` | Hint TOML/argv and headless Neovim; GUI launches mocked |
 | Workspace Context MCP | `node --test lib/workspace-context-mcp/*.test.mjs` | Temporary fixture workspace and a spawned stdio server; never reads the real workspace |
 | Pi extensions (Bun) | `bun test ./pi/extensions/<name>/*.test.ts` — one command per extension | Installed npm Pi; mocked runtime/providers. Applies to `herdr-task-summary`, `herdr-app-resume`, `compact-ui`, `quota-footer`, `quota-router`, `codex-fast`, `omp-anthropic-route`, `modal-vim-navigation`, `local-file-links`, `readable-transcript`, `token-speed`, `artifact-review`, `mcp-idle-stop` |
@@ -64,29 +63,6 @@ sh -n herdr/plugins/task-launcher/launch.sh
   done
 )
 ```
-
-### Tern `tw` smoke
-
-Tern panes ignore the daemon's `HOME` and load the real `~/.zshrc`, so a fake
-`omp` placed early on `PATH` is not enough: the real agent starts, runs the test
-prompt and spends quota. Tern puts `$TERN_CONFIG_DIR/omp/bin` first on every
-pane's `PATH`, so put the fake there and prove it before typing a prompt.
-
-1. In `d=$(mktemp -d)`, write an executable `$d/config/omp/bin/omp` that prints
-   its arguments and `$PWD`.
-2. With every other `TERN_*` variable unset, set `TERN_CONFIG_DIR=$d/config` and
-   `TERN_DAEMON_SOCKET=$d/daemon.sock`, then run `tern daemon --socket
-   $d/daemon.sock` in the background. `tern ls --json` with the same variables
-   must list no sessions; the live window's sessions mean it is not isolated.
-3. Open a guard session in a temporary repository (`tern new session guard
-   --cwd <repo>`) and `tern run` `whence -a omp > <file>` in it. The fake must
-   come first.
-4. Source the `tw` function into `zsh -f` with
-   `WORKTRUNK_CONFIG_PATH=<repo>/worktrunk/config.toml` and a temporary `HOME`
-   (Worktrunk honours it, so worktrees land there). Run `tw`, then check
-   `tern ls --json` (session name, `cwd`, `shown`) and `tern capture` for the
-   fake's output.
-5. Stop the daemon and delete `$d`.
 
 ## Documentation and links
 

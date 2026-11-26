@@ -104,54 +104,10 @@ and `Space` enters resize mode. Splits are refused below 10 columns or 4 rows.
 | `C-a K` / `C-a J` | Move the focused linked worktree up / down within its repository |
 | `C-a R` | Reload the generated config (does not pick up `config.base.toml` edits; run `theme apply` for those) |
 
-Tern (`keymap: tmux`, prefix `ctrl+a`) carries the same prefix keys where it has
-a matching action. They are `keybinds` overrides in Tern's app-owned
-`~/Library/Application Support/Tern/settings.json`, which this repository does
-not track. Herdr workspaces map to Tern sessions (`s` new, `w` switch, `W` rename,
-`D` close), and `C-a t` opens an OMP agent block instead of a Pi task. `C-a o`
-and `C-a u` open Tern's needs-attention inbox. `C-a v` opens a git block, not
-tuicr. `x` and `C-h/j/k/l` move panes rather than swap them. Worktree keys,
-`;` / `:`, `m`, `U`, `V`, `` ` ``, `[`, `Space` and `M-1..9` have no Tern action; for
-worktrees use [`tw`](#worktrees-in-tern).
-
 ## Desktop app keys
 
 The Herdr desktop app ignores `config.base.toml`. Its keys, including the
 plugin keys above as app mods, are in [HERDR-APP.md](HERDR-APP.md#keys).
-
-## Worktrees in Tern
-
-Tern cannot make worktrees, so the `tw` shell function in
-[`zsh/zshrc`](../zsh/zshrc) makes one with [Worktrunk](https://worktrunk.dev)
-(`wt`) and opens it as its own Tern session: one session per worktree, as Herdr
-has one Space per worktree. For example, from any shell inside `beacon`:
-
-1. `tw fix-login Fix the login spinner` makes the branch `fix-login` from the
-   default branch (`main`), checked out in `~/.worktrees/beacon/fix-login`.
-2. Before anything runs there, the gitignored files listed in the repository's
-   `.worktreeinclude` (the file `C-a t` reads) are cloned in. Without that file
-   nothing is copied.
-3. Tern opens a session named `beacon/fix-login` and shows it. Its shell runs
-   `omp 'Fix the login spinner'`; quitting omp leaves that shell in the
-   worktree. Without a prompt, plain `omp` starts.
-4. `C-a w` switches between sessions, and `C-a o` shows which agent needs you.
-
-When the work is done:
-
-- `wt list` shows every worktree with its changes and ahead/behind counts.
-- `wt merge`, run in the worktree, squashes and rebases the branch,
-  fast-forwards `main` to it and removes the worktree. Or push and open a pull
-  request as usual.
-- `wt remove` (in the worktree, or `wt remove <branch>`) deletes the worktree,
-  and its branch if merged. `wt step prune` removes every merged one.
-- `C-a D` closes the Tern session.
-
-If the branch already exists, `tw` stops before opening anything; `wt switch
-<branch>` reaches it. If Tern is not running, the worktree is still made and
-`tw` prints its path. The folder layout and the `.worktreeinclude` copy are set in
-[`worktrunk/config.toml`](../worktrunk/config.toml). Worktrunk keeps its
-approvals for project hooks (`.config/wt.toml`) in
-`~/.config/worktrunk/approvals.toml`, outside this repository.
 
 ## Agent state
 

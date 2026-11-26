@@ -66,7 +66,6 @@ consumer; do not fix generated output or add a second writer.
 | Herdr app look, sidebar or status bar | `herdr-app/layouts/eric.json`, `herdr-app/mods/<name>/main.js` | `herdr-app check` per mod → `touch -h` the link → `herdr-app status` errors → `herdr-app shot`; rules in `lib/herdr-app-mods/` |
 | Herdr app keys | `herdr-app/keys.json` (`layout:eric` for mod commands) | `touch -h ~/.config/herdr-app/keys.json` → no `keys.error` → `herdr-app do <command>` |
 | Move terminal Herdr workspaces to the app | `bin/herdr-import` | `--dry-run`, then `--workspace <id> --shells-only`; `lib/herdr-import/` with fake app and server |
-| Open a worktree as a Tern session | `tw` in `zsh/zshrc`, `worktrunk/config.toml` | `wt switch --create` → pre-start `.worktreeinclude` copy → `tern new session` → `omp` typed into its shell; isolated-daemon smoke in `docs/VERIFICATION.md` |
 | Pi extension command, UI, or display metadata | `pi/extensions/README.md`, then owning extension | `bin/pi` and installed Pi API → focused suite → safe fresh-session check |
 | Pi/OMP prompt template | `pi/prompts/*.md` (also linked to `~/.omp/agent/prompts/`) | Global prompt discovery in both harnesses → explicit `/name` invocation; only `$ARGUMENTS`/`$@`/`$N` placeholders. Both load only direct children, so `pi/prompts/rho/` holds checklists `/rho` reads by path, not commands |
 | Click Pi file links into Neovim | `pi/extensions/local-file-links/README.md` | File URLs → Alacritty hint → `bin/terminal-open` → Neovim |
