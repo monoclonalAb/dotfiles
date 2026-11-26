@@ -64,7 +64,7 @@ export default class ReviewPage extends View {
     diff.loading = true;
     cx.spawn(async (cx) => {
       try {
-        const r = await exec(`${home()}/.local/bin/review-analyse`, ["diff", file.pr, file.snapshot, file.path, "--from", String(diff.lines.length)], { timeout: 60000 });
+        const r = await exec(`${home()}/.local/bin/review-analyse`, ["diff", file.pr, file.snapshot, "--from", String(diff.lines.length), "--", file.path], { timeout: 60000 });
         if (r.code !== 0) throw new Error((r.stderr || `review-analyse exited ${r.code}`).trim().replace(/^review-analyse: /, ""));
         const piece = JSON.parse(r.stdout);
         diff.lines = diff.lines.concat(piece.lines);
@@ -95,14 +95,17 @@ export default class ReviewPage extends View {
     }
     const snap = shared(SNAPSHOT);
     const file = shared(FILE);
-    const entry = file && snap?.status === "ready" && snap.snapshot === file.snapshot && file.pr === pr.url
+    const pinned = snap?.status === "ready" && snap.pr === pr.url;
+    const entry = file && pinned && snap.snapshot === file.snapshot && file.pr === pr.url
       ? snap.files.find((f) => f.path === file.path) : null;
+    // Once a snapshot is in, its numbers: the list's may be newer than the files shown.
+    const shown = pinned ? { ...pr, base: snap.base, files: snap.changed_files ?? snap.files.length, additions: snap.additions, deletions: snap.deletions } : pr;
     return v_flex().id("review-page").size_full()
       .child(v_flex().px(18).pt(14).pb(10).gap(4).border_b(1).border_color(t.border)
         .child(h_flex().gap(10).items_center()
           .child(div().flex_1().truncate().text_size(16).font_semibold().text_color(t.foreground).child(pr.title))
           .child(div().flex_none().text_size(11).text_color(pr.gone || pr.draft ? t.dim : t.done).child(pr.gone ? "No longer listed" : pr.draft ? "Draft" : "Open")))
-        .child(div().truncate().text_size(12).text_color(t.muted).child(meta(pr))))
+        .child(div().truncate().text_size(12).text_color(t.muted).child(meta(shown))))
       .child(entry ? this.renderDiff(t, pr, file, entry, cx) : this.renderDescription(t, pr));
   }
 
@@ -117,7 +120,8 @@ export default class ReviewPage extends View {
   renderDiff(t, pr, file, entry, cx) {
     if (this.diff?.key !== `${file.snapshot}\n${file.path}`) this.more(file, cx);
     const diff = this.diff;
-    const viewed = shared(VIEWED)?.snapshot === file.snapshot && shared(VIEWED).paths.includes(file.path);
+    const v = shared(VIEWED);
+    const viewed = !!v && v.snapshot === file.snapshot && v.pr === file.pr && v.paths.includes(file.path);
     const header = h_flex().px(18).py(8).gap(10).items_center().border_b(1).border_color(t.border)
       .child(div().flex_1().truncate().text_size(12).font_semibold().text_color(t.foreground).child(entry.path))
       .when(!!entry.old_path, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(`from ${entry.old_path}`)))

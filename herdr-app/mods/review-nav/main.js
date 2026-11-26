@@ -175,6 +175,16 @@ export const MAX_STATE = 1 << 20;
 const PR_LINK = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/i;
 const samePr = (a, b) => typeof a === "string" && a.toLowerCase() === b.toLowerCase();
 
+// UTF-8 bytes of a string: the app's engine has no TextEncoder.
+export function utf8Bytes(text) {
+  let bytes = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0);
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
 export function statePath(home, link) {
   const [, owner, repo, number] = PR_LINK.exec(link) ?? [];
   if (!number) throw new Error(`not a pull request link: ${link}`);
@@ -216,7 +226,7 @@ export async function saveViewed(disk, home, link, snapshot, path, on) {
   for (let attempt = 0; ; attempt++) {
     const before = await disk.read(file);
     const after = withViewed(before, link, snapshot, path, on);
-    if (new TextEncoder().encode(after).length > MAX_STATE) throw new Error("the review's state file would pass 1 MiB; tick not saved");
+    if (utf8Bytes(after) > MAX_STATE) throw new Error("the review's state file would pass 1 MiB; tick not saved");
     try {
       await disk.write(file, after, before);
       return viewedIn(after, link, snapshot);
@@ -326,8 +336,10 @@ export default class ReviewNav extends View {
     if (!pr) return;
     this.selected = pr.url;
     this.files = true;
+    // Each opening is its own request: a slower earlier one never wins.
+    const request = `${Date.now()}-${Math.random()}`;
     setShared(OPEN, pr);
-    setShared(SNAPSHOT, { pr: pr.url, status: "loading" });
+    setShared(SNAPSHOT, { pr: pr.url, status: "loading", request });
     setShared(FILE, null);
     setShared(VIEWED, null);
     cx.spawn(async (cx) => {
@@ -337,12 +349,14 @@ export default class ReviewNav extends View {
       } catch (e) {
         next = { pr: pr.url, status: "error", error: String(e?.message ?? e).split("\n")[0] };
       }
-      if (shared(SNAPSHOT)?.pr !== pr.url || shared(SNAPSHOT)?.status !== "loading") return; // another pull request opened meanwhile
+      if (shared(SNAPSHOT)?.request !== request) return; // opened again, or another pull request
       setShared(SNAPSHOT, next);
       if (next.status === "ready") {
-        if (next.files.length) setShared(FILE, { pr: pr.url, snapshot: next.snapshot, path: next.files[0].path });
+        if (next.files.length && this.files) setShared(FILE, { pr: pr.url, snapshot: next.snapshot, path: next.files[0].path });
         const text = await readTextFile(statePath(home(), pr.url)).catch(() => null);
-        if (shared(SNAPSHOT)?.snapshot === next.snapshot) setShared(VIEWED, { snapshot: next.snapshot, paths: viewedIn(text, pr.url, next.snapshot) });
+        if (shared(SNAPSHOT)?.snapshot === next.snapshot && shared(SNAPSHOT)?.pr === pr.url) {
+          setShared(VIEWED, { pr: pr.url, snapshot: next.snapshot, paths: viewedIn(text, pr.url, next.snapshot) });
+        }
       }
       cx.notify();
     });
@@ -376,7 +390,7 @@ export default class ReviewNav extends View {
     cx.spawn(async (cx) => {
       try {
         const paths = await saveViewed({ read: readTextFile, write: writeTextFile }, home(), snap.pr, snap.snapshot, path, on);
-        if (shared(SNAPSHOT)?.snapshot === snap.snapshot) setShared(VIEWED, { snapshot: snap.snapshot, paths });
+        if (shared(SNAPSHOT)?.snapshot === snap.snapshot && shared(SNAPSHOT)?.pr === snap.pr) setShared(VIEWED, { pr: snap.pr, snapshot: snap.snapshot, paths });
         this.error = null;
       } catch (e) {
         this.error = String(e?.message ?? e).split("\n")[0];
@@ -442,7 +456,8 @@ export default class ReviewNav extends View {
   renderFiles(t) {
     const snap = shared(SNAPSHOT);
     const files = this.snapshotFiles();
-    const viewed = new Set(shared(VIEWED)?.snapshot === snap?.snapshot ? shared(VIEWED).paths : []);
+    const v = shared(VIEWED);
+    const viewed = new Set(v && snap?.status === "ready" && v.snapshot === snap.snapshot && v.pr === snap.pr ? v.paths : []);
     const at = shared(FILE)?.path;
     const status = this.error ?? (snap?.status === "loading" ? "Taking a snapshot…" : snap?.status === "error" ? snap.error : null);
     const rows = files.map((f, i) => {
@@ -469,6 +484,8 @@ export default class ReviewNav extends View {
         .child(div().flex_1())
         .when(files.length > 0, (el) => el.child(div().text_size(11).text_color(t.dim).child(`Viewed ${files.filter((f) => viewed.has(f.path)).length}/${files.length}`))),
       ...(status ? [div().px(12).py(6).text_size(12).text_color(this.error || snap?.status === "error" ? t.blocked : t.muted).child(status)] : []),
+      ...(files.length && snap.changed_files > files.length
+        ? [div().px(12).py(2).text_size(11).text_color(t.working).child(`${snap.changed_files - files.length} more files not listed`)] : []),
       v_flex().id("review-nav-files").flex_1().overflow_y_scrollbar().track_scroll(this.fileScroll).pb(8).children(rows),
       div().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j/k file · v viewed · Esc back"),
     ];

@@ -10,12 +10,14 @@
       and +/- counts, as GitHub lists them. A push while it loads changes
       nothing here: everything comes from the pinned commits.
 
-  review-analyse diff <link> <snapshot id> <path> [--from N] [--lines N]
+  review-analyse diff <link> <snapshot id> [--from N] [--lines N] [--] <path>
       Prints one piece of one file's diff in that snapshot as JSON:
       {path, from, lines, more}, at most --lines lines (default 2000) of at
-      most 1000 characters each, so a piece stays far under the Herdr app's
-      8 MiB limit for one command's output. A file with more than 20,000
-      changed lines, or a binary one, is `too_large` instead, with no lines.
+      most 1000 characters each and at most 2 MiB in all, so a piece stays
+      under the Herdr app's 8 MiB limit for one command's output. Lines before
+      the first hunk that say something (a mode change, a rename) come first,
+      as "\\ old mode 100644". A file with more than 20,000 changed lines, or a
+      binary one, is `too_large` instead, with no lines.
 
 Review mode's mods run it (herdr-app/mods/review-nav and review-page); its
 plan is docs/plans/active/2026-11-25-review-mode.md (step 3). It reads GitHub
@@ -37,6 +39,10 @@ LINK = re.compile(r"^https?://(?:www\.)?github\.com/([\w.-]+)/([\w.-]+)/pull/(\d
 SHA = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 PIECE = 2000  # diff lines per piece
 WIDTH = 1000  # characters kept of each diff line
+BUDGET = 2 << 20  # bytes of JSON per piece
+MAX_FILES = 3000  # files listed, as many as GitHub lists for a pull request
+# Header lines worth showing, before a file's first hunk.
+SAYS = re.compile(r"^(old mode|new mode|new file mode|deleted file mode|similarity index|rename from|rename to|copy from|copy to|Binary files) ")
 TOO_LARGE = 20000  # changed lines past which a file's diff is not shown
 TIMEOUT = 600
 STATUS = {"A": "added", "D": "removed", "M": "modified", "R": "renamed", "C": "copied", "T": "changed"}
@@ -107,11 +113,15 @@ def has_commit(repo, sha, env):
     return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=repo, env=env, capture_output=True).returncode == 0
 
 
+# Paths are names, never patterns: `pages/[id].tsx` is one file.
+GIT_DIFF = ["git", "--literal-pathspecs", "diff", "--no-ext-diff", "-M"]
+
+
 def changed_files(repo, merge_base, head, env):
     """Each changed file as GitHub lists them: path (the new one for a rename),
     old_path, status and +/- counts (0 for binary files)."""
-    names = run(["git", "diff", "--no-ext-diff", "-M", "--name-status", "-z", merge_base, head], env, cwd=repo).decode("utf-8", "surrogateescape").split("\0")
-    counts = run(["git", "diff", "--no-ext-diff", "-M", "--numstat", "-z", merge_base, head], env, cwd=repo).decode("utf-8", "surrogateescape").split("\0")
+    names = run([*GIT_DIFF, "--name-status", "-z", merge_base, head], env, cwd=repo).decode("utf-8", "surrogateescape").split("\0")
+    counts = run([*GIT_DIFF, "--numstat", "-z", merge_base, head], env, cwd=repo).decode("utf-8", "surrogateescape").split("\0")
     numbers = {}
     i = 0
     while i < len(counts) - 1:
@@ -148,22 +158,22 @@ def snapshot(link, env):
     base = pr["baseRefName"]
     path = cache(owner, repo, env)
     clone(path, owner, repo, env)
-    run(["git", "fetch", "-q", "--no-tags", "--filter=blob:none", "origin",
-         f"+refs/pull/{number}/head:refs/review/pull/{number}",
-         f"+refs/heads/{base}:refs/review/base/{base}"], env, cwd=path)
-    head = run(["git", "rev-parse", f"refs/review/pull/{number}"], env, cwd=path).decode().strip()
+    fetch = ["git", "fetch", "-q", "--no-tags", "--filter=blob:none", "origin", f"+refs/pull/{number}/head:refs/review/pull/{number}"]
     if pr["state"] == "OPEN":
+        run([*fetch, f"+refs/heads/{base}:refs/review/base/{base}"], env, cwd=path)
         base_commit = run(["git", "rev-parse", f"refs/review/base/{base}"], env, cwd=path).decode().strip()
     else:
-        # Merged or closed: the base as it was then, not the branch since.
+        # Merged or closed: the base as it was then, not the branch since,
+        # which may be gone.
         base_commit = pr["baseRefOid"]
-        if not has_commit(path, base_commit, env):
-            run(["git", "fetch", "-q", "--no-tags", "--filter=blob:none", "origin", base_commit], env, cwd=path)
+        run(fetch + ([] if has_commit(path, base_commit, env) else [base_commit]), env, cwd=path)
+    head = run(["git", "rev-parse", f"refs/review/pull/{number}"], env, cwd=path).decode().strip()
     merge_base = run(["git", "merge-base", head, base_commit], env, cwd=path).decode().strip()
     files = changed_files(path, merge_base, head, env)
     return {
         "pr": link, "snapshot": f"{head}:{merge_base}:{base}", "head": head, "merge_base": merge_base, "base": base,
-        "base_commit": base_commit, "listed_head": pr["headRefOid"], "state": pr["state"], "files": files,
+        "base_commit": base_commit, "listed_head": pr["headRefOid"], "state": pr["state"],
+        "changed_files": len(files), "files": files[:MAX_FILES],
         "additions": sum(f["additions"] for f in files), "deletions": sum(f["deletions"] for f in files),
     }
 
@@ -184,24 +194,33 @@ def diff(link, snapshot_id, path, start, count, env):
     if entry["too_large"]:
         return answer
     paths = [entry["old_path"], path] if entry["old_path"] else [path]
-    process = subprocess.Popen(["git", "diff", "--no-ext-diff", "--no-color", "-M", merge_base, head, "--", *paths],
+    process = subprocess.Popen([*GIT_DIFF, "--no-color", merge_base, head, "--", *paths],
                                cwd=repo_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
         index = -1
-        hunks = False
+        header = False
+        size = 0
         for raw in process.stdout:
             line = raw.decode("utf-8", "replace").rstrip("\n")
-            if not hunks:  # the header, up to the first hunk
-                if not line.startswith("@@"):
+            if line.startswith("diff --git "):  # a header: a type change has two
+                header = True
+                continue
+            if header:
+                if line.startswith("@@"):
+                    header = False
+                elif SAYS.match(line):
+                    line = "\\ " + line
+                else:
                     continue
-                hunks = True
             index += 1
             if index < start:
                 continue
-            if len(answer["lines"]) == count:
+            line = line[:WIDTH]
+            size += len(json.dumps(line)) + 2
+            if len(answer["lines"]) == count or (answer["lines"] and size > BUDGET):
                 answer["more"] = True
                 break
-            answer["lines"].append(line[:WIDTH])
+            answer["lines"].append(line)
     finally:
         process.kill()
         process.wait()
@@ -216,7 +235,7 @@ def main(argv=None):
     piece = commands.add_parser("diff", help="one piece of one file's diff in a snapshot")
     piece.add_argument("link")
     piece.add_argument("snapshot")
-    piece.add_argument("path")
+    piece.add_argument("path", help="after --, so a name starting with - is a name")
     piece.add_argument("--from", dest="start", type=int, default=0)
     piece.add_argument("--lines", type=int, default=PIECE)
     args = parser.parse_args(argv)
