@@ -8,7 +8,7 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, TextView } from "gpui-base";
-import { shared, theme } from "herdr";
+import { props, shared, theme } from "herdr";
 
 const OPEN = "review-mode.open";
 
@@ -23,8 +23,8 @@ export const meta = (pr) =>
   `${pr.repo} #${pr.number} · ${pr.author} · ${pr.base} ← ${pr.head} · ${pr.files} ${pr.files === 1 ? "file" : "files"} +${pr.additions} −${pr.deletions} · ${checksText(pr.checks)}`;
 
 export default class ReviewPage extends View {
-  init(props) {
-    this.bar = props?.part === "bar";
+  init() {
+    this.bar = props()?.part === "bar";
   }
 
   render() {
