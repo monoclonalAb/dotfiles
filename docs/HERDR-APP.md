@@ -431,6 +431,30 @@ something other than a shell is in front of the recovered terminal, or the
 session file is gone, nothing is typed and an error note gives the command. Other
 agents (OMP) come back as shells.
 
+## Idle conversations
+
+A Pi conversation left idle for two hours quits to free its memory (~180 MB,
+plus any MCP servers that `mcp-idle-stop` has not already stopped), and comes
+back when you return to it:
+
+1. 10:20: Pi in `t7` finishes a reply. You work elsewhere.
+2. 12:20: nothing has reached it for two hours. The
+   [`park-idle`](../pi/extensions/park-idle/README.md) extension quits Pi. The
+   `pi` wrapper keeps the terminal, shows "Pi closed while idle to free memory",
+   and still reports an idle Pi, so the sidebar row, its dot, Mission control and
+   `next-agent` (an unread finish stays unread) are unchanged.
+3. 15:00: you click `t7`. The app tells the terminal it has focus, and the same
+   conversation is back in about a second. Any key also brings it back; the key
+   that wakes it is not typed.
+
+It never quits with a draft in the editor or an open dialog, while the agent
+works, while a `!` command or a Ctrl+G editor runs, while an `/artifact-review`
+page is open, while an `hc` sub-terminal is live, or after `/tree` moved to an
+earlier point. It keeps the `herdr-app-resume` labels, so a reboot
+reopens a parked conversation like any other. Quitting Pi yourself still ends
+the conversation. Only Pi started after this was installed parks: older
+sessions keep running until you restart them.
+
 ## Theme
 
 `theme set <flavour>`, `theme cycle` and the Alacritty hotkeys also set `theme`
