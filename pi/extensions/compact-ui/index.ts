@@ -282,8 +282,11 @@ export function colourStats(stats: string, theme: UiTheme): string {
   }).join(dim(" "));
 }
 
-/** `(provider) model • level`: provider dim, model violet, thinking level yellow. */
-export function colourModel(model: string, theme: UiTheme): string {
+/**
+ * `(provider) model • level`: provider dim, model violet, thinking level yellow. A model status
+ * (codex-fast's `fast`) goes right after the model name, bold orange like the cost.
+ */
+export function colourModel(model: string, theme: UiTheme, modelStatus = ""): string {
   const dim = (text: string) => theme.fg("dim", text);
   let line = "";
   let rest = model;
@@ -292,13 +295,43 @@ export function colourModel(model: string, theme: UiTheme): string {
     line += dim(provider[1]!);
     rest = provider[2]!;
   }
+  const status = modelStatus ? dim(" • ") + theme.fg("syntaxString", theme.bold(modelStatus)) : "";
   // A virtual model adds ` → model • level` for where the latest response went.
-  return line + rest.split(" → ").map((part) => {
+  return line + rest.split(" → ").map((part, index) => {
     if (!part) return "";
     const [name, ...levels] = part.split(" • ");
-    return theme.fg("accent", name!) + levels.map((level) =>
+    return theme.fg("accent", name!) + (index === 0 ? status : "") + levels.map((level) =>
       dim(" • ") + (level === "thinking off" ? dim(level) : theme.fg("mdHeading", level))).join("");
   }).join(dim(" → "));
+}
+
+/** The extension status drawn beside the model instead of in the status row: codex-fast's `fast`. */
+export const MODEL_STATUS_KEY = "codex-fast";
+
+/** A status on one line, as Pi shows it. */
+const oneLine = (text: string) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
+
+/** Pi's status row: the extension statuses sorted by key, each on one line, joined by spaces. */
+export function statusRow(statuses: ReadonlyMap<string, string>): string {
+  return [...statuses].sort(([a], [b]) => a.localeCompare(b)).map(([, text]) => oneLine(text)).join(" ");
+}
+
+/**
+ * Pi's status row without the model status, and that status. If Pi's row is not the one these
+ * statuses make (Pi changed how it draws them), it is kept whole and nothing moves.
+ */
+export function takeModelStatus(
+  statusLine: string,
+  statuses: ReadonlyMap<string, string> | undefined,
+): { statusLine: string; modelStatus: string } {
+  const modelStatus = statuses?.get(MODEL_STATUS_KEY);
+  if (!statuses || !modelStatus) return { statusLine, modelStatus: "" };
+  if (stripVTControlCharacters(statusRow(statuses)) !== stripVTControlCharacters(statusLine)) {
+    return { statusLine, modelStatus: "" };
+  }
+  const rest = new Map(statuses);
+  rest.delete(MODEL_STATUS_KEY);
+  return { statusLine: statusRow(rest), modelStatus: oneLine(modelStatus) };
 }
 
 /**
@@ -324,24 +357,38 @@ const UNCUT_WIDTH = 1000;
 
 /**
  * Pi's footer lines, drawn at `UNCUT_WIDTH`, in two coloured rows: the folder with the model on
- * the right, then the extension statuses with the usage figures on the right. A row too wide for
- * the terminal splits in two.
+ * the right, then the extension statuses with the usage figures on the right. codex-fast's status
+ * moves from the statuses to beside the model. A row too wide for the terminal splits in two.
  */
 export function layoutFooter(
   lines: readonly string[],
-  parts: { cwd: string; branch: string | null; sessionName?: string },
+  parts: {
+    cwd: string;
+    branch: string | null;
+    sessionName?: string;
+    statuses?: ReadonlyMap<string, string>;
+  },
   theme: UiTheme,
   width: number,
 ): string[] {
   // Pi's lines: folder, usage figures with the model, then extension statuses (if any).
-  const [pathLine = "", statsLine = "", statusLine = ""] = lines;
+  const [pathLine = "", statsLine = "", piStatusLine = ""] = lines;
   const { stats, model } = splitStatsLine(statsLine);
+  // With no model to sit beside, the model status stays in the status row.
+  const { statusLine, modelStatus } = model
+    ? takeModelStatus(piStatusLine, parts.statuses)
+    : { statusLine: piStatusLine, modelStatus: "" };
   // Like Pi, drop the provider before anything else when the model does not fit.
   const withoutProvider = model.replace(/^\([^)]*\) /, "");
   const models = withoutProvider === model ? [model] : [model, withoutProvider];
   const ellipsis = theme.fg("dim", "...");
   return [
-    ...footerRow(colourPath(pathLine, parts, theme), models.map((text) => colourModel(text, theme)), width, ellipsis),
+    ...footerRow(
+      colourPath(pathLine, parts, theme),
+      models.map((text) => colourModel(text, theme, modelStatus)),
+      width,
+      ellipsis,
+    ),
     ...footerRow(statusLine, [colourStats(stats, theme)], width, ellipsis),
   ];
 }
@@ -351,7 +398,7 @@ type FooterClass = { prototype: object };
 /** The fields of Pi's own footer that the layout reads. */
 type NativeFooter = {
   session?: { sessionManager?: { getCwd(): string; getSessionName(): string | undefined } };
-  footerData?: Pick<ReadonlyFooterDataProvider, "getGitBranch">;
+  footerData?: Pick<ReadonlyFooterDataProvider, "getGitBranch" | "getExtensionStatuses">;
 };
 interface FooterPatch {
   original: FooterRender;
@@ -389,6 +436,7 @@ export function installFooterLayout(target: FooterClass, theme: () => UiTheme | 
         cwd: sessionManager.getCwd(),
         branch: footer.footerData.getGitBranch(),
         sessionName: sessionManager.getSessionName(),
+        statuses: footer.footerData.getExtensionStatuses(),
       }, currentTheme, width);
     } catch {
       return original.call(self, width);

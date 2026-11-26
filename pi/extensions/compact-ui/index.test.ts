@@ -40,6 +40,8 @@ const {
   removeFooterLayout,
   splitStatsLine,
   StartupSummary,
+  statusRow,
+  takeModelStatus,
 } = await import("./index.ts");
 
 const plainTheme = {
@@ -174,6 +176,12 @@ test("usage figures and model are coloured but keep Pi's text", () => {
   expect(colourStats("12.0%/272k (auto)", ansiTheme)).toContain(paintedBold("success", "12.0%"));
   expect(colourStats("95.0%/272k", ansiTheme)).toContain(paintedBold("error", "95.0%"));
   expect(colourModel("gpt-6 • thinking off", ansiTheme)).toContain(painted("dim", "thinking off"));
+  // A model status sits right after the model name, before the thinking level.
+  const fast = colourModel("(openai-codex) gpt-6.2-sol • xhigh", ansiTheme, "fast");
+  expect(stripVTControlCharacters(fast)).toBe("(openai-codex) gpt-6.2-sol • fast • xhigh");
+  expect(fast).toContain(painted("accent", "gpt-6.2-sol") + painted("dim", " • ") + paintedBold("syntaxString", "fast"));
+  expect(stripVTControlCharacters(colourModel("router • high → gpt-6-luna • low", ansiTheme, "fast")))
+    .toBe("router • fast • high → gpt-6-luna • low");
   // Unknown words keep Pi's text and its dim colour.
   const odd = colourStats("↑12k new:thing ?/272k • xp", ansiTheme);
   expect(stripVTControlCharacters(odd)).toBe("↑12k new:thing ?/272k • xp");
@@ -210,13 +218,16 @@ function footerClass() {
   return class TestFooter extends codingAgent.FooterComponent {};
 }
 
+const claude = { id: "claude-opus-4-5", provider: "anthropic", reasoning: true, contextWindow: 200000 };
+
 function footerFixture(
   Footer: ReturnType<typeof footerClass>,
   statuses = new Map<string, string>(),
   cwd = join(process.env.HOME!, "dotfiles"),
+  model = claude,
 ) {
   const sessionView = {
-    state: { model: { id: "claude-opus-4-5", provider: "anthropic", reasoning: true, contextWindow: 200000 }, thinkingLevel: "high" },
+    state: { model, thinkingLevel: "high" },
     sessionManager: {
       getEntries: () => [{
         type: "message",
@@ -259,6 +270,44 @@ test("footer is two rows: folder and model, then statuses and usage figures", ()
   expect(lines[0]).toContain(painted("success", "main"));
   expect(lines[0]).toContain(painted("accent", "claude-opus-4-5"));
   expect(lines[1]).toContain(paintedBold("warning", "81.4%"));
+});
+
+test("codex-fast's status moves from the status row to beside the model", () => {
+  codingAgent.initTheme("dark", false);
+  const Footer = footerClass();
+  installFooterLayout(Footer, () => ansiTheme);
+  const codex = { id: "gpt-6.2-sol", provider: "openai-codex", reasoning: true, contextWindow: 272000 };
+  const statuses = new Map([
+    ["00-quota-footer", "1% | 57% · 68%"],
+    ["codex-fast", "fast"],
+    ["selective-skills", "| 2 skills"],
+  ]);
+  const footer = footerFixture(Footer, statuses, undefined, codex);
+  const lines = footer.render(146);
+  expect(plainLines(lines)).toEqual([
+    expect.stringMatching(/^~\/dotfiles \(main\) +\(openai-codex\) gpt-6\.2-sol • fast • high$/),
+    expect.stringMatching(/^1% \| 57% · 68% \| 2 skills +↑1\.2k .*\(auto\)$/),
+  ]);
+  expect(lines[0]).toContain(paintedBold("syntaxString", "fast"));
+  // When the provider is dropped to fit, the status stays with the model.
+  expect(plainLines(footer.render(45))[0]).toMatch(/^~\/dotfiles \(main\) +gpt-6\.2-sol • fast • high$/);
+  // As the only status, the usage figures keep the second row to themselves.
+  const alone = plainLines(footerFixture(Footer, new Map([["codex-fast", "fast"]]), undefined, codex).render(146));
+  expect(alone[0]).toMatch(/gpt-6\.2-sol • fast • high$/);
+  expect(alone[1]).toMatch(/^ +↑1\.2k .*\(auto\)$/);
+  // Without it, nothing changes.
+  statuses.delete("codex-fast");
+  expect(plainLines(footer.render(146))[0]).toMatch(/\(openai-codex\) gpt-6\.2-sol • high$/);
+});
+
+test("the model status stays in Pi's status row if Pi drew that row differently", () => {
+  const statuses = new Map([["a", "one"], ["codex-fast", "fast\n"], ["z", "two  three"]]);
+  expect(statusRow(statuses)).toBe("one fast two three");
+  expect(takeModelStatus("one fast two three", statuses)).toEqual({ statusLine: "one two three", modelStatus: "fast" });
+  expect(takeModelStatus("one | fast | two three", statuses)).toEqual({ statusLine: "one | fast | two three", modelStatus: "" });
+  expect(takeModelStatus("one two", new Map([["a", "one"], ["z", "two"]])))
+    .toEqual({ statusLine: "one two", modelStatus: "" });
+  expect(takeModelStatus("", undefined)).toEqual({ statusLine: "", modelStatus: "" });
 });
 
 test("on a narrow terminal a row splits instead of losing text, and never overflows", () => {

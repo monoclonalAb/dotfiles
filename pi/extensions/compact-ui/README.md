@@ -43,6 +43,11 @@ value in its own colour, numbers bold, labels and separators dim.
   blue, cost orange, context share green (yellow over 70%, red over 90%, as Pi
   warns).
 - `(anthropic) claude-opus-4-5 • high`: model violet, thinking level yellow.
+- `(openai-codex) gpt-6.2-sol • fast • xhigh`: [`codex-fast`](../codex-fast/README.md)'s
+  `fast` moves out of the statuses to right after the model name, bold orange
+  like the cost (it uses more credits). It stays when the provider is dropped.
+  If Pi's status row is ever not the one its statuses would make, the row is
+  shown as is and `fast` stays in it.
 
 The colour names are those of Pi's light theme; the dark theme uses its own
 shades of the same theme slots. The extension has Pi draw its footer 1000
