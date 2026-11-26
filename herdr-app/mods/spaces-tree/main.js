@@ -423,7 +423,7 @@ function keptGit(g) {
   try {
     return typeof g?.name === "string" && (g.branch === null || typeof g.branch === "string")
       && Number.isInteger(g.ahead) && Number.isInteger(g.behind) && typeof g.linked === "boolean"
-      && Array.isArray(JSON.parse(g.repo));
+      && typeof g.repo === "string" && Array.isArray(JSON.parse(g.repo));
   } catch {
     return false;
   }
