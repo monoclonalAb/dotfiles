@@ -2,6 +2,12 @@
 # Keep automatic skill discovery disabled; the /skill extension selectively
 # contributes only the skills enabled for the current session. Fullscreen mode
 # gives the Vim navigation extension an application-owned transcript to scroll.
+#
+# Parking: in a terminal, Pi runs as a child so it can quit while idle and come
+# back. The park-idle extension writes the session file to PI_PARK_FILE and quits
+# Pi; this script then waits in the terminal, still reported to Herdr as an idle
+# Pi, and reopens that session when its pane gets focus or a key. Runs whose options
+# a reopen could not repeat are exec'd as before and never park.
 set -eu
 
 # Reject --skill only where Pi would parse it as an option: before a literal
@@ -64,6 +70,7 @@ fi
 
 # Find the next Pi executable in PATH, skipping this wrapper (including symlinks
 # to it), so this continues to work when nvm changes the active Node version.
+real_pi=
 old_ifs=$IFS
 IFS=:
 for directory in $PATH; do
@@ -71,11 +78,100 @@ for directory in $PATH; do
     [ -n "$directory" ] || directory=.
     candidate=$directory/pi
     if [ -x "$candidate" ] && ! [ "$candidate" -ef "$0" ]; then
-        exec "$candidate" "$@"
+        real_pi=$candidate
+        break
     fi
     IFS=:
 done
 IFS=$old_ifs
 
-printf '%s\n' 'pi: could not find the underlying Pi executable in PATH' >&2
-exit 127
+if [ -z "$real_pi" ]; then
+    printf '%s\n' 'pi: could not find the underlying Pi executable in PATH' >&2
+    exit 127
+fi
+
+quote() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+# What a reopen repeats: trust, extension and display options. The session
+# restores its model, thinking level and name; messages were already sent. Any
+# other option (--no-tools, -p, --mode ...) would be lost, so such runs never park.
+parkable=$apply_session_defaults
+[ -t 0 ] && [ -t 1 ] || parkable=false
+[ "${PI_PARK_AFTER-}" != 0 ] || parkable=false
+replay=
+value=
+after_separator=false
+if [ "$parkable" = true ]; then
+    for argument do
+        if [ -n "$value" ]; then
+            [ "$value" = keep ] && replay="$replay $(quote "$argument")"
+            value=
+            continue
+        fi
+        [ "$after_separator" = false ] || continue
+        case "$argument" in
+            --) after_separator=true ;;
+            -a|--approve|-na|--no-approve|-ns|--no-skills|-ne|--no-extensions|--no-mcp|--fast|--offline)
+                replay="$replay $argument" ;;
+            -e|--extension|--tui-mode|--session-dir) replay="$replay $argument"; value=keep ;;
+            --session|--session-id|--fork|-n|--name|--provider|--model|--thinking) value=drop ;;
+            -c|--continue|-r|--resume) ;;
+            -*) parkable=false; break ;;
+        esac
+    done
+    [ -z "$value" ] || parkable=false
+fi
+
+[ "$parkable" = true ] || exec "$real_pi" "$@"
+
+park_dir=${XDG_STATE_HOME:-$HOME/.local/state}/pi-park
+mkdir -p "$park_dir" 2>/dev/null && chmod 700 "$park_dir" || exec "$real_pi" "$@"
+PI_PARK_FILE=$park_dir/$$
+PI_PARK_PID=$$
+export PI_PARK_FILE PI_PARK_PID
+# Closing the pane signals its shell first; exiting through the trap removes the file.
+trap 'rm -f "$PI_PARK_FILE"' EXIT
+trap 'exit 129' HUP
+trap 'exit 143' TERM
+terminal=$(stty -g)
+
+# Herdr keeps listing the terminal as an idle Pi. Every key wakes it (Ctrl+C
+# too: the terminal goes raw before the note shows); a focus-out alone does not,
+# or leaving a parked pane would reopen it.
+wait_for_return() {
+    stty raw -echo
+    printf '\033]7501;state=idle:app=pi\033\\'
+    printf '\r\n%s\r\n' 'Pi closed while idle to free memory. Press a key to reopen this conversation.'
+    printf '\033[?1004h'
+    while :; do
+        input=$(dd bs=64 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        [ -n "$input" ] || exit 129
+        rest=$input
+        while :; do
+            case "$rest" in
+                1b5b4f*) rest=${rest#1b5b4f} ;;
+                *) break ;;
+            esac
+        done
+        [ -z "$rest" ] || break
+    done
+    printf '\033[?1004l'
+    stty "$terminal"
+    stty -echo -icanon -isig
+}
+
+while :; do
+    rm -f "$PI_PARK_FILE"
+    status=0
+    "$real_pi" "$@" || status=$?
+    if [ "$status" -ne 0 ] || ! [ -s "$PI_PARK_FILE" ]; then
+        stty "$terminal" 2>/dev/null || :
+        exit "$status"
+    fi
+    session=$(cat "$PI_PARK_FILE")
+    wait_for_return
+    eval "set -- $replay"
+    set -- "$@" --session "$session"
+done

@@ -8,7 +8,7 @@ const codex = {
   contextWindow: 272_000, maxTokens: 128_000,
 } as Model;
 
-function harness(initialModel: Model | undefined = codex, fastFlag = false) {
+function harness(initialModel: Model | undefined = codex) {
   let model = initialModel;
   let idle = true;
   let command: any;
@@ -22,11 +22,6 @@ function harness(initialModel: Model | undefined = codex, fastFlag = false) {
       command = value;
     },
     on(name: string, handler: any) { handlers.set(name, handler); },
-    registerFlag(name: string, options: any) {
-      expect(name).toBe("fast");
-      expect(options).toMatchObject({ type: "boolean", default: false });
-    },
-    getFlag: (name: string) => name === "fast" ? fastFlag : undefined,
   } as unknown as ExtensionAPI);
   const ctx = {
     get model() { return model; },
@@ -70,41 +65,46 @@ const unsupported = [
   { ...codex, api: "openai-responses" },
   { ...codex, id: "gpt-5.3-codex-spark" },
   { ...codex, id: "gpt-5.3-codex" },
+  { ...codex, id: "gpt-5.4" },
+  { ...codex, id: "gpt-5.5" },
   { ...codex, id: "future-unreviewed-model" },
 ] as Model[];
 
 describe("Codex-only /fast", () => {
   test("accepts only reviewed Codex models on the Codex API", () => {
-    for (const id of ["gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"]) {
+    for (const id of [
+      "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra",
+      "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol",
+    ]) {
       expect(supportsCodexFast({ ...codex, id })).toBe(true);
     }
     for (const model of [...unsupported, undefined]) expect(supportsCodexFast(model)).toBe(false);
   });
 
-  test("defaults off; bare command toggles only service_tier without mutating input", async () => {
+  test("defaults on; bare command toggles only service_tier without mutating input", async () => {
     const h = harness();
     h.start("startup");
     const original = payload();
     const snapshot = structuredClone(original);
     Object.freeze(original);
-    expect(h.request(original)).toBeUndefined();
-    await h.run("status");
-    expect(h.notifications.at(-1)?.message).toContain("OFF");
-    expect(h.request(original)).toBeUndefined();
-
-    await h.run();
     const fast = h.request(original);
     expect(fast).toEqual({ ...snapshot, service_tier: "priority" });
     for (const key of Object.keys(original)) expect(fast[key]).toBe(original[key as keyof typeof original]);
     expect(original).toEqual(snapshot);
     expect(h.ctx.model).toBe(codex);
-    expect(h.statuses.get("codex-fast")).toBe("fast:codex");
+    expect(h.statuses.get("codex-fast")).toBe("fast");
+    await h.run("status");
     expect(h.notifications.at(-1)).toMatchObject({ type: "warning" });
     expect(h.notifications.at(-1)?.message).toContain("more ChatGPT credits");
 
     await h.run();
     expect(h.request(original)).toBeUndefined();
     expect(h.statuses.get("codex-fast")).toBeUndefined();
+    expect(h.notifications.at(-1)?.message).toContain("OFF");
+
+    await h.run();
+    expect(h.request(original).service_tier).toBe("priority");
+    expect(h.statuses.get("codex-fast")).toBe("fast");
   });
 
   test("explicit on/off is idempotent, status read-only, completion and invalid input", async () => {
@@ -126,13 +126,15 @@ describe("Codex-only /fast", () => {
   test("never enables or rewrites other providers, APIs or unsupported models", async () => {
     for (const model of unsupported) {
       const h = harness(model);
-      await h.run("on");
+      h.start("startup");
       expect(h.request({ ...payload(), model: model.id, service_tier: "auto" })).toBeUndefined();
-      expect(h.notifications.at(-1)?.type).toBe("warning");
-      h.select(codex);
-      expect(h.request(payload())).toBeUndefined();
-
+      expect(h.statuses.get("codex-fast")).toBeUndefined();
       await h.run("on");
+      expect(h.notifications.at(-1)?.type).toBe("warning");
+      expect(h.request({ ...payload(), model: model.id })).toBeUndefined();
+      // The request gate checks the model itself, not only model_select.
+      h.setModel(codex);
+      expect(h.request(payload()).service_tier).toBe("priority");
       h.setModel(model);
       expect(h.request({ ...payload(), model: model.id })).toBeUndefined();
     }
@@ -144,6 +146,7 @@ describe("Codex-only /fast", () => {
 
   test("off preserves existing tiers and on changes no field besides the tier", async () => {
     const h = harness();
+    await h.run("off");
     for (const service_tier of ["auto", "default", "flex", "priority"]) {
       const original = { ...payload(), service_tier };
       expect(h.request(original)).toBeUndefined();
@@ -158,11 +161,8 @@ describe("Codex-only /fast", () => {
     const h = harness();
     h.setBusy(true);
     await h.run();
-    expect(h.request(payload())).toBeUndefined();
+    expect(h.request(payload()).service_tier).toBe("priority");
     expect(h.notifications.at(-1)?.message).toContain("current response");
-    h.setBusy(false);
-    await h.run("on");
-    h.setBusy(true);
     await h.run("off");
     await h.run("status");
     expect(h.notifications.at(-1)?.message).toContain("ON");
@@ -172,44 +172,36 @@ describe("Codex-only /fast", () => {
     }
   });
 
-  test("session lifecycle and switching away clear opt-in; supported Codex switching retains it", async () => {
+  test("every session starts on; /fast off survives switching models within the session", async () => {
     const h = harness();
     for (const reason of ["startup", "reload", "new", "resume", "fork"]) {
-      await h.run("on");
-      h.start(reason);
-      expect(h.request(payload())).toBeUndefined();
-      expect(h.statuses.get("codex-fast")).toBeUndefined();
-    }
-    await h.run("on");
-    h.select({ ...codex, id: "gpt-5.4" });
-    expect(h.request({ ...payload(), model: "gpt-5.4" }).service_tier).toBe("priority");
-    h.select(unsupported[0]);
-    expect(h.statuses.get("codex-fast")).toBeUndefined();
-    h.select(codex);
-    expect(h.request(payload())).toBeUndefined();
-  });
-
-  test("--fast starts every session on, still only for supported Codex models", async () => {
-    const h = harness(codex, true);
-    for (const reason of ["startup", "reload", "new"]) {
       await h.run("off");
       h.start(reason);
       expect(h.request(payload()).service_tier).toBe("priority");
-      expect(h.statuses.get("codex-fast")).toBe("fast:codex");
+      expect(h.statuses.get("codex-fast")).toBe("fast");
     }
-    for (const model of unsupported) {
-      const other = harness(model, true);
-      other.start("startup");
-      expect(other.request({ ...payload(), model: model.id })).toBeUndefined();
-      expect(other.statuses.get("codex-fast")).toBeUndefined();
-    }
+    // On: the status follows the model, and comes back with a supported one.
+    h.select({ ...codex, id: "gpt-6.1-sol" });
+    expect(h.request({ ...payload(), model: "gpt-6.1-sol" }).service_tier).toBe("priority");
+    h.select(unsupported[0]);
+    expect(h.statuses.get("codex-fast")).toBeUndefined();
+    h.select(codex);
+    expect(h.statuses.get("codex-fast")).toBe("fast");
+    expect(h.request(payload()).service_tier).toBe("priority");
+    // Off: a detour through Claude does not turn it back on.
+    await h.run("off");
+    h.select(unsupported[0]);
+    h.select(codex);
+    expect(h.request(payload())).toBeUndefined();
+    expect(h.statuses.get("codex-fast")).toBeUndefined();
   });
 
   test("registers only command/request/lifecycle hooks; separate runtimes do not share state", async () => {
     const a = harness();
     const b = harness();
-    await a.run("on");
-    expect(b.request(payload())).toBeUndefined();
+    await a.run("off");
+    expect(a.request(payload())).toBeUndefined();
+    expect(b.request(payload()).service_tier).toBe("priority");
     expect([...a.handlers.keys()]).toEqual(["before_provider_request", "session_start", "model_select"]);
   });
 });

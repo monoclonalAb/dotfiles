@@ -2,7 +2,7 @@
 # pi-agent: run one helper agent. It is a separate Pi process that answers one
 # prompt in print mode and exits. pstack's skills call these subagents; see
 # docs/AGENT-TOOLS.md (pstack). The child loads no skills, no MCP servers and no
-# extensions except the Claude OAuth route (and codex-fast with --fast), so it
+# extensions except the Claude OAuth route (and codex-fast with -f), so it
 # cannot change the caller's Herdr pane, and it saves no session.
 set -eu
 
@@ -18,8 +18,9 @@ usage: pi-agent [options] [--] [prompt ...]
   -a, --agent NAME|FILE  a pstack agent (poteto-agent, comment-sicko, ...) or a
                          Markdown file; its body is added to the system prompt
   -r, --readonly         remove the edit and write tools (bash stays)
-  -f, --fast             Codex fast mode (priority tier, more ChatGPT credits);
-                         ignored for models /fast doesn't support, e.g. Claude
+  -f, --fast             Codex fast mode (priority tier, more ChatGPT credits):
+                         loads codex-fast, which is on for the models it
+                         supports; ignored for others, e.g. Claude
       --mcp              connect the configured MCP servers
   -C, --cd DIR           run in DIR, for example a worktree
   -o, --out FILE         write the reply to FILE and errors to FILE.log
@@ -114,7 +115,7 @@ if [ "$fast" = true ]; then
         printf 'pi-agent: --fast needs %s\n' "$fast_extension" >&2
         exit 1
     fi
-    set -- "$@" -e "$fast_extension" --fast
+    set -- "$@" -e "$fast_extension"
 fi
 [ -n "$model" ] && set -- "$@" --model "$model"
 [ -n "$thinking" ] && set -- "$@" --thinking "$thinking"

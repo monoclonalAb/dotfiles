@@ -22,8 +22,7 @@
   "hideThinkingBlock": true,
   "quietStartup": true,
   "skills": [
-    "~/Desktop/projects/DE/shared-agent-skills/skills",
-    "~/.local/share/pstack/plugins/pstack/skills"
+    "~/Desktop/projects/DE/shared-agent-skills/skills"
   ],
   "modelThinkingLevels": {
     "lithosai/deepseek-ai/DeepSeek-V4.1-Flash": "max",
@@ -33,5 +32,8 @@
     "google-vertex/gemini-4-neon": "medium",
     "anthropic/claude-fable-5-2": "xhigh",
     "openai-codex/gpt-5.6-sol": "xhigh"
+  },
+  "warnings": {
+    "anthropicExtraUsage": false
   }
 }

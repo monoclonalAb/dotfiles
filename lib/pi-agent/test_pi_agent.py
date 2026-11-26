@@ -132,7 +132,7 @@ class PiAgentTest(unittest.TestCase):
         _, call = self.run_agent("-p", "hi")
         self.assertEqual(self.option(call, "-e"), str(route))
 
-    def test_fast_loads_codex_fast_and_turns_it_on(self):
+    def test_fast_loads_codex_fast_which_is_on_by_default(self):
         route = self.home / ".pi/agent/extensions/omp-anthropic-route/index.ts"
         fast = self.home / ".pi/agent/extensions/codex-fast/index.ts"
         for path in (route, fast):
@@ -146,7 +146,8 @@ class PiAgentTest(unittest.TestCase):
         self.assertIn("--no-extensions", call["args"])
         extensions = [call["args"][i + 1] for i, a in enumerate(call["args"]) if a == "-e"]
         self.assertEqual(extensions, [str(route), str(fast)])
-        self.assertIn("--fast", call["args"][:call["args"].index("--")])
+        # codex-fast has no --fast flag; loading it is what turns fast mode on.
+        self.assertNotIn("--fast", call["args"])
         self.assertEqual(self.option(call, "--model"), "openai-codex/gpt-6.2-sol")
 
     def test_fast_without_the_extension_fails_before_running(self):

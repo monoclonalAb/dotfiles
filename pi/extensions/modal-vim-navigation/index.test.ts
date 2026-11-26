@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import type { ClipboardOptions } from "./index";
+import type { ClipboardContent, ClipboardOptions } from "./index";
 
 const globalNodeModules = execFileSync("npm", ["root", "--global"], {
   encoding: "utf8",
@@ -47,7 +47,7 @@ const tuiPackage = await import(
 mock.module("@earendil-works/pi-coding-agent", () => codingAgent);
 mock.module("@earendil-works/pi-tui", () => tuiPackage);
 
-const { default: vimNavigation, VimNavigationEditor, readClipboardContent } = await import("./index");
+const { default: vimNavigation, CURSOR_SHAPES, VimNavigationEditor, readClipboardContent } = await import("./index");
 const temporaryImages = new Set<string>();
 afterEach(() => {
   mock.restore();
@@ -132,130 +132,163 @@ function createKeybindings(userBindings = {}) {
   return new codingKeybindings.KeybindingsManager(userBindings);
 }
 
-describe("VimNavigationEditor", () => {
-  test("uses Escape for normal mode and i for insert mode", () => {
-    const keybindings = createKeybindings();
-    const editor = new VimNavigationEditor(
-      createTui() as never,
-      theme,
-      keybindings as never,
-    );
+type Editor = InstanceType<typeof VimNavigationEditor>;
+const ESC = "\x1b";
+const APC = /\x1b_[^\x07]*\x07/g;
 
-    editor.handleInput("j");
-    expect(editor.getText()).toBe("j");
+/** The draft with `|` at the cursor. */
+function shown(editor: Editor): string {
+  const lines = editor.getLines();
+  const { line, col } = editor.getCursor();
+  lines[line] = `${lines[line]!.slice(0, col)}|${lines[line]!.slice(col)}`;
+  return lines.join("\n");
+}
 
-    editor.handleInput("\x1b");
+/** Type keys. Escape is sent on its own; other runs arrive as one read, like fast typing. */
+function press(editor: Editor, ...keys: string[]) {
+  for (const key of keys) {
+    for (const part of key.split(/(\x1b)(?![[O])/).filter(Boolean)) editor.handleInput(part);
+  }
+}
+
+function viewportTui() {
+  const calls: unknown[][] = [];
+  let offset = 0;
+  const tui = {
+    ...createTui(),
+    written: [] as string[],
+    hardwareCursor: false,
+    isFollowingOutput: true,
+    setShowHardwareCursor(enabled: boolean) { tui.hardwareCursor = enabled; },
+    scrollBy(lines: number) {
+      calls.push(["scrollBy", lines]);
+      offset = Math.max(0, offset - lines);
+      tui.isFollowingOutput = offset === 0;
+    },
+    scrollToTop() { calls.push(["top"]); offset = 100; tui.isFollowingOutput = false; },
+    scrollToBottom() { calls.push(["bottom"]); offset = 0; tui.isFollowingOutput = true; },
+    scrollToPrompt(direction: number) { calls.push(["prompt", direction]); },
+    getPrimaryScrollView: () => ({ viewportHeight: 20 }),
+  };
+  tui.terminal = { rows: 24, columns: 80, write: (data: string) => { tui.written.push(data); } } as never;
+  return { tui, calls };
+}
+
+function vim(text = "", options: { tui?: unknown; read?: ClipboardOptions["read"]; warn?: () => void } = {}) {
+  const writes: string[] = [];
+  const editor = new VimNavigationEditor((options.tui ?? createTui()) as never, theme,
+    createKeybindings() as never, options.warn, {
+      write: async (copied: string) => { writes.push(copied); },
+      read: options.read ?? (async () => undefined),
+    });
+  if (text) editor.setText(text);
+  return { editor, writes };
+}
+
+/** Normal mode with the cursor where `|` is. */
+function normal(withCursor: string, options: Parameters<typeof vim>[1] = {}) {
+  const result = vim(withCursor.replace("|", ""), options);
+  press(result.editor, ESC);
+  const before = withCursor.slice(0, withCursor.indexOf("|")).split("\n");
+  const state = (result.editor as any).state;
+  state.cursorLine = before.length - 1;
+  state.cursorCol = before.at(-1)!.length;
+  return result;
+}
+
+describe("Vim modes and the cursor", () => {
+  test("Escape steps back onto the last character; i a I A o O insert where Vim does", () => {
+    const { editor } = vim();
+    press(editor, "hello world", ESC);
     expect(editor.getMode()).toBe("normal");
-    editor.handleInput("j");
-    expect(editor.getText()).toBe("j");
+    expect(shown(editor)).toBe("hello worl|d");
+    press(editor, "iX", ESC);
+    expect(shown(editor)).toBe("hello worl|Xd");
+    press(editor, "aY", ESC);
+    expect(shown(editor)).toBe("hello worlX|Yd");
+    press(editor, "A!", ESC);
+    expect(shown(editor)).toBe("hello worlXYd|!");
+    press(editor, "I>", ESC);
+    expect(shown(editor)).toBe("|>hello worlXYd!");
+    press(editor, "otwo", ESC, "Oone", ESC);
+    expect(shown(editor)).toBe(">hello worlXYd!\non|e\ntwo");
+  });
 
-    editor.handleInput("i");
-    expect(editor.getMode()).toBe("insert");
-    editor.handleInput("k");
-    expect(editor.getText()).toBe("jk");
+  test("the terminal cursor is a bar to insert, a block in normal and visual mode, an underline while a key waits", () => {
+    const { tui } = viewportTui();
+    const { editor } = vim("text", { tui });
+    expect(tui.hardwareCursor).toBe(true);
+    expect(tui.written).toEqual([]);
+    editor.focused = true;
+    press(editor, ESC, "d", ESC, "v", ESC, "rx", "i");
+    editor.focused = false; // A dialog's input takes focus: a bar there, whatever this prompt's mode.
+    press(editor, ESC);
+    editor.focused = true;
+    editor.dispose();
+    const { insert, normal: block, pending, reset } = CURSOR_SHAPES;
+    expect(tui.written).toEqual([insert, block, pending, block, pending, block, insert, block, reset]);
+    expect(editor.getText()).toBe("texx");
+  });
+
+  test("Escape cancels a waiting operator or count; otherwise it is still Pi's interrupt", () => {
+    const { editor } = vim("text");
+    let interrupts = 0;
+    editor.onEscape = () => interrupts++;
+    press(editor, ESC, "d", ESC, "2", ESC, "x");
+    expect(editor.getText()).toBe("tex");
+    expect(interrupts).toBe(0);
+    press(editor, ESC);
+    expect(interrupts).toBe(1);
+    expect(editor.getMode()).toBe("normal");
   });
 
   test("Ctrl+[ enters normal mode and never falls through to interrupt", () => {
-    const keybindings = createKeybindings();
-    const editor = new VimNavigationEditor(
-      createTui() as never,
-      theme,
-      keybindings as never,
-    );
+    const { editor } = vim();
     let interrupted = 0;
     editor.onEscape = () => interrupted++;
-
     // Kitty CSI-u encoding of ctrl+[ ('[' = 91, modifier 5 = 1 + ctrl)
     editor.handleInput("\x1b[91;5u");
     expect(editor.getMode()).toBe("normal");
-
-    // Already in normal mode: no interrupt, no text edit
     editor.handleInput("\x1b[91;5u");
     expect(editor.getMode()).toBe("normal");
     expect(interrupted).toBe(0);
-
-    editor.handleInput("i");
-    expect(editor.getMode()).toBe("insert");
-    editor.handleInput("x");
+    press(editor, "ix");
     expect(editor.getText()).toBe("x");
   });
 
-  test("slash and delete keys leave normal mode and keep their editor behavior", () => {
-    const slash = new VimNavigationEditor(
-      createTui() as never,
-      theme,
-      createKeybindings() as never,
-    );
-    slash.handleInput("\x1b");
-    slash.handleInput("/");
-    expect(slash.getMode()).toBe("insert");
-    expect(slash.getText()).toBe("/");
-
-    const backspace = new VimNavigationEditor(
-      createTui() as never,
-      theme,
-      createKeybindings() as never,
-    );
-    backspace.setText("draft");
-    backspace.handleInput("\x1b");
-    backspace.handleInput("\x7f");
-    expect(backspace.getMode()).toBe("insert");
-    expect(backspace.getText()).toBe("draf");
-
-    const forwardDelete = new VimNavigationEditor(
-      createTui() as never,
-      theme,
-      createKeybindings() as never,
-    );
-    forwardDelete.setText("draft");
-    forwardDelete.handleInput("\x1b[H");
-    forwardDelete.handleInput("\x1b");
-    forwardDelete.handleInput("\x1b[3~");
-    expect(forwardDelete.getMode()).toBe("insert");
-    expect(forwardDelete.getText()).toBe("raft");
+  test("a submitted, queued or cleared prompt starts the next one in insert mode", () => {
+    const { editor } = vim("first");
+    const submitted: string[] = [];
+    editor.onSubmit = (text: string) => { submitted.push(text); };
+    press(editor, ESC, "\r");
+    expect(submitted).toEqual(["first"]);
+    expect(editor.getMode()).toBe("insert");
+    editor.setText("draft");
+    press(editor, ESC);
+    editor.setText(""); // How Pi clears it for Ctrl+C and Alt+Enter.
+    expect(editor.getMode()).toBe("insert");
+    press(editor, "j");
+    expect(editor.getText()).toBe("j");
   });
 
-  test("installs viewport motions only while normal mode is active", () => {
-    const original = { "tui.altScreen.lineUp": "alt+up" };
-    const keybindings = createKeybindings(original);
-    const editor = new VimNavigationEditor(
-      createTui() as never,
-      theme,
-      keybindings as never,
-    );
-
-    expect(keybindings.matches("k", "tui.altScreen.lineUp")).toBe(false);
-    editor.handleInput("\x1b");
-
-    expect(keybindings.matches("k", "tui.altScreen.lineUp")).toBe(true);
-    expect(keybindings.matches("j", "tui.altScreen.lineDown")).toBe(true);
-    expect(keybindings.matches("\x02", "tui.altScreen.pageUp")).toBe(true);
-    expect(keybindings.matches("\x04", "tui.altScreen.halfPageDown")).toBe(true);
-    expect(keybindings.matches("K", "tui.altScreen.previousPrompt")).toBe(true);
-    expect(keybindings.matches("J", "tui.altScreen.nextPrompt")).toBe(true);
-    // Arrow keys stay unbound from viewport actions so they keep their
-    // editor behavior (prompt-history recall) in both modes.
-    expect(keybindings.matches("\x1b[A", "tui.altScreen.previousPrompt")).toBe(false);
-    expect(keybindings.matches("\x1b[B", "tui.altScreen.nextPrompt")).toBe(false);
-
-    editor.handleInput("i");
-    expect(keybindings.getUserBindings()).toEqual(original);
+  test("slash starts a slash command from normal mode; Backspace and Delete act as in Vim", () => {
+    const slash = vim();
+    press(slash.editor, ESC, "/");
+    expect(slash.editor.getMode()).toBe("insert");
+    expect(slash.editor.getText()).toBe("/");
+    const { editor } = normal("draf|t");
+    press(editor, "\x7f");
+    expect(shown(editor)).toBe("dra|ft");
+    press(editor, "\x1b[3~");
+    expect(shown(editor)).toBe("dra|t");
+    expect(editor.getMode()).toBe("normal");
   });
 
   test("arrow keys still browse prompt history in normal mode", () => {
-    const keybindings = createKeybindings();
-    const editor = new VimNavigationEditor(
-      createTui() as never,
-      theme,
-      keybindings as never,
-    );
-
+    const { editor } = vim();
     editor.addToHistory("older prompt");
     editor.addToHistory("newer prompt");
-
-    editor.handleInput("\x1b");
-    expect(editor.getMode()).toBe("normal");
-
+    press(editor, ESC);
     editor.handleInput("\x1b[A");
     expect(editor.getText()).toBe("newer prompt");
     editor.handleInput("\x1b[A");
@@ -264,22 +297,270 @@ describe("VimNavigationEditor", () => {
     expect(editor.getText()).toBe("newer prompt");
   });
 
-  test("does not turn Ctrl+D into exit in regular-mode normal state", () => {
-    const keybindings = createKeybindings();
+  test("no method accidentally shadows one of Pi's editor methods (TypeScript private is only a name)", () => {
+    const names = (prototype: object) => Object.getOwnPropertyNames(prototype);
+    const pi = new Set([...names(tuiPackage.Editor.prototype), ...names(codingAgent.CustomEditor.prototype)]);
+    const intended = new Set(["constructor", "getText", "getExpandedText", "setText", "insertTextAtCursor",
+      "addToHistory", "handleInput", "render"]);
+    const ours = [VimNavigationEditor.prototype, Object.getPrototypeOf(VimNavigationEditor.prototype)].flatMap(names);
+    expect(ours.filter((name) => pi.has(name) && !intended.has(name))).toEqual([]);
+  });
+
+  test("Kitty-encoded keys work in normal mode", () => {
+    const { editor } = normal("hello worl|d");
+    for (const key of ["b", "d", "w"]) editor.handleInput(`\x1b[${key.charCodeAt(0)}u`);
+    expect(shown(editor)).toBe("hello| ");
+  });
+});
+
+describe("Vim motions", () => {
+  test.each([
+    ["one tw|o three", "0", "|one two three"],
+    ["  one tw|o", "^", "  |one two"],
+    ["o|ne two three", "$", "one two thre|e"],
+    ["|one two three", "w", "one |two three"],
+    ["|one two three", "2w", "one two |three"],
+    ["|one, two", "w", "one|, two"],
+    ["|one, two", "W", "one, |two"],
+    ["one two thr|ee", "b", "one two |three"],
+    ["one, two |three", "2B", "|one, two three"],
+    ["|one two", "e", "on|e two"],
+    ["on|e two", "e", "one tw|o"],
+    ["one tw|o", "ge", "on|e two"],
+    ["|one two", "fw", "one t|wo"],
+    ["|one two", "tw", "one |two"],
+    ["one tw|o", "Fo", "|one two"],
+    ["one tw|o", "To", "o|ne two"],
+    ["|a-b-c-d", "f-;", "a-b|-c-d"],
+    ["|a-b-c-d", "f-;;,", "a-b|-c-d"],
+    ["|a-b-c-d", "t-;", "a-|b-c-d"],
+    ["|a-b-c-d", "2f-", "a-b|-c-d"],
+    ["f|(a, (b))", "%", "f(a, (b)|)"],
+    ["|hello", "3l", "hel|lo"],
+    ["hel|lo", "9l", "hell|o"],
+    ["hel|lo", "h", "he|llo"],
+    ["one\n|two\nthree", "j", "one\ntwo\n|three"],
+    ["|one\ntwo\nthree", "G", "one\ntwo\n|three"],
+    ["|one\ntwo\nthree", "2G", "one\n|two\nthree"],
+    ["one\ntwo\nthr|ee", "gg", "|one\ntwo\nthree"],
+    ["|para one\nline\n\npara two", "}", "para one\nline\n|\npara two"],
+    ["para one\nline\n\npara |two", "{", "para one\nline\n|\npara two"],
+    ["|one\n\ntwo", "w", "one\n|\ntwo"],
+    ["one\n|\ntwo", "w", "one\n\n|two"],
+    ["|héllo 👋 wörld", "w", "héllo |👋 wörld"],
+    ["|héllo 👋 wörld", "2w", "héllo 👋 |wörld"],
+  ])("%j  %s  →  %j", (before, keys, after) => {
+    const { editor } = normal(before);
+    press(editor, keys);
+    expect(shown(editor)).toBe(after);
+    expect(editor.getMode()).toBe("normal");
+  });
+});
+
+describe("Vim operators", () => {
+  test.each([
+    ["one |two three", "dw", "one |three"],
+    ["one two |three", "dw", "one two| "],
+    ["one |two\nthree", "dw", "one| \nthree"],
+    ["one |two three", "cwX\x1b", "one |X three"],
+    ["one |two three", "dd", "|"],
+    ["|one\ntwo\nthree", "2dd", "|three"],
+    ["one\ntwo\nth|ree", "dk", "|one"],
+    ["one\n|two\nthree", "ccX\x1b", "one\n|X\nthree"],
+    ["one |two three", "d$", "one| "],
+    ["one |two three", "D", "one| "],
+    ["one |two three", "C!\x1b", "one |!"],
+    ["one |two three", "x", "one |wo three"],
+    ["one |two three", "3x", "one | three"],
+    ["one |two three", "X", "one|two three"],
+    ["one |two three", "sX\x1b", "one |Xwo three"],
+    ["one |two three", "S\x1b", "|"],
+    ["one |two three", "dtt", "one |three"],
+    ["one |two three", "dfo", "one | three"],
+    ["one t|wo three", "diw", "one | three"],
+    ["one t|wo three", "daw", "one |three"],
+    ['say "he|llo" now', 'ci"X\x1b', 'say "|X" now'],
+    ['say "he|llo" now', 'da"', "say |now"],
+    ["f(a, (|b))", "di(", "f(a, (|))"],
+    ["f(a|, (b))", "da(", "|f"],
+    ["if {\n  fo|o\n}", "di{", "if {\n|}"],
+    ["if {\n  fo|o\n}", "ci{X\x1b", "if {\n|X\n}"],
+    ["one\n|two\n\nthree", "dap", "|three"],
+    ["one |two three", "yiwP", "one tw|otwo three"],
+    ["|one\ntwo", "yyp", "one\n|one\ntwo"],
+    ["|one\ntwo", "yyP", "|one\none\ntwo"],
+    ["|one\ntwo", "ddp", "two\n|one"],
+    ["one |two three", "g~w", "one |TWO three"],
+    ["one |two three", "gUiw", "one |TWO three"],
+    ["ONE |TWO", "guu", "one |two"],
+    ["|abc", "~~", "AB|c"],
+    ["|abc", "3rx", "xx|x"],
+    ["|one two three", "cwX\x1bw.w.", "X X |X"],
+    ["|abcd", "x..", "|d"],
+    ["|one\ntwo\nthree", "dd.", "|three"],
+    ["|one\ntwo", "A!\x1bj.", "one!\ntwo|!"],
+  ])("%j  %j  →  %j", async (before, keys, after) => {
+    const { editor } = normal(before);
+    press(editor, keys);
+    await eventually(() => shown(editor) === after).catch(() => {});
+    expect(shown(editor)).toBe(after);
+    expect(editor.getMode()).toBe("normal");
+  });
+
+  test("u undoes a whole insert session, Ctrl+R redoes it", () => {
+    const { editor } = vim();
+    press(editor, "hello", ESC, "A world again", ESC);
+    expect(editor.getText()).toBe("hello world again");
+    press(editor, "u");
+    expect(editor.getText()).toBe("hello");
+    press(editor, "u");
+    expect(editor.getText()).toBe("");
+    press(editor, "\x12");
+    expect(editor.getText()).toBe("hello");
+    press(editor, "\x12");
+    expect(editor.getText()).toBe("hello world again");
+    press(editor, "x", "\x12");
+    expect(editor.getText()).toBe("hello world agai");
+  });
+
+  test("x on a large paste deletes the whole marker and copies the pasted text", () => {
+    const pasted = "pasted line\n".repeat(20);
+    const { editor, writes } = vim();
+    editor.handleInput(bracketed(pasted));
+    expect(editor.getLines()[0]).toMatch(/^\[paste #1 \+\d+ lines\]$/);
+    press(editor, ESC, "0x");
+    expect(editor.getText()).toBe("");
+    expect(writes).toEqual([pasted]);
+  });
+});
+
+describe("Vim visual mode", () => {
+  test.each([
+    ["one |two three", "viwd", "one | three"],
+    ["one |two three", "veyP", "one tw|otwo three"],
+    ["|one\ntwo\nthree", "Vjd", "|three"],
+    ["|one\ntwo\nthree", "vjd", "|wo\nthree"],
+    ["one |two three", "vllohd", "one| three"],
+    ["one |two three", "vU", "one |Two three"],
+    ["one |two three", "viwc!\x1b", "one |! three"],
+    ["one |two three", "vipd", "|"],
+  ])("%j  %j  →  %j", async (before, keys, after) => {
+    const { editor } = normal(before);
+    press(editor, keys);
+    await eventually(() => shown(editor) === after).catch(() => {});
+    expect(shown(editor)).toBe(after);
+    expect(editor.getMode()).toBe("normal");
+  });
+
+  test("p replaces the selection with the clipboard and copies what it replaced", async () => {
+    const { editor, writes } = normal("one |two three", { read: async () => ({ type: "text", text: "X" }) });
+    press(editor, "viwp");
+    await eventually(() => editor.getText() === "one X three");
+    expect(shown(editor)).toBe("one |X three");
+    expect(writes).toEqual(["two"]);
+  });
+
+  test("the selection is painted on Pi's rendered rows, a line selection one cell past each line", () => {
+    const { editor } = normal("one |two three");
+    editor.selectionStyle = (text: string) => `<${text}>`;
+    press(editor, "viw");
+    expect(editor.getMode()).toBe("visual");
+    expect(editor.render(40)[1]!.replace(APC, "")).toBe(`one <tw><o> three${" ".repeat(27)}`);
+    const lines = normal("|one\ntwo").editor;
+    lines.selectionStyle = (text: string) => `<${text}>`;
+    press(lines, "Vj");
+    const rows = lines.render(20).map((row: string) => row.replace(APC, ""));
+    expect(rows[1]!.startsWith("<one >")).toBe(true);
+    expect(rows[2]!.startsWith("<t><wo >")).toBe(true);
+    lines.selectionStyle = (text: string) => `\x1b[7m${text}\x1b[27m`;
+    for (const row of lines.render(20)) expect(tuiPackage.visibleWidth(row)).toBe(20);
+    press(lines, ESC);
+    expect(lines.render(20).join("")).not.toContain("<");
+  });
+});
+
+describe("Vim registers and the system clipboard", () => {
+  test("yanks and deletes copy to the clipboard; p reads it back, as with clipboard=unnamedplus", async () => {
+    let clipboard: ClipboardContent = undefined;
+    const { editor, writes } = normal("|one two", { read: async () => clipboard });
+    press(editor, "yiw", "dd");
+    expect(writes).toEqual(["one", "one two\n"]);
+    clipboard = { type: "text", text: "copied line\n" };
+    editor.setText("abc");
+    press(editor, ESC, "p");
+    await eventually(() => editor.getText() === "abc\ncopied line");
+    expect(shown(editor)).toBe("abc\n|copied line");
+    clipboard = { type: "text", text: "word" };
+    press(editor, "p");
+    await eventually(() => editor.getText() === "abc\ncwordopied line");
+    expect(shown(editor)).toBe("abc\ncwor|dopied line");
+  });
+
+  test("a failed clipboard read falls back to the last yank", async () => {
+    const { editor } = normal("|one two", { read: async () => { throw new Error("no clipboard"); } });
+    press(editor, "yiw$p");
+    await eventually(() => editor.getText() === "one twoone");
+    expect(shown(editor)).toBe("one twoon|e");
+  });
+});
+
+describe("transcript navigation", () => {
+  test("k past the prompt's top line scrolls the transcript; while it is scrolled up, j and k scroll it", () => {
+    const { tui, calls } = viewportTui();
+    const { editor } = normal("one\ntw|o", { tui });
+    press(editor, "k");
+    expect(shown(editor)).toBe("on|e\ntwo");
+    expect(calls).toEqual([]);
+    press(editor, "k");
+    expect(calls).toEqual([["scrollBy", -1]]);
+    press(editor, "j");
+    expect(calls.at(-1)).toEqual(["scrollBy", 1]);
+    expect(shown(editor)).toBe("on|e\ntwo");
+    press(editor, "j");
+    expect(shown(editor)).toBe("one\ntw|o");
+    press(editor, "3k");
+    expect(shown(editor)).toBe("on|e\ntwo");
+    expect(calls.at(-1)).toEqual(["scrollBy", -2]);
+    press(editor, "5j");
+    expect(calls.at(-1)).toEqual(["scrollBy", 5]);
+    expect(shown(editor)).toBe("on|e\ntwo");
+  });
+
+  test("gg and G reach the prompt's first or last line, then the transcript's top or bottom", () => {
+    const { tui, calls } = viewportTui();
+    const { editor } = normal("one\ntw|o", { tui });
+    press(editor, "gg");
+    expect(shown(editor)).toBe("|one\ntwo");
+    expect(calls).toEqual([]);
+    press(editor, "gg");
+    expect(calls).toEqual([["top"]]);
+    press(editor, "G");
+    expect(calls).toEqual([["top"], ["bottom"]]);
+    expect(shown(editor)).toBe("|one\ntwo");
+    press(editor, "G");
+    expect(shown(editor)).toBe("one\n|two");
+  });
+
+  test("J and K jump between messages; Ctrl+E Y D U F B scroll, in normal mode only", () => {
+    const { tui, calls } = viewportTui();
+    const { editor } = vim("draft", { tui });
+    press(editor, "\x05", "\x19", "\x04");
+    expect(calls).toEqual([]);
+    expect(editor.getText()).toBe("draft");
+    press(editor, ESC, "K", "2J", "\x05", "\x19", "\x04", "\x15", "\x06", "\x02");
+    expect(calls).toEqual([
+      ["prompt", -1], ["prompt", 1], ["prompt", 1],
+      ["scrollBy", 1], ["scrollBy", -1], ["scrollBy", 10], ["scrollBy", -10], ["scrollBy", 16], ["scrollBy", -16],
+    ]);
+    expect(editor.getText()).toBe("draft");
+  });
+
+  test("Ctrl+D never exits Pi in normal mode, and regular mode warns once instead of scrolling", () => {
     let warned = 0;
-    const editor = new VimNavigationEditor(
-      createTui("regular") as never,
-      theme,
-      keybindings as never,
-      () => warned++,
-    );
+    const { editor } = vim("", { tui: createTui("regular"), warn: () => warned++ });
     let exited = 0;
     editor.onCtrlD = () => exited++;
-
-    editor.handleInput("\x1b");
-    editor.handleInput("\x04");
-    editor.handleInput("\x04");
-
+    press(editor, ESC, "\x04", "\x04", "k");
     expect(exited).toBe(0);
     expect(warned).toBe(1);
   });
@@ -319,7 +600,8 @@ describe("copy cleared draft", () => {
       editor.handleInput(key);
       expect(write.mock.calls).toEqual([[draft]]);
       expect(editor.getText()).toBe("");
-      expect(editor.getMode()).toBe(mode);
+      // The next prompt starts in insert mode either way.
+      expect(editor.getMode()).toBe("insert");
       expect(editor.actionHandlers.get("app.clear")).toBe(handler);
       editor.handleInput("\x1f"); // Native undo still restores the cleared draft.
       expect(editor.getText()).toBe(draft);
@@ -488,7 +770,7 @@ describe("clipboard images", () => {
     editor.handleInput("\x1b");
     editor.handleInput(bracketed(""));
     editor.handleInput("\x16");
-    editor.handleInput("i");
+    editor.handleInput("A");
     editor.handleInput("done");
     await eventually(() => editor.getText().endsWith("done"));
     expect(editor.getLines()).toEqual(["[img #1] [img #2] done"]);

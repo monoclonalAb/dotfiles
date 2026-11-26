@@ -418,6 +418,17 @@ export function glyph(status) {
   return status === "blocked" || status === "done" ? "\u25cf" : "\u00b7";
 }
 
+// A kept git answer shaped as check() writes it.
+function keptGit(g) {
+  try {
+    return typeof g?.name === "string" && (g.branch === null || typeof g.branch === "string")
+      && Number.isInteger(g.ahead) && Number.isInteger(g.behind) && typeof g.linked === "boolean"
+      && typeof g.repo === "string" && Array.isArray(JSON.parse(g.repo));
+  } catch {
+    return false;
+  }
+}
+
 export function tone(t, status) {
   return t[status] ?? t.unknown;
 }
@@ -425,6 +436,15 @@ export function tone(t, status) {
 export default class SpacesTree extends View {
   init(_props, cx) {
     this.git = {}; // where() -> { name, branch, ahead, behind, repo, linked }, null: not a repo
+    // What git last said, kept: a restart (C-a p to Review mode and back, an app
+    // restart) draws the tree at once instead of a flat list for the seconds git
+    // takes. Each kept place is asked again on the first tick.
+    try {
+      const kept = JSON.parse(localStorage.getItem("git") ?? "{}");
+      for (const [k, g] of Object.entries(kept ?? {})) if (keptGit(g)) this.git[k] = g;
+    } catch { /* nothing kept, or not readable: git answers soon */ }
+    this.restored = new Set(Object.keys(this.git));
+    this.savedGit = null;
     this.checked = {}; // where() -> when it was last looked at
     this.unsure = new Set(); // where()s git couldn't answer for (a machine away)
     this.pending = new Set(); // where()s to look at next
@@ -495,7 +515,7 @@ export default class SpacesTree extends View {
     const at = {};
     for (const s of sp) at[s.id] = where(s, ps);
     const keys = new Set(Object.values(at).filter((k) => JSON.parse(k)[1]));
-    const due = new Set([...keys].filter((k) => !(k in this.git)));
+    const due = new Set([...keys].filter((k) => !(k in this.git) || this.restored.has(k)));
     for (const [id, k] of Object.entries(at)) if (this.at[id] && this.at[id] !== k && keys.has(k)) due.add(k);
     this.at = at;
     const spaceOf = {};
@@ -594,14 +614,26 @@ export default class SpacesTree extends View {
       }
       const used = new Set(Object.values(this.git).filter(Boolean).map((g) => JSON.parse(g.repo)).filter(([on]) => !on).map(([, repo]) => repo));
       for (const repo of this.watching) if (!used.has(repo)) this.watching.delete(repo);
+      this.keepGit();
       this.refreshing = false;
       cx.notify();
     });
   }
 
+  // Keeps the repos of the places Spaces are in now.
+  keepGit() {
+    const ps = panes();
+    const now = new Set(spaces().map((s) => where(s, ps)));
+    const text = JSON.stringify(Object.fromEntries(Object.entries(this.git).filter(([k, g]) => g && now.has(k))));
+    if (text === this.savedGit) return;
+    this.savedGit = text;
+    try { localStorage.setItem("git", text); } catch { /* outside the app */ }
+  }
+
   // One place's git: branch, ahead/behind, its repo.
   async check(key, cx) {
     const [on, cwd] = JSON.parse(key);
+    this.restored.delete(key);
     this.checked[key] = Date.now();
     this.unsure.delete(key);
     try {
