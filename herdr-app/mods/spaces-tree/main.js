@@ -418,6 +418,17 @@ export function glyph(status) {
   return status === "blocked" || status === "done" ? "\u25cf" : "\u00b7";
 }
 
+// A kept git answer shaped as check() writes it.
+function keptGit(g) {
+  try {
+    return typeof g?.name === "string" && (g.branch === null || typeof g.branch === "string")
+      && Number.isInteger(g.ahead) && Number.isInteger(g.behind) && typeof g.linked === "boolean"
+      && Array.isArray(JSON.parse(g.repo));
+  } catch {
+    return false;
+  }
+}
+
 export function tone(t, status) {
   return t[status] ?? t.unknown;
 }
@@ -430,7 +441,7 @@ export default class SpacesTree extends View {
     // takes. Each kept place is asked again on the first tick.
     try {
       const kept = JSON.parse(localStorage.getItem("git") ?? "{}");
-      for (const [k, g] of Object.entries(kept ?? {})) if (typeof g?.name === "string" && Array.isArray(JSON.parse(g.repo))) this.git[k] = g;
+      for (const [k, g] of Object.entries(kept ?? {})) if (keptGit(g)) this.git[k] = g;
     } catch { /* nothing kept, or not readable: git answers soon */ }
     this.restored = new Set(Object.keys(this.git));
     this.savedGit = null;
