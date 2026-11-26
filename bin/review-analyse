@@ -1,0 +1,236 @@
+#!/usr/bin/python3
+"""Snapshot a GitHub pull request for Review mode, and read its diff in pieces.
+
+  review-analyse snapshot <link>
+      Fetches the pull request into a cached blobless clone,
+      ~/.cache/herdr-review/<owner>/<repo>, and pins the snapshot every later
+      read uses: its head, where it branched off (the merge base) and the
+      branch it targets. Prints the snapshot as JSON: its id
+      <head>:<merge base>:<base branch>, and each changed file with its status
+      and +/- counts, as GitHub lists them. A push while it loads changes
+      nothing here: everything comes from the pinned commits.
+
+  review-analyse diff <link> <snapshot id> <path> [--from N] [--lines N]
+      Prints one piece of one file's diff in that snapshot as JSON:
+      {path, from, lines, more}, at most --lines lines (default 2000) of at
+      most 1000 characters each, so a piece stays far under the Herdr app's
+      8 MiB limit for one command's output. A file with more than 20,000
+      changed lines, or a binary one, is `too_large` instead, with no lines.
+
+Review mode's mods run it (herdr-app/mods/review-nav and review-page); its
+plan is docs/plans/active/2026-11-25-review-mode.md (step 3). It reads GitHub
+with your login (gh, and git through your credential helper) and writes only
+under ~/.cache/herdr-review/, which can be deleted at any time.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+LINK = re.compile(r"^https?://(?:www\.)?github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)(?:[/?#]\S*)?$", re.IGNORECASE)
+SHA = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
+PIECE = 2000  # diff lines per piece
+WIDTH = 1000  # characters kept of each diff line
+TOO_LARGE = 20000  # changed lines past which a file's diff is not shown
+TIMEOUT = 600
+STATUS = {"A": "added", "D": "removed", "M": "modified", "R": "renamed", "C": "copied", "T": "changed"}
+
+
+class AnalyseError(Exception):
+    pass
+
+
+def environment():
+    # The Herdr app runs this without a login shell.
+    env = dict(os.environ)
+    home = env.get("HOME", str(Path.home()))
+    env["PATH"] = f"{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def run(args, env, cwd=None, timeout=TIMEOUT):
+    try:
+        result = subprocess.run(args, capture_output=True, env=env, cwd=cwd, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise AnalyseError(f"{args[0]}: {error}")
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", "replace").strip() or f"{' '.join(args[:3])} exited {result.returncode}"
+        raise AnalyseError(message)
+    return result.stdout
+
+
+def parse_link(text):
+    m = LINK.match((text or "").strip())
+    if not m:
+        raise AnalyseError(f"not a GitHub pull request link: {text}")
+    owner, repo, number = m.group(1), re.sub(r"\.git$", "", m.group(2)), int(m.group(3))
+    return owner, repo, number, f"https://github.com/{owner}/{repo}/pull/{number}"
+
+
+def cache(owner, repo, env):
+    return Path(env["HOME"]) / ".cache/herdr-review" / owner.lower() / repo.lower()
+
+
+def clone(path, owner, repo, env):
+    """A bare repository fetching from GitHub that leaves out file contents
+    until a diff needs them (a partial clone, as `git clone --filter=blob:none`)."""
+    if (path / "HEAD").exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fresh = Path(tempfile.mkdtemp(prefix=".clone-", dir=path.parent))
+    try:
+        run(["git", "init", "-q", "--bare", str(fresh)], env)
+        for key, value in (("core.repositoryformatversion", "1"), ("extensions.partialClone", "origin"),
+                           ("remote.origin.url", f"https://github.com/{owner}/{repo}.git"),
+                           ("remote.origin.promisor", "true"), ("remote.origin.partialclonefilter", "blob:none"),
+                           ("gc.auto", "0")):
+            run(["git", "config", key, value], env, cwd=fresh)
+        try:
+            fresh.rename(path)
+        except OSError:
+            if not (path / "HEAD").exists():
+                raise
+    finally:
+        shutil.rmtree(fresh, ignore_errors=True)
+
+
+def has_commit(repo, sha, env):
+    return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=repo, env=env, capture_output=True).returncode == 0
+
+
+def changed_files(repo, merge_base, head, env):
+    """Each changed file as GitHub lists them: path (the new one for a rename),
+    old_path, status and +/- counts (0 for binary files)."""
+    names = run(["git", "diff", "--no-ext-diff", "-M", "--name-status", "-z", merge_base, head], env, cwd=repo).decode("utf-8", "surrogateescape").split("\0")
+    counts = run(["git", "diff", "--no-ext-diff", "-M", "--numstat", "-z", merge_base, head], env, cwd=repo).decode("utf-8", "surrogateescape").split("\0")
+    numbers = {}
+    i = 0
+    while i < len(counts) - 1:
+        added, deleted, path = counts[i].split("\t", 2)
+        if path == "":  # a rename: old and new path follow
+            path = counts[i + 2]
+            i += 3
+        else:
+            i += 1
+        binary = added == "-"
+        numbers[path] = (0 if binary else int(added), 0 if binary else int(deleted), binary)
+    files = []
+    i = 0
+    while i < len(names) - 1:
+        code = names[i][0]
+        if code in "RC":
+            old, path = names[i + 1], names[i + 2]
+            i += 3
+        else:
+            old, path = None, names[i + 1]
+            i += 2
+        additions, deletions, binary = numbers.get(path, (0, 0, False))
+        files.append({
+            "path": path, "old_path": old, "status": STATUS.get(code, "changed"),
+            "additions": additions, "deletions": deletions, "binary": binary,
+            "too_large": binary or additions + deletions > TOO_LARGE,
+        })
+    return files
+
+
+def snapshot(link, env):
+    owner, repo, number, link = parse_link(link)
+    pr = json.loads(run(["gh", "pr", "view", link, "--json", "url,state,headRefOid,baseRefName,baseRefOid"], env, timeout=60))
+    base = pr["baseRefName"]
+    path = cache(owner, repo, env)
+    clone(path, owner, repo, env)
+    run(["git", "fetch", "-q", "--no-tags", "--filter=blob:none", "origin",
+         f"+refs/pull/{number}/head:refs/review/pull/{number}",
+         f"+refs/heads/{base}:refs/review/base/{base}"], env, cwd=path)
+    head = run(["git", "rev-parse", f"refs/review/pull/{number}"], env, cwd=path).decode().strip()
+    if pr["state"] == "OPEN":
+        base_commit = run(["git", "rev-parse", f"refs/review/base/{base}"], env, cwd=path).decode().strip()
+    else:
+        # Merged or closed: the base as it was then, not the branch since.
+        base_commit = pr["baseRefOid"]
+        if not has_commit(path, base_commit, env):
+            run(["git", "fetch", "-q", "--no-tags", "--filter=blob:none", "origin", base_commit], env, cwd=path)
+    merge_base = run(["git", "merge-base", head, base_commit], env, cwd=path).decode().strip()
+    files = changed_files(path, merge_base, head, env)
+    return {
+        "pr": link, "snapshot": f"{head}:{merge_base}:{base}", "head": head, "merge_base": merge_base, "base": base,
+        "base_commit": base_commit, "listed_head": pr["headRefOid"], "state": pr["state"], "files": files,
+        "additions": sum(f["additions"] for f in files), "deletions": sum(f["deletions"] for f in files),
+    }
+
+
+def diff(link, snapshot_id, path, start, count, env):
+    owner, repo, _number, _link = parse_link(link)
+    parts = snapshot_id.split(":", 2)
+    if len(parts) != 3 or not SHA.match(parts[0]) or not SHA.match(parts[1]):
+        raise AnalyseError(f"not a snapshot id: {snapshot_id}")
+    head, merge_base, _base = parts
+    repo_path = cache(owner, repo, env)
+    if not (repo_path / "HEAD").exists() or not has_commit(repo_path, head, env) or not has_commit(repo_path, merge_base, env):
+        raise AnalyseError("this snapshot is no longer in the cache: open the pull request again")
+    entry = next((f for f in changed_files(repo_path, merge_base, head, env) if f["path"] == path), None)
+    if entry is None:
+        raise AnalyseError(f"{path} is not changed in this snapshot")
+    answer = {"path": path, "from": start, "lines": [], "more": False, "too_large": entry["too_large"]}
+    if entry["too_large"]:
+        return answer
+    paths = [entry["old_path"], path] if entry["old_path"] else [path]
+    process = subprocess.Popen(["git", "diff", "--no-ext-diff", "--no-color", "-M", merge_base, head, "--", *paths],
+                               cwd=repo_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        index = -1
+        hunks = False
+        for raw in process.stdout:
+            line = raw.decode("utf-8", "replace").rstrip("\n")
+            if not hunks:  # the header, up to the first hunk
+                if not line.startswith("@@"):
+                    continue
+                hunks = True
+            index += 1
+            if index < start:
+                continue
+            if len(answer["lines"]) == count:
+                answer["more"] = True
+                break
+            answer["lines"].append(line[:WIDTH])
+    finally:
+        process.kill()
+        process.wait()
+    return answer
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="review-analyse", description=__doc__.split("\n\n")[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    one = commands.add_parser("snapshot", help="pin a pull request and list its files")
+    one.add_argument("link")
+    piece = commands.add_parser("diff", help="one piece of one file's diff in a snapshot")
+    piece.add_argument("link")
+    piece.add_argument("snapshot")
+    piece.add_argument("path")
+    piece.add_argument("--from", dest="start", type=int, default=0)
+    piece.add_argument("--lines", type=int, default=PIECE)
+    args = parser.parse_args(argv)
+    env = environment()
+    try:
+        if args.command == "snapshot":
+            answer = snapshot(args.link, env)
+        else:
+            answer = diff(args.link, args.snapshot, args.path, max(0, args.start), max(1, min(args.lines, PIECE)), env)
+    except (AnalyseError, KeyError, ValueError) as error:
+        print(f"review-analyse: {error}", file=sys.stderr)
+        return 1
+    json.dump(answer, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

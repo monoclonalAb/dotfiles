@@ -12,9 +12,14 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, ScrollHandle } from "gpui-base";
-import { checking, exec, setShared, shared, theme, window } from "herdr";
+import { checking, exec, home, readTextFile, setShared, shared, theme, window, writeTextFile } from "herdr";
 
 export const OPEN = "review-mode.open";
+// The open pull request's snapshot ({ pr, status: "loading" | "ready" |
+// "error", ...review-analyse snapshot }), the file its diff shows ({ pr,
+// snapshot, path }) and its Viewed files ({ snapshot, paths }).
+export const SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWED = "review-mode.viewed";
+const SNAPSHOT_TIMEOUT = 600000; // the first one clones the repository
 export const PAGE = 100; // GitHub's most search results per page
 export const CAP = 1000; // GitHub's search returns no more than this
 const BATCH = 25; // pull requests per details query: GitHub allows 100, but 50 long ones can time out (HTTP 502)
@@ -154,26 +159,99 @@ export function openNow(open, list) {
   return now ?? (open.gone ? open : { ...open, gone: true });
 }
 
-// The key's move through the list (1 or -1), "open", or null for any key the
-// list leaves alone: everything with Ctrl, Alt, Cmd or Shift, so chords like
-// C-a p reach their bindings.
+// The key's move through the list (1 or -1), "open", "back" (Esc, to the
+// list from the Files view), "viewed" (v), or null for any key the list leaves
+// alone: everything with Ctrl, Alt, Cmd or Shift, so chords like C-a p reach
+// their bindings.
 export function navKey(e) {
   const m = e?.modifiers ?? {};
   if (m.control || m.alt || m.platform || m.function || m.shift) return null;
-  return { j: 1, down: 1, k: -1, up: -1 }[e?.key] ?? (e?.key === "enter" ? "open" : null);
+  return { j: 1, down: 1, k: -1, up: -1, enter: "open", escape: "back", v: "viewed" }[e?.key] ?? null;
+}
+
+// The pull request's state file (docs/HERDR-APP.md, "State of a pull
+// request's review"): one per pull request, kept per snapshot, under 1 MiB.
+export const MAX_STATE = 1 << 20;
+const PR_LINK = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/i;
+const samePr = (a, b) => typeof a === "string" && a.toLowerCase() === b.toLowerCase();
+
+export function statePath(home, link) {
+  const [, owner, repo, number] = PR_LINK.exec(link) ?? [];
+  if (!number) throw new Error(`not a pull request link: ${link}`);
+  return `${home}/.local/state/herdr-review/${owner.toLowerCase()}/${repo.toLowerCase()}/${number}.json`;
+}
+
+function parseState(text) {
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+export function viewedIn(text, link, snapshot) {
+  const state = text ? parseState(text) : null;
+  if (!state || !samePr(state.pr, link)) return [];
+  const viewed = state.snapshots?.[snapshot]?.viewed;
+  return Array.isArray(viewed) ? viewed.filter((p) => typeof p === "string") : [];
+}
+
+// The file's text with `path` ticked (or unticked) in that snapshot,
+// everything else as it was.
+export function withViewed(text, link, snapshot, path, on) {
+  const state = text ? parseState(text) : { pr: link, snapshots: {} };
+  if (!state || typeof state !== "object") throw new Error("the review's state file is not readable JSON");
+  if (!samePr(state.pr, link)) throw new Error("the review's state file belongs to another pull request");
+  const snapshots = { ...(state.snapshots ?? {}) };
+  const entry = { ...(snapshots[snapshot] ?? {}) };
+  const viewed = new Set(viewedIn(text, link, snapshot));
+  if (on) viewed.add(path);
+  else viewed.delete(path);
+  snapshots[snapshot] = { ...entry, viewed: [...viewed] };
+  return JSON.stringify({ ...state, snapshots }, null, 1);
+}
+
+// Saves one tick: read, change, write only if nobody saved in between; if
+// someone did, read their save and re-apply just this tick.
+// disk: { read(path), write(path, text, expected) }, as readTextFile and
+// writeTextFile.
+export async function saveViewed(disk, home, link, snapshot, path, on) {
+  const file = statePath(home, link);
+  for (let attempt = 0; ; attempt++) {
+    const before = await disk.read(file);
+    const after = withViewed(before, link, snapshot, path, on);
+    if (new TextEncoder().encode(after).length > MAX_STATE) throw new Error("the review's state file would pass 1 MiB; tick not saved");
+    try {
+      await disk.write(file, after, before);
+      return viewedIn(after, link, snapshot);
+    } catch (e) {
+      if (attempt >= 2) throw e;
+    }
+  }
 }
 
 const gh = (args) => exec("gh", args, { timeout: 60000 });
+// review-analyse (bin/review-analyse) snapshots the pull request; the app runs
+// it without a login shell, so by its linked path.
+const analyse = (args, timeout) => exec(`${home()}/.local/bin/review-analyse`, args, { timeout });
+const answer = (result) => {
+  if (result.code !== 0) throw new Error((result.stderr || `review-analyse exited ${result.code}`).trim().replace(/^review-analyse: /, ""));
+  return JSON.parse(result.stdout);
+};
 
 export default class ReviewNav extends View {
   init(_props, cx) {
     this.list = null;
     this.error = null;
     this.loading = false;
+    // The Files view of the open pull request, not the list: as it was before
+    // a layout switch restarted this mod. A snapshot that was still loading
+    // then has nobody to finish it.
+    const snap = shared(SNAPSHOT);
+    if (snap?.status === "loading") setShared(SNAPSHOT, null);
+    this.files = snap?.status === "ready" && snap.pr === shared(OPEN)?.url;
+    if (!this.files && shared(FILE)) setShared(FILE, null);
     this.selected = shared(OPEN)?.url ?? null;
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.scroll = ScrollHandle.new();
+    this.fileScroll = ScrollHandle.new();
     if (checking()) return;
     this.load(cx);
     cx.timer.every(REFRESH, (cx) => { if (window()?.visible !== false) this.load(cx); });
@@ -242,14 +320,91 @@ export default class ReviewNav extends View {
     }
   }
 
-  open(pr) {
+  // Opening takes a fresh snapshot (SNAPSHOT) and shows its files; the first
+  // file's diff shows in the middle (FILE).
+  open(pr, cx) {
     if (!pr) return;
     this.selected = pr.url;
+    this.files = true;
     setShared(OPEN, pr);
+    setShared(SNAPSHOT, { pr: pr.url, status: "loading" });
+    setShared(FILE, null);
+    setShared(VIEWED, null);
+    cx.spawn(async (cx) => {
+      let next;
+      try {
+        next = { ...answer(await analyse(["snapshot", pr.url], SNAPSHOT_TIMEOUT)), status: "ready" };
+      } catch (e) {
+        next = { pr: pr.url, status: "error", error: String(e?.message ?? e).split("\n")[0] };
+      }
+      if (shared(SNAPSHOT)?.pr !== pr.url || shared(SNAPSHOT)?.status !== "loading") return; // another pull request opened meanwhile
+      setShared(SNAPSHOT, next);
+      if (next.status === "ready") {
+        if (next.files.length) setShared(FILE, { pr: pr.url, snapshot: next.snapshot, path: next.files[0].path });
+        const text = await readTextFile(statePath(home(), pr.url)).catch(() => null);
+        if (shared(SNAPSHOT)?.snapshot === next.snapshot) setShared(VIEWED, { snapshot: next.snapshot, paths: viewedIn(text, pr.url, next.snapshot) });
+      }
+      cx.notify();
+    });
+  }
+
+  back() {
+    this.files = false;
+    setShared(FILE, null);
+  }
+
+  snapshotFiles() {
+    const snap = shared(SNAPSHOT);
+    return snap?.status === "ready" && snap.pr === shared(OPEN)?.url ? snap.files : [];
+  }
+
+  pick(step) {
+    const snap = shared(SNAPSHOT);
+    const files = this.snapshotFiles();
+    if (!files.length) return;
+    const at = files.findIndex((f) => f.path === shared(FILE)?.path);
+    const next = Math.min(files.length - 1, Math.max(0, at + step));
+    setShared(FILE, { pr: snap.pr, snapshot: snap.snapshot, path: files[next].path });
+    this.fileScroll.scroll_to_item(next);
+  }
+
+  // Ticks or unticks Viewed in the state file; the tick shows once saved.
+  tick(path, cx) {
+    const snap = shared(SNAPSHOT);
+    if (snap?.status !== "ready" || !path) return;
+    const on = !(shared(VIEWED)?.paths ?? []).includes(path);
+    cx.spawn(async (cx) => {
+      try {
+        const paths = await saveViewed({ read: readTextFile, write: writeTextFile }, home(), snap.pr, snap.snapshot, path, on);
+        if (shared(SNAPSHOT)?.snapshot === snap.snapshot) setShared(VIEWED, { snapshot: snap.snapshot, paths });
+        this.error = null;
+      } catch (e) {
+        this.error = String(e?.message ?? e).split("\n")[0];
+      }
+      cx.notify();
+    });
+  }
+
+  key(e, cx) {
+    const step = navKey(e);
+    if (step === null) return;
+    if (this.files) {
+      if (step === "back") this.back();
+      else if (step === "viewed") this.tick(shared(FILE)?.path, cx);
+      else if (typeof step === "number") this.pick(step);
+    } else if (step === "open") this.open(this.prs().find((p) => p.url === this.selected), cx);
+    else if (typeof step === "number") this.move(step);
+    cx.notify();
   }
 
   render(cx) {
     const t = theme();
+    return v_flex().id("review-nav").size_full().track_focus(this.handle)
+      .on_key_down((e, cx) => this.key(e, cx))
+      .children(this.files ? this.renderFiles(t) : this.renderList(t));
+  }
+
+  renderList(t) {
     const open = shared(OPEN)?.url;
     const note = (id, text, color) => div().id(id).px(12).py(2).text_size(11).text_color(color).child(text);
     const rows = [];
@@ -264,7 +419,7 @@ export default class ReviewNav extends View {
         rows.push(v_flex().id(`pr-${s.key}-${p.id}`).mx(6).px(8).py(6).gap(2).rounded(6)
           .when(p.url === this.selected, (el) => el.bg(t.selected))
           .when(p.url !== this.selected, (el) => el.hover((st) => st.bg(t.hover)))
-          .on_click((_e, cx) => { this.handle.focus(); this.open(p); cx.notify(); })
+          .on_click((_e, cx) => { this.handle.focus(); this.open(p, cx); cx.notify(); })
           .child(div().truncate().text_size(13).text_color(p.url === open ? t.accent : t.foreground).child(p.title))
           .child(h_flex().gap(8).items_center()
             .child(div().truncate().text_size(11).text_color(t.muted).child(`${p.repo} #${p.number}`))
@@ -273,20 +428,49 @@ export default class ReviewNav extends View {
       }
     }
     const status = this.error ? this.error : this.loading && !this.list ? "Loading your pull requests…" : this.list && !this.prs().length && !this.list.sections.some((s) => s.missing) ? "No open pull requests." : null;
-    return v_flex().id("review-nav").size_full().track_focus(this.handle)
-      .on_key_down((e, cx) => {
-        const step = navKey(e);
-        if (step === null) return;
-        if (step === "open") this.open(this.prs().find((p) => p.url === this.selected));
-        else this.move(step);
-        cx.notify();
-      })
-      .child(h_flex().px(12).pt(12).pb(4).items_center()
+    return [
+      h_flex().px(12).pt(12).pb(4).items_center()
         .child(div().text_size(13).font_semibold().text_color(t.foreground).child("Pull requests"))
         .child(div().flex_1())
-        .when(this.loading && !!this.list, (el) => el.child(div().text_size(11).text_color(t.dim).child("Refreshing…"))))
-      .when(!!status, (el) => el.child(div().px(12).py(6).text_size(12).text_color(this.error ? t.blocked : t.muted).child(status)))
-      .child(v_flex().id("review-nav-list").flex_1().overflow_y_scrollbar().track_scroll(this.scroll).pb(8).children(rows))
-      .child(div().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j/k move · Enter open"));
+        .when(this.loading && !!this.list, (el) => el.child(div().text_size(11).text_color(t.dim).child("Refreshing…"))),
+      ...(status ? [div().px(12).py(6).text_size(12).text_color(this.error ? t.blocked : t.muted).child(status)] : []),
+      v_flex().id("review-nav-list").flex_1().overflow_y_scrollbar().track_scroll(this.scroll).pb(8).children(rows),
+      div().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j/k move · Enter open"),
+    ];
+  }
+
+  renderFiles(t) {
+    const snap = shared(SNAPSHOT);
+    const files = this.snapshotFiles();
+    const viewed = new Set(shared(VIEWED)?.snapshot === snap?.snapshot ? shared(VIEWED).paths : []);
+    const at = shared(FILE)?.path;
+    const status = this.error ?? (snap?.status === "loading" ? "Taking a snapshot…" : snap?.status === "error" ? snap.error : null);
+    const rows = files.map((f, i) => {
+      const slash = f.path.lastIndexOf("/");
+      return h_flex().id(`file-${i}`).mx(6).px(8).py(4).gap(8).rounded(6).items_center()
+        .when(f.path === at, (el) => el.bg(t.selected))
+        .when(f.path !== at, (el) => el.hover((st) => st.bg(t.hover)))
+        .on_click((_e, cx) => { this.handle.focus(); setShared(FILE, { pr: snap.pr, snapshot: snap.snapshot, path: f.path }); cx.notify(); })
+        .child(div().id(`tick-${i}`).flex_none().text_size(13).text_color(viewed.has(f.path) ? t.done : t.dim)
+          .on_click((_e, cx) => { this.handle.focus(); this.tick(f.path, cx); })
+          .child(viewed.has(f.path) ? "☑" : "☐"))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().truncate().text_size(12).text_color(viewed.has(f.path) ? t.muted : t.foreground).child(f.path.slice(slash + 1)))
+          .when(slash > 0, (el) => el.child(div().truncate().text_size(10).text_color(t.dim).child(f.path.slice(0, slash)))))
+        .child(div().flex_none().text_size(11).text_color(t.done).child(f.binary ? "bin" : `+${f.additions}`))
+        .child(div().flex_none().text_size(11).text_color(t.blocked).when(f.binary, (el) => el.text_color(t.dim)).child(f.binary ? "" : `−${f.deletions}`));
+    });
+    return [
+      div().id("review-nav-back").px(12).pt(12).pb(4).text_size(12).text_color(t.accent).cursor_pointer()
+        .on_click((_e, cx) => { this.handle.focus(); this.back(); cx.notify(); })
+        .child("← All pull requests"),
+      h_flex().px(12).pt(6).pb(4).items_center()
+        .child(div().text_size(13).font_semibold().text_color(t.foreground).child(`Files · ${files.length}`))
+        .child(div().flex_1())
+        .when(files.length > 0, (el) => el.child(div().text_size(11).text_color(t.dim).child(`Viewed ${files.filter((f) => viewed.has(f.path)).length}/${files.length}`))),
+      ...(status ? [div().px(12).py(6).text_size(12).text_color(this.error || snap?.status === "error" ? t.blocked : t.muted).child(status)] : []),
+      v_flex().id("review-nav-files").flex_1().overflow_y_scrollbar().track_scroll(this.fileScroll).pb(8).children(rows),
+      div().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j/k file · v viewed · Esc back"),
+    ];
   }
 }

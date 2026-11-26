@@ -365,16 +365,20 @@ of the Space you work in. Example:
 `review` layout. `C-a p` there brings back the `eric` layout. The
 [Review mode plan](plans/active/2026-11-25-review-mode.md) builds it in steps;
 so far it lists your pull requests and shows one's description, checks,
-reviewers and labels. Example:
+reviewers, labels and diff, file by file. Example:
 
 1. 10:00: you are in `fix login`, with the `dotfiles` repository folded in the
    sidebar and Files showing in the right-hand panel. `C-a p` shows Review mode.
    On the left, **Needs your review** lists the open pull requests waiting for
    your review, then **Yours** the open ones you wrote, each with its state.
 2. 10:01: `j` twice and `Enter` (or a click) opens `example-app #42`: its
-   title, branches, size and checks with its description in the middle, its
-   checks, reviewers and labels on the right.
-3. 10:05: `C-a p` again. You are back in `fix login`, `dotfiles` is still
+   title, branches, size and checks at the top of the middle, its checks,
+   reviewers and labels on the right. The left turns into its **Files**, and
+   the middle shows the first file's diff a few seconds later.
+3. 10:02: `j`/`k` go through the files; `v` ticks the shown file Viewed (☑).
+   `Esc` (or `← All pull requests`) goes back to the list, and the middle
+   shows the description again.
+4. 10:05: `C-a p` again. You are back in `fix login`, `dotfiles` is still
    folded and the panel still shows Files. Next time, `#42` is still open.
 
 The list is GitHub's pull request search, as `gh search prs --state=open
@@ -393,11 +397,29 @@ approved. GitHub answers Unknown until it has worked a merge out, so the list
 asks again after 5, 10 and 20 seconds. If `gh` fails (signed out, offline),
 its message shows in red above the list.
 
+Opening a pull request takes a **snapshot** with
+[`bin/review-analyse snapshot`](../bin/review-analyse): it fetches the pull
+request into a cached copy of its repository,
+`~/.cache/herdr-review/<owner>/<repo>` (commits and folders only; file
+contents come when a diff needs them), and pins its head, where it branched
+off and the branch it targets. Files, counts and diffs all come from that
+snapshot, so a push while you read changes nothing on screen; opening the pull
+request again takes a new one. A merged or closed pull request is compared with
+its base as it was then, so it still shows its own files. Diffs come in pieces
+of 2000 lines (`Load 2000 more lines` at the end); a binary file, or one with
+more than 20,000 changed lines, says `Too large to show here` with a link to
+GitHub. The first snapshot of a repository clones it, which can take a while
+for a big one; later ones fetch only what is new. The cache can be deleted at
+any time. Viewed ticks are saved in the pull request's state file (below), per
+snapshot, so a new snapshot starts unticked.
+
 The columns are three mods: `review-nav` (left: your pull requests),
 `review-page` (middle: the open pull request; with props `{ "part": "bar" }` it
 is also the top bar that drags the window) and `review-side` (right: Info and
 Chat). The open pull request is the shared `review-mode.open`, which
-`review-nav` sets and the other two show. `review-nav` takes the keyboard when
+`review-nav` sets and the other two show, as with its snapshot
+(`review-mode.snapshot`), the file shown (`review-mode.file`) and its Viewed
+files (`review-mode.viewed`). `review-nav` takes the keyboard when
 Review mode opens: `j`/`k` or the arrows move, `Enter` opens; it ignores any
 key with Ctrl, Alt, Cmd or Shift, so chords reach their bindings. `C-a p` is
 bound only in the `layout:eric` and `layout:review` sections
