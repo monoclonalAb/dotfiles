@@ -12,7 +12,7 @@
 
 import { View, div, uniform_list } from "gpui-kit";
 import { h_flex, v_flex, TextView } from "gpui-base";
-import { exec, home, settings, shared, theme } from "herdr";
+import { exec, home, props, settings, shared, theme } from "herdr";
 
 const OPEN = "review-mode.open", SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWED = "review-mode.viewed";
 const ROW = 18;
@@ -49,8 +49,8 @@ export function numbered(lines) {
 }
 
 export default class ReviewPage extends View {
-  init(props) {
-    this.bar = props?.part === "bar";
+  init() {
+    this.bar = props()?.part === "bar";
     this.diff = null; // { key, lines, more, loading, error, tooLarge }
     this.height = 0; // of the diff's lines area, which a uniform_list needs
   }

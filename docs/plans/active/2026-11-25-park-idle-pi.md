@@ -1,6 +1,6 @@
 # Park idle Pi conversations and reopen them on return
 
-**Status:** Active (plan; no PR merged)
+**Status:** Active (PRs 1 and 2 merged and deployed 2026-11-26; PR 4 waits on a decision)
 **Scope:** [`bin/pi`](../../../bin/pi), a new `pi/extensions/park-idle/`,
 [`herdr-app-resume`](../../../pi/extensions/herdr-app-resume/index.ts),
 [`pi-resume`](../../../herdr-app/mods/pi-resume/main.js), their tests and
@@ -235,17 +235,29 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
 
 - [x] Prototypes above.
 - [x] Focus-in measured in the app: received (PR 3 dropped).
-- [x] PR 1 opened as #31 (three review rounds on `88096be`; the later park-file
-  cleanup, `dc5ea2b`, has a failing-first test but no review).
-- [x] PR 2 opened as #32 (three review rounds; the last finding fixed in one
-  line after it and checked in the app; no round read that line).
+- [x] PR 1 merged as #31 (`8657aa8`; three review rounds, then the park-file
+  cleanup with a failing-first test and no review).
+- [x] PR 2 merged as #32 (`698130b`; three review rounds, one round on the
+  rebase over #29, #33, #36 and #46; its last two small fixes unreviewed).
 - [x] PR 3 dropped.
+- [x] Deployed 2026-11-26: the main checkout fast-forwarded to `9a49fd2`; the
+  `park-idle` and `lib/pi` links were made by hand from `dotfiles-link check`'s
+  `create` lines, because it also listed another task's uncommitted
+  `pi-compat` files. Pi sessions started from then on park; older ones do not.
+- [x] Overall done check on the deployed files (below).
 - [ ] PR 4: after a reboot, parked conversations come back parked, with flags.
-- [ ] Overall done check again after deployment (`dotfiles-link apply` for the
-  new extension folder; sessions started afterwards).
+  Not started; waits on the owner.
 
 ## Verification
 
+- Overall (brief), deployed — passed 2026-11-26 in a throwaway Space running
+  `PI_PARK_AFTER=20 pi …` from a login shell (the deployed wrapper and every
+  deployed extension, Pi 1.6.1): a draft kept Pi running for 25 s; 25 s after
+  it was deleted, Pi and its six MCP processes were gone, the terminal stayed
+  `{app: pi, state: idle}` with its `pi.session` label; focusing the pane
+  reopened the conversation in 0.4 s with the message sent once; `Ctrl+D` left
+  zsh with no `pi.*` labels. An earlier run focused the pane 8 s after the
+  display had gone to sleep and did not wake it; with the display on it did.
 - Overall (brief) — passed 2026-11-25 from the worktree (PR 2 head `c3eb241`,
   wrapper from PR 1), in a throwaway Space running
   `pi -ne -e builtin:mcp -e <park-idle> -e <herdr-app-resume> -e selective-skills`
