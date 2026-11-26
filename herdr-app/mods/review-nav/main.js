@@ -105,9 +105,15 @@ async function details(gh, ids) {
   const byId = new Map();
   const batches = [];
   for (let i = 0; i < ids.length; i += BATCH) batches.push(ids.slice(i, i + BATCH));
+  let failed = false; // then start no more: GitHub may be throttling
   const next = async () => {
-    for (let batch; (batch = batches.shift());) {
-      for (const n of reply(await gh(detailArgs(batch))).data?.nodes ?? []) if (n?.id) byId.set(n.id, toPullRequest(n));
+    for (let batch; !failed && (batch = batches.shift());) {
+      try {
+        for (const n of reply(await gh(detailArgs(batch))).data?.nodes ?? []) if (n?.id) byId.set(n.id, toPullRequest(n));
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(AT_ONCE, batches.length) }, next));
@@ -284,8 +290,7 @@ export default class ReviewNav extends View {
     if (snap?.status === "loading") setShared(SNAPSHOT, null);
     this.files = snap?.status === "ready" && snap.pr === shared(OPEN)?.url;
     if (!this.files && shared(FILE)) setShared(FILE, null);
-    this.selected = shared(OPEN)?.url ?? null;
-    if (this.list) this.show(this.list);
+    this.selected = shared(OPEN)?.url ?? this.prs()[0]?.url ?? null;
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.scroll = ScrollHandle.new();
@@ -330,7 +335,10 @@ export default class ReviewNav extends View {
   fresh(list) {
     this.show(list);
     const stored = JSON.stringify({ version: KEPT_VERSION, list });
-    try { if (utf8Bytes(stored) <= KEPT_MAX) localStorage.setItem(KEPT, stored); } catch { /* outside the app */ }
+    try {
+      if (utf8Bytes(stored) <= KEPT_MAX) localStorage.setItem(KEPT, stored);
+      else localStorage.removeItem(KEPT); // an older list would be wrong
+    } catch { /* outside the app */ }
   }
 
   show(list) {
