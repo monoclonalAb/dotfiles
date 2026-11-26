@@ -10,8 +10,9 @@ operator docs. Live: the Herdr app (`herdr-app` 0.1.18, `hc` 0.1.22) and npm Pi 
 
 The owner keeps finished Pi conversations open in the Herdr app to come back to
 (48 on 2026-11-25, 43 of them done). Each idle Pi holds ~180 MB plus ~300 MB of
-MCP servers. After 2 hours with no input and no agent work, Pi quits to free
-that memory, but its terminal stays where it was and still shows as a Pi
+MCP servers; `mcp-idle-stop` (#29) now stops the servers after 10 idle minutes,
+which leaves the Pi process itself. After 2 hours with no input and no agent
+work, Pi quits to free it, but its terminal stays where it was and still shows as a Pi
 conversation in the sidebar. Coming back to the terminal reopens the same
 conversation (`pi --session <file>`) in about a second. Quitting Pi yourself
 still ends the conversation for good.
