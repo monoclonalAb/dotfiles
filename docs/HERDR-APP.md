@@ -16,7 +16,7 @@ Its own manual is `~/.config/herdr-app/AGENTS.md`, rewritten on every start.
 | Path | What it does |
 | --- | --- |
 | [`herdr-app/keys.json`](../herdr-app/keys.json) | Every key. `global` keeps the app's `Cmd` keys and the `C-a` prefix keys that map to app commands; `layout:eric` adds the keys that need this repository's mods |
-| [`herdr-app/layouts/eric.json`](../herdr-app/layouts/eric.json) | The window: a copy of the shipped `main` layout with one right-hand panel that shows the Spaces tree or Files, a tab bar without buttons, a status bar that hosts the mods below, attention pane headers and a 2 px focus border |
+| [`herdr-app/layouts/eric.json`](../herdr-app/layouts/eric.json) | The window: a copy of the shipped `main` layout with one right-hand panel that shows the Spaces tree or Files, a tab bar without buttons, a status bar that hosts the mods below, attention pane headers and 2 px pane borders. The focused and unfocused borders must stay the same width: the border takes its width from the terminal, so different widths resize terminals whenever focus moves |
 | [`herdr-app/themes/`](../herdr-app/themes/) | Catppuccin Latte, Frappé, Macchiato and Mocha, from the same palettes as Alacritty and Neovim |
 | [`herdr-app/mods/`](../herdr-app/mods/) | `tab-bar` (the app's own tab bar without its `+`, Files and Changes buttons), `spaces-tree` (the sidebar view of the right-hand panel), `next-agent`, `spaces-env`, `popups`, `pane-keys`, `pi-resume` (status bar), `attention-pane` (pane headers), `conversation-picker` (a popup), `mission-control` (a dialog), `toast-filter` ([notifications](#notifications)) |
 | [`lib/herdr-app-mods/`](../lib/herdr-app-mods/) | Tests for the mods' rules, with the app's modules stubbed |
