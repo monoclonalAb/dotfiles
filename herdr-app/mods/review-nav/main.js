@@ -26,7 +26,7 @@ export const CAP = 1000; // GitHub's search returns no more than this
 // with the pull requests in one query (1: 0.9 s, 6: 1.4 s, 18: 3.5 s; 50 long
 // ones can time out, HTTP 502), so small queries run side by side.
 const BATCH = 6, AT_ONCE = 4;
-const REFRESH = 120000;
+const REFRESH = 120000, CHECK = 15000;
 // GitHub answers UNKNOWN until it has worked out a merge verdict (11 of 27
 // pull requests on a first load), so those are asked again after these waits.
 const RECHECKS = [5000, 10000, 20000];
@@ -288,13 +288,22 @@ export default class ReviewNav extends View {
     this.warm = props()?.part === "warm";
     if (this.warm) {
       if (checking()) return;
-      // Coming back from Review mode restarts this copy: no load if the list
-      // there is still fresh.
+      // Loads when the saved list is 2 minutes old and the window shows,
+      // looked at every 15 s (no GitHub call): coming back from Review mode
+      // restarts this copy, and a hidden window skips loads until it shows.
+      this.savedAt = 0; // the newest list in the file
+      this.triedAt = 0; // the last load started, so a failing one waits too
+      const due = (cx) => {
+        if (window()?.visible !== false && !this.loading && Date.now() - Math.max(this.savedAt, this.triedAt) >= REFRESH) {
+          this.triedAt = Date.now();
+          this.load(cx);
+        }
+      };
       cx.spawn(async (cx) => {
-        const kept = keptList(await readTextFile(keptPath()).catch(() => null));
-        if (!(Date.now() - kept?.at < REFRESH)) this.load(cx);
+        this.savedAt = keptList(await readTextFile(keptPath()).catch(() => null))?.at ?? 0;
+        due(cx);
       });
-      cx.timer.every(REFRESH, (cx) => { if (window()?.visible !== false) this.load(cx); });
+      cx.timer.every(CHECK, due);
       return;
     }
     // The Files view of the open pull request, not the list: as it was before
@@ -360,7 +369,18 @@ export default class ReviewNav extends View {
     const text = utf8Bytes(stored) <= KEPT_MAX ? stored : "";
     cx.spawn(async () => {
       const path = keptPath();
-      try { await writeTextFile(path, text, await readTextFile(path)); } catch { /* the next refresh saves it */ }
+      // Newest wins: a recheck keeps its load's time, and a full refresh may
+      // have saved since. A write refused because another came in between
+      // reads again once.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const before = await readTextFile(path);
+          if (keptList(before)?.at > list.at) return;
+          await writeTextFile(path, text, before);
+          this.savedAt = Math.max(this.savedAt ?? 0, list.at);
+          return;
+        } catch { /* read again */ }
+      }
     });
   }
 
@@ -368,7 +388,8 @@ export default class ReviewNav extends View {
     this.list = list;
     const open = shared(OPEN);
     const now = openNow(open, list);
-    if (open && JSON.stringify(now) !== JSON.stringify(open)) setShared(OPEN, now);
+    // The eric layout's copy only keeps the file; Review mode's decides.
+    if (!this.warm && open && JSON.stringify(now) !== JSON.stringify(open)) setShared(OPEN, now);
     if (!this.prs().some((p) => p.url === this.selected)) this.selected = this.prs()[0]?.url ?? null;
   }
 
