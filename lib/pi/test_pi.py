@@ -202,6 +202,13 @@ class PiParkingTest(unittest.TestCase):
         [run] = self.runs()
         self.assertEqual(run["pid"], t.proc.pid)
 
+    def test_an_empty_value_is_replayed_as_given(self):
+        t = self.start("--session-dir", "", "--no-approve")
+        self.parked(t)
+        t.type(b"x")
+        self.assertTrue(t.wait_for(lambda: len(self.runs()) == 2))
+        self.assertEqual(self.runs()[1]["args"][:3], ["--session-dir", "", "--no-approve"])
+
     def test_a_parked_start_waits_before_running_pi(self):
         # What pi-resume types into a terminal that a reboot brought back while it was parked.
         t = self.start("--parked", "-a", "--session", self.session, FAKE_PI_PLAN="quit")

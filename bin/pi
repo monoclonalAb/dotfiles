@@ -120,14 +120,10 @@ after_separator=false
 if [ "$parkable" = true ]; then
     for argument do
         if [ -n "$value" ]; then
-            case "$value" in
-                keep) set_value=$argument ;;
-                session) start_session=$argument; set_value= ;;
-                *) set_value= ;;
-            esac
+            kept=$value
             value=
-            [ -n "$set_value" ] || continue
-            argument=$set_value
+            [ "$kept" != session ] || start_session=$argument
+            [ "$kept" = keep ] || continue
         else
             [ "$after_separator" = false ] || continue
             case "$argument" in

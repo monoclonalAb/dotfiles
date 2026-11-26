@@ -25,7 +25,6 @@ import { terminals, exec, hc, notify } from "herdr";
 
 // Single-quoted for the shell.
 export const quote = (text) => `'${text.replace(/'/g, "'\\''")}'`;
-const word = (text) => (/^[\w@%+=:,./-]+$/.test(text) ? text : quote(text));
 
 // The flags the `pi` wrapper repeats on a reopen (bin/pi), from pi.args. Any
 // other entry drops them all: a label is not trusted to type into a shell.
@@ -41,15 +40,17 @@ export function flags(label) {
     const flag = list[i];
     if (flag === "--no-skills" || flag === "-ns") continue;
     if (SWITCHES.has(flag)) out.push(flag);
-    else if (WITH_VALUE.has(flag) && typeof list[i + 1] === "string") out.push(flag, list[++i]);
+    else if (WITH_VALUE.has(flag) && typeof list[i + 1] === "string" && !/[\x00-\x1f\x7f]/.test(list[i + 1])) out.push(flag, list[++i]);
     else return [];
   }
   return out;
 }
 
-// What is typed into the recovered shell.
+// What is typed into the recovered shell. Values are always quoted (zsh expands
+// a bare =word); the flags themselves come from the lists above.
 export const command = (t) =>
-  ["pi", ...(t.parked ? ["--parked"] : []), ...t.flags.map(word), "--session", quote(t.file)].join(" ");
+  ["pi", ...(t.parked ? ["--parked"] : []), ...t.flags.map((f) => (/^-/.test(f) && (SWITCHES.has(f) || WITH_VALUE.has(f)) ? f : quote(f))),
+    "--session", quote(t.file)].join(" ");
 
 // What to do with each terminal: [{ address, pid, file, act: "resume" | "skip", parked, flags }].
 // `decided`: "address:pid" keys already acted on this run.
