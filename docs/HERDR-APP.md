@@ -364,17 +364,39 @@ of the Space you work in. Example:
 `C-a p` turns the window into a screen for reviewing GitHub pull requests: the
 `review` layout. `C-a p` there brings back the `eric` layout. The
 [Review mode plan](plans/active/2026-11-25-review-mode.md) builds it in steps;
-so far its three columns are empty. Example:
+so far it lists your pull requests and shows one's description, checks,
+reviewers and labels. Example:
 
 1. 10:00: you are in `fix login`, with the `dotfiles` repository folded in the
    sidebar and Files showing in the right-hand panel. `C-a p` shows Review mode.
-2. 10:05: `C-a p` again. You are back in `fix login`, `dotfiles` is still
-   folded and the panel still shows Files.
+   On the left, **Needs your review** lists the open pull requests waiting for
+   your review, then **Yours** the open ones you wrote, each with its state.
+2. 10:01: `j` twice and `Enter` (or a click) opens `example-app #42`: its
+   title, branches, size and checks with its description in the middle, its
+   checks, reviewers and labels on the right.
+3. 10:05: `C-a p` again. You are back in `fix login`, `dotfiles` is still
+   folded and the panel still shows Files. Next time, `#42` is still open.
+
+The list is GitHub's own search (`gh search prs` uses the same), every page,
+loaded each time Review mode opens and every 2 minutes while the window
+shows; `Refreshing…` marks a reload. GitHub returns at most 1000 results per
+search: past that, a section says how many more there are on GitHub. When
+GitHub says a search may be incomplete, the section says so. Each pull request
+shows one state, the first that applies: Draft, Conflicts, CI failing, Checks
+running, Changes requested, Ready to merge, Review required, Blocked, Unknown.
+Ready to merge means GitHub says it merges cleanly, never just that it is
+approved. GitHub answers Unknown until it has worked a merge out, so the list
+asks again after 5, 10 and 20 seconds. If `gh` fails (signed out, offline),
+its message shows in red above the list.
 
 The columns are three mods: `review-nav` (left: your pull requests),
 `review-page` (middle: the open pull request; with props `{ "part": "bar" }` it
 is also the top bar that drags the window) and `review-side` (right: Info and
-Chat). `C-a p` is bound only in the `layout:eric` and `layout:review` sections
+Chat). The open pull request is the shared `review-mode.open`, which
+`review-nav` sets and the other two show. `review-nav` takes the keyboard when
+Review mode opens: `j`/`k` or the arrows move, `Enter` opens; it ignores any
+key with Ctrl, Alt, Cmd or Shift, so chords reach their bindings. `C-a p` is
+bound only in the `layout:eric` and `layout:review` sections
 of `keys.json`, so it never goes to a third layout; `Cmd+Shift+L` still cycles
 through them all. Keys bound only in `layout:eric` (`C-a u`, `C-a t`, `C-a ;`
 and the other keys of this repository's mods) do nothing in Review mode.
