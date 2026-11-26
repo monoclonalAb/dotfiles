@@ -381,7 +381,8 @@ and the other keys of this repository's mods) do nothing in Review mode.
 
 Switching layouts restarts each layout's mods. Coming back, the sidebar and
 the status bar mods start again and reload what they keep in storage (folds,
-unread marks, recent visits); the focused pane and the panel's view and width
+unread marks, recent visits, and each Space's repository and branch, so the
+sidebar's tree shows at once while git is asked again); the focused pane and the panel's view and width
 belong to the app and do not change. ``C-a ` `` forgets the pane before, which
 `pane-keys` keeps only while it runs, so it does nothing until you move to
 another pane.
