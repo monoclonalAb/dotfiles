@@ -306,7 +306,7 @@ Rules:
 
 - [x] Plan, prototypes, sandbox and bot account (2026-11-19 to 11-25).
 - [x] Step 1 (#47)
-- [ ] Step 2
+- [x] Step 2 (#48)
 - [ ] Step 3
 - [ ] Step 4 (gate: Eric reads a tour)
 - [ ] Step 9
