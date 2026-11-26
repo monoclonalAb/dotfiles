@@ -239,10 +239,18 @@ Rules:
    (`gh pr edit review-mode/step-N --base main`), then on its branch merges the
    dependency's local branch (bringing in its review fixes), notes this step's
    own change as `git diff review-mode/step-M HEAD | git patch-id --stable`,
-   merges `origin/main`, checks that `git diff origin/main HEAD | git
-   patch-id --stable` gives the same id, and pushes normally. A merge conflict
-   (`git merge --abort`) or a different id means stop without pushing: a clean
-   merge can still undo a line this step set back to its value before step M.
+   merges `origin/main` through step M, checks that `git diff origin/main HEAD |
+   git patch-id --stable` gives the same id, and pushes normally. Through step
+   M: main holds step M as one squash commit, so a plain merge sees M's files as
+   added on both sides and conflicts on every one this step edited. Instead,
+   after checking that `git diff review-mode/step-M <squash> -- <M's files>` is
+   empty, make main's merge into M with main's files (`git commit-tree
+   'origin/main^{tree}' -p review-mode/step-M -p origin/main`) and merge that
+   commit into this step's branch. A merge conflict (`git merge --abort`) or a
+   different id means stop without pushing: a clean merge can still undo a line
+   this step set back to its value before step M. Main's later edits within 3
+   lines of this step's also change the id; an attended session may check those
+   by hand and push.
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
 4. **Checks:** run the checks a step names plus the existing suites for files it
    touches (the `lib/review-analyse` suite only once it exists). Advance only on
@@ -286,7 +294,7 @@ Rules:
 ## Progress
 
 - [x] Plan, prototypes, sandbox and bot account (2026-11-19 to 11-25).
-- [ ] Step 1
+- [x] Step 1 (#47)
 - [ ] Step 2
 - [ ] Step 3
 - [ ] Step 4 (gate: Eric reads a tour)
