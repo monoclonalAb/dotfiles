@@ -84,10 +84,9 @@ child instead. Example:
   live terminal's ledger entry when it briefly drops out, and an `idle` report
   never clears `unread`, so an unseen finish stays marked. Reporting `done`
   instead was rejected: it could raise a new "finished" alert per parked session.
-- **Lost when Pi quits:** an unsent draft (never park with editor text); `/fast`
-  set inside the session (as on `/reload`; `--fast` on the command line is
-  kept); an open `/artifact-review` page (never park while Pi listens on a TCP
-  port); the open `/btw` overlay (its thread is saved with `appendEntry` and
+- **Lost when Pi quits:** an unsent draft (never park with editor text); `/fast off`
+  set inside the session (Codex fast mode starts on again, as on `/reload`); an
+  open `/artifact-review` page (never park while Pi listens on a TCP port); the open `/btw` overlay (its thread is saved with `appendEntry` and
   restored on `session_start`, `btw.ts`). Background programs the agent started:
   the bash tool untracks its shell once it exits and a normal quit kills nothing
   (`bash.js`, `interactive-mode.js`), so they survive; `hc` sub-terminals
@@ -107,7 +106,7 @@ child instead. Example:
 - **Options a resume would lose** (`--no-tools`, `--tools`, `--system-prompt` …):
   such runs are not supervised at all, so they never park. Replayed:
   `-a/--approve`, `-na/--no-approve`, `--no-skills`, `-e/--extension`,
-  `-ne/--no-extensions`, `--no-mcp`, `--tui-mode`, `--session-dir`, `--fast`,
+  `-ne/--no-extensions`, `--no-mcp`, `--tui-mode`, `--session-dir`,
   `--offline`. Dropped as the session restores or
   replaces them: messages and `@files` (before or after `--`), `--session`,
   `--session-id`, `-c`, `-r`, `--fork`, `-n/--name`, `--provider`, `--model`,

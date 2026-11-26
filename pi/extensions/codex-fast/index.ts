@@ -1,15 +1,17 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-// Reviewed against https://developers.openai.com/codex/speed/.
+// Reviewed against https://developers.openai.com/codex/speed/ (2026-11-26).
 // Spark is a separate model, not a supported fast-mode target.
 const SUPPORTED_MODELS = new Set([
-  "gpt-5.4",
-  "gpt-5.5",
   "gpt-5.6",
   "gpt-5.6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-6-astra",
+  "gpt-6-luna",
+  "gpt-6-sol",
+  "gpt-6.1-sol",
+  "gpt-6.1-terra",
   "gpt-6.2-astra",
   "gpt-6.2-sol",
 ]);
@@ -21,18 +23,13 @@ export function supportsCodexFast(model: ExtensionContext["model"]): boolean {
 }
 
 export default function codexFastExtension(pi: ExtensionAPI): void {
-  let enabled = false;
+  // On by default; it only ever applies while a supported Codex model is selected.
+  let enabled = true;
 
-  // pi-agent passes --fast so a helper agent starts in fast mode without a command.
-  pi.registerFlag("fast", {
-    description: "Start with Codex fast mode on (priority tier; more ChatGPT credits)",
-    type: "boolean",
-    default: false,
-  });
-
+  // compact-ui shows this status beside the model; without it, Pi lists it with the others.
   const updateStatus = (ctx: ExtensionContext) => {
     if (ctx.hasUI) {
-      ctx.ui.setStatus("codex-fast", enabled && supportsCodexFast(ctx.model) ? "fast:codex" : undefined);
+      ctx.ui.setStatus("codex-fast", enabled && supportsCodexFast(ctx.model) ? "fast" : undefined);
     }
   };
 
@@ -51,7 +48,7 @@ export default function codexFastExtension(pi: ExtensionAPI): void {
         return;
       }
       if (!supportsCodexFast(ctx.model)) {
-        ctx.ui.notify("/fast only supports Codex GPT-5.4, GPT-5.5, GPT-5.6, GPT-6 Astra and GPT-6.2; current model is unchanged", "warning");
+        ctx.ui.notify("/fast only supports Codex GPT-5.6, GPT-6, GPT-6.1 and GPT-6.2 models; current model is unchanged", "warning");
         return;
       }
       if (action !== "status") {
@@ -83,12 +80,12 @@ export default function codexFastExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", (_event, ctx) => {
-    enabled = pi.getFlag("fast") === true;
+    enabled = true;
     updateStatus(ctx);
   });
 
-  pi.on("model_select", (event, ctx) => {
-    if (!supportsCodexFast(event.model)) enabled = false;
+  // `/fast off` survives a detour through Claude; the status follows whether the model supports it.
+  pi.on("model_select", (_event, ctx) => {
     updateStatus(ctx);
   });
 }

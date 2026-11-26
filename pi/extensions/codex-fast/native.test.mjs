@@ -120,6 +120,7 @@ for (const transport of ['sse', 'websocket', 'websocket-cached']) {
   test(`native Pi command → Codex ${transport} wire tier; off/reload/provider isolation`, { timeout: 20000 }, async () => {
     const f = await fixture(transport);
     try {
+      let lastCodexTier = null;
       const prompt = async expectedTier => {
         const count = f.requests.length;
         await f.session.prompt('Synthetic request');
@@ -130,7 +131,8 @@ for (const transport of ['sse', 'websocket', 'websocket-cached']) {
         if (f.session.model.provider === 'openai-codex') {
           assert.equal(actualTransport, transport === 'sse' ? 'sse' : 'websocket');
           // Crossing a tier boundary must not reuse cached WebSocket input.
-          assert.equal(body.previous_response_id, undefined);
+          if (expectedTier !== lastCodexTier) assert.equal(body.previous_response_id, undefined);
+          lastCodexTier = expectedTier;
         }
         // Compare wire payload with the native body before extension hooks. Only tier and
         // the WebSocket envelope are allowed to differ; context/reasoning/tools stay exact.
@@ -141,31 +143,43 @@ for (const transport of ['sse', 'websocket', 'websocket-cached']) {
           for (const beta of expected.betas ?? []) assert(f.requests.at(-1).headers['anthropic-beta'].includes(beta));
           delete expected.betas;
         }
+        if (wire.previous_response_id) {
+          // A cached WebSocket continuation (same tier as before) sends only the new input.
+          assert(wire.input.length > 0 && wire.input.length < expected.input.length);
+          assert.deepEqual(wire.input, expected.input.slice(-wire.input.length));
+          Object.assign(expected, { input: wire.input, previous_response_id: wire.previous_response_id });
+        }
         assert.deepEqual(wire, expectedTier ? { ...expected, service_tier: expectedTier } : expected);
       };
-      await prompt(undefined);
+      // On by default for a supported Codex model.
+      await prompt('priority');
       const commandsOnly = f.requests.length;
       const messages = structuredClone(f.session.messages);
       await f.session.prompt('/fast');
       await f.session.prompt('/fast status');
       assert.equal(f.requests.length, commandsOnly);
       assert.deepEqual(f.session.messages, messages);
-      await prompt('priority');
-      await f.session.prompt('/fast off');
       await prompt(undefined);
       await f.session.prompt('/fast on');
       await prompt('priority');
-      await f.session.reload();
+      await f.session.prompt('/fast off');
       await prompt(undefined);
+      // A reloaded session starts on again.
+      await f.session.reload();
+      await prompt('priority');
       for (const [provider, id] of [['anthropic', 'claude-opus-5'], ['openai', 'gpt-6-astra']]) {
-        await f.session.prompt('/fast on');
-        await prompt('priority');
         await f.session.setModel(f.models.getModel(provider, id));
         await f.session.prompt('/fast on');
         await prompt(undefined);
         await f.session.setModel(f.models.getModel('openai-codex', 'gpt-6-astra'));
-        await prompt(undefined);
+        await prompt('priority');
       }
+      // `/fast off` lasts through a detour to another provider.
+      await f.session.prompt('/fast off');
+      await f.session.setModel(f.models.getModel('anthropic', 'claude-opus-5'));
+      await prompt(undefined);
+      await f.session.setModel(f.models.getModel('openai-codex', 'gpt-6-astra'));
+      await prompt(undefined);
       assert.equal(f.session.thinkingLevel, 'low');
       assert.deepEqual(f.errors, []);
     } finally { await f.close(); }

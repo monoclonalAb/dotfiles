@@ -71,7 +71,7 @@ context.
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim editing of the prompt (the cursor's shape shows the mode; yanks and puts use the system clipboard), with the same keys scrolling the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears; `/copy` runs `/copy-session` instead of copying the last reply |
 | [`artifact-review`](../pi/extensions/artifact-review/README.md) | `/artifact-review <page>` opens a page in the browser; Option-click or select text to write notes, Send delivers them to the session, and edits reload the page (below) |
 | [`agent-stuff`](../pi/extensions/agent-stuff/README.md) | `/btw`, `/goal`, `/session-breakdown` from mitsuhiko/agent-stuff |
-| [`codex-fast`](../pi/extensions/codex-fast/README.md) | `/fast` requests the priority tier for Codex models (uses more credits) |
+| [`codex-fast`](../pi/extensions/codex-fast/README.md) | Codex fast mode (priority tier, uses more credits), on by default for the Codex models that support it; `fast` beside the model in the footer; `/fast` toggles it |
 | [`quota-footer`](../pi/extensions/quota-footer/README.md) | Codex (blue) and Claude (yellow) usage in the footer; `/usage` for every saved account |
 | [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` picker: switch logins, choose main, manage saved accounts and automation; `/route` controls fallback when a login hits a limit |
 | [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and a two-row coloured footer: folder and model, then statuses and usage |
@@ -220,9 +220,10 @@ with no session, skills or MCP servers, and no extensions except
 `omp-anthropic-route`, so it cannot touch the caller's Herdr pane. `-m other`
 picks the other model family than the calling session (Claude or GPT), which is
 how `/rho` gets its second opinion. `-m claude`, `gpt` (GPT-6.2 Sol), `fast`
-(GPT-6 Luna) and pstack's names also work. `-f` loads `codex-fast` and starts
-it on, so a GPT child uses Codex fast mode (more ChatGPT credits); `/rho`
-passes it to its reviewer, and it does nothing for Claude. Each Claude child runs the route's preflight,
+(GPT-6 Luna) and pstack's names also work. `-f` loads `codex-fast`, which is
+on by default, so a GPT child uses Codex fast mode (more ChatGPT credits);
+without `-f` a child runs at the normal tier. `/rho` passes it to its reviewer,
+and it does nothing for Claude. Each Claude child runs the route's preflight,
 including one small probe request. See `pi-agent --help`.
 
 ### pstack
