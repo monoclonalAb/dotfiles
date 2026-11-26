@@ -12,7 +12,7 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, ScrollHandle } from "gpui-base";
-import { checking, exec, home, readTextFile, setShared, shared, theme, window, writeTextFile } from "herdr";
+import { checking, exec, home, props, readTextFile, setShared, shared, theme, window, writeTextFile } from "herdr";
 
 export const OPEN = "review-mode.open";
 // The open pull request's snapshot ({ pr, status: "loading" | "ready" |
@@ -170,10 +170,13 @@ export function openNow(open, list) {
   return now ?? (open.gone ? open : { ...open, gone: true });
 }
 
-// The last list, kept so Review mode opens on it while a fresh one loads:
-// C-a p restarts this mod, and GitHub takes seconds. Only a list shaped as
+// The last list, kept in a file so Review mode opens on it while a fresh one
+// loads: C-a p restarts this mod, and GitHub takes seconds. The eric layout's
+// copy ({ part: "warm" }) refreshes it every 2 minutes, so it is at most that
+// old; a copy's own storage would not reach the other. Only a list shaped as
 // loadPullRequests makes it is drawn.
-const KEPT = "list", KEPT_VERSION = 1, KEPT_MAX = 512 * 1024;
+const KEPT_VERSION = 1, KEPT_MAX = 512 * 1024;
+const keptPath = () => `${home()}/.cache/herdr-review/list.json`;
 const text = (v) => typeof v === "string";
 const keptPr = (p) => text(p?.id) && text(p.url) && text(p.title) && text(p.repo) && text(p.body) && Number.isInteger(p.number)
   && p.chip in CHIPS && Array.isArray(p.labels) && p.labels.every(text)
@@ -280,9 +283,20 @@ const answer = (result) => {
 export default class ReviewNav extends View {
   init(_props, cx) {
     this.list = null;
-    try { this.list = keptList(localStorage.getItem(KEPT)); } catch { /* nothing kept */ }
     this.error = null;
     this.loading = false;
+    this.warm = props()?.part === "warm";
+    if (this.warm) {
+      if (checking()) return;
+      // Coming back from Review mode restarts this copy: no load if the list
+      // there is still fresh.
+      cx.spawn(async (cx) => {
+        const kept = keptList(await readTextFile(keptPath()).catch(() => null));
+        if (!(Date.now() - kept?.at < REFRESH)) this.load(cx);
+      });
+      cx.timer.every(REFRESH, (cx) => { if (window()?.visible !== false) this.load(cx); });
+      return;
+    }
     // The Files view of the open pull request, not the list: as it was before
     // a layout switch restarted this mod. A snapshot that was still loading
     // then has nobody to finish it.
@@ -290,12 +304,19 @@ export default class ReviewNav extends View {
     if (snap?.status === "loading") setShared(SNAPSHOT, null);
     this.files = snap?.status === "ready" && snap.pr === shared(OPEN)?.url;
     if (!this.files && shared(FILE)) setShared(FILE, null);
-    this.selected = shared(OPEN)?.url ?? this.prs()[0]?.url ?? null;
+    this.selected = shared(OPEN)?.url ?? null;
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.scroll = ScrollHandle.new();
     this.fileScroll = ScrollHandle.new();
     if (checking()) return;
+    cx.spawn(async (cx) => {
+      const kept = keptList(await readTextFile(keptPath()).catch(() => null));
+      if (!kept || this.list) return; // a fresh list came first
+      this.list = kept;
+      this.selected ??= this.prs()[0]?.url ?? null;
+      cx.notify();
+    });
     this.load(cx);
     cx.timer.every(REFRESH, (cx) => { if (window()?.visible !== false) this.load(cx); });
   }
@@ -306,7 +327,7 @@ export default class ReviewNav extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        this.fresh(await loadPullRequests(gh));
+        this.fresh(await loadPullRequests(gh), cx);
         this.error = null;
         this.recheck(cx, 0);
       } catch (e) {
@@ -324,7 +345,7 @@ export default class ReviewNav extends View {
       try {
         const { list } = await recheckUnknown(gh, this.list);
         if (this.list.at !== at) return; // a full refresh came in meanwhile
-        this.fresh(list);
+        this.fresh(list, cx);
         cx.notify();
         this.recheck(cx, attempt + 1);
       } catch { /* the next refresh asks again */ }
@@ -332,13 +353,15 @@ export default class ReviewNav extends View {
   }
 
   // Shows a freshly loaded list and keeps it for the next start.
-  fresh(list) {
+  fresh(list, cx) {
     this.show(list);
     const stored = JSON.stringify({ version: KEPT_VERSION, list });
-    try {
-      if (utf8Bytes(stored) <= KEPT_MAX) localStorage.setItem(KEPT, stored);
-      else localStorage.removeItem(KEPT); // an older list would be wrong
-    } catch { /* outside the app */ }
+    // Too big: an empty file, as an older list would be wrong.
+    const text = utf8Bytes(stored) <= KEPT_MAX ? stored : "";
+    cx.spawn(async () => {
+      const path = keptPath();
+      try { await writeTextFile(path, text, await readTextFile(path)); } catch { /* the next refresh saves it */ }
+    });
   }
 
   show(list) {
@@ -456,6 +479,7 @@ export default class ReviewNav extends View {
   }
 
   render(cx) {
+    if (this.warm) return div();
     const t = theme();
     return v_flex().id("review-nav").size_full().track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))
