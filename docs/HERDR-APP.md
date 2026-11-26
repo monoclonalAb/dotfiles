@@ -377,11 +377,15 @@ reviewers and labels. Example:
 3. 10:05: `C-a p` again. You are back in `fix login`, `dotfiles` is still
    folded and the panel still shows Files. Next time, `#42` is still open.
 
-The list is GitHub's own search (`gh search prs` uses the same), every page,
+The list is GitHub's pull request search, as `gh search prs --state=open
+--archived=false` runs it but most recently updated first, every page,
 loaded each time Review mode opens and every 2 minutes while the window
 shows; `Refreshing…` marks a reload. GitHub returns at most 1000 results per
 search: past that, a section says how many more there are on GitHub. When
-GitHub says a search may be incomplete, the section says so. Each pull request
+GitHub says a search may be incomplete, or gives no details for some pull
+requests, the section says so. An open pull request that leaves the list
+(merged, closed, or no longer waiting for you) stays in the middle marked
+`No longer listed`. Each pull request
 shows one state, the first that applies: Draft, Conflicts, CI failing, Checks
 running, Changes requested, Ready to merge, Review required, Blocked, Unknown.
 Ready to merge means GitHub says it merges cleanly, never just that it is

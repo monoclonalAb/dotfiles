@@ -44,7 +44,7 @@ export default class ReviewPage extends View {
       .child(v_flex().px(18).pt(14).pb(10).gap(4).border_b(1).border_color(t.border)
         .child(h_flex().gap(10).items_center()
           .child(div().flex_1().truncate().text_size(16).font_semibold().text_color(t.foreground).child(pr.title))
-          .child(div().flex_none().text_size(11).text_color(pr.draft ? t.dim : t.done).child(pr.draft ? "Draft" : "Open")))
+          .child(div().flex_none().text_size(11).text_color(pr.gone || pr.draft ? t.dim : t.done).child(pr.gone ? "No longer listed" : pr.draft ? "Draft" : "Open")))
         .child(div().truncate().text_size(12).text_color(t.muted).child(meta(pr))))
       .child(v_flex().id(`review-page-body-${pr.id}`).flex_1().overflow_y_scrollbar().px(18).py(12).gap(14)
         .child(div().text_size(11).font_semibold().text_color(t.muted).child("Description"))
