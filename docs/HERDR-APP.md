@@ -17,8 +17,9 @@ Its own manual is `~/.config/herdr-app/AGENTS.md`, rewritten on every start.
 | --- | --- |
 | [`herdr-app/keys.json`](../herdr-app/keys.json) | Every key. `global` keeps the app's `Cmd` keys and the `C-a` prefix keys that map to app commands; `layout:eric` adds the keys that need this repository's mods |
 | [`herdr-app/layouts/eric.json`](../herdr-app/layouts/eric.json) | The window: a copy of the shipped `main` layout with one right-hand panel that shows the Spaces tree or Files, a tab bar without buttons, a status bar that hosts the mods below, attention pane headers and a 2 px focus border |
+| [`herdr-app/layouts/review.json`](../herdr-app/layouts/review.json) | [Review mode](#review-mode): a top bar and three columns, one Review mode mod each |
 | [`herdr-app/themes/`](../herdr-app/themes/) | Catppuccin Latte, Frappé, Macchiato and Mocha, from the same palettes as Alacritty and Neovim |
-| [`herdr-app/mods/`](../herdr-app/mods/) | `tab-bar` (the app's own tab bar without its `+`, Files and Changes buttons), `spaces-tree` (the sidebar view of the right-hand panel), `next-agent`, `spaces-env`, `popups`, `pane-keys`, `pi-resume` (status bar), `attention-pane` (pane headers), `conversation-picker` (a popup), `mission-control` (a dialog), `toast-filter` ([notifications](#notifications)) |
+| [`herdr-app/mods/`](../herdr-app/mods/) | `tab-bar` (the app's own tab bar without its `+`, Files and Changes buttons), `spaces-tree` (the sidebar view of the right-hand panel), `next-agent`, `spaces-env`, `popups`, `pane-keys`, `pi-resume` (status bar), `attention-pane` (pane headers), `conversation-picker` (a popup), `mission-control` (a dialog), `toast-filter` ([notifications](#notifications)), `review-nav`, `review-page`, `review-side` ([Review mode](#review-mode)) |
 | [`lib/herdr-app-mods/`](../lib/herdr-app-mods/) | Tests for the mods' rules, with the app's modules stubbed |
 | [`bin/herdr-import`](../bin/herdr-import) | Rebuilds the terminal Herdr session in the app |
 
@@ -209,6 +210,7 @@ change tabs or move worktrees.
 | `C-a g` / `C-a G` / `C-a C-g` | Open / new / remove worktree (the app's dialog) |
 | `C-a b`, `Cmd+B` | The sidebar in the right-hand panel; again: close the panel |
 | `C-a f` | Files in the right-hand panel; again: close the panel |
+| `C-a p` | [Review mode](#review-mode); there, `C-a p` again comes back here |
 
 `C-a w`, `Cmd+P` and `C-a C-w` work in every layout. `C-a C-a` sends a literal `C-a`. Keys a mod handles reach it only while its block
 is on screen, which is why those mods sit in the status bar: no key hides it.
@@ -355,6 +357,56 @@ of the Space you work in. Example:
   else the one you are in.
 - [`bin/review`](../bin/review) labels the Space's terminal
   `review.pr=<link>`; that label is what puts it under Reviews.
+
+## Review mode
+
+`C-a p` turns the window into a screen for reviewing GitHub pull requests: the
+`review` layout. `C-a p` there brings back the `eric` layout as you left it. The
+[Review mode plan](plans/active/2026-11-25-review-mode.md) builds it in steps;
+so far its three columns are empty. Example:
+
+1. 10:00: you are in `fix login`, with the `dotfiles` repository folded in the
+   sidebar and Files showing in the right-hand panel. `C-a p` shows Review mode.
+2. 10:05: `C-a p` again. You are back in `fix login`, `dotfiles` is still
+   folded and the panel still shows Files.
+
+The columns are three mods: `review-nav` (left: your pull requests),
+`review-page` (middle: the open pull request; with props `{ "part": "bar" }` it
+is also the top bar that drags the window) and `review-side` (right: Info and
+Chat). `C-a p` is bound only in the `layout:eric` and `layout:review` sections
+of `keys.json`, so it never goes to a third layout; `Cmd+Shift+L` still cycles
+through them all. Keys bound only in `layout:eric` (`C-a u`, `C-a t`, `C-a ;`
+and the other keys of this repository's mods) do nothing in Review mode.
+
+Switching layouts restarts each layout's mods. Coming back, the sidebar and
+the status bar mods start again and reload what they keep in storage (folds,
+unread marks, recent visits); the focused pane and the panel's view and width
+belong to the app and do not change.
+
+### State of a pull request's review
+
+The three mods share one JSON file per pull request. They cannot share their
+own storage, which is per mod and props.
+
+- **Path:** `~/.local/state/herdr-review/<owner>/<repo>/<number>.json`, owner
+  and repository lower-cased as GitHub treats them. A mod's `writeTextFile`
+  creates the folders.
+- **`pr`:** the pull request's link, `https://github.com/<owner>/<repo>/pull/<number>`.
+  A file whose `pr` does not match its path is ignored.
+- **`snapshots`:** an object keyed by snapshot id. Each value holds what was
+  recorded while reviewing that snapshot: Viewed files, marks on findings and
+  draft comments, each added by its own step of the plan.
+- **Snapshot id:** `<head commit>:<merge-base commit>:<base branch>`, full
+  hashes, as `bin/review-analyse snapshot` pins them. Branch names cannot
+  contain `:`, so the id splits unambiguously, and a pull request moved to
+  another base gets a new id even when its head stays the same.
+- **Writing:** read the file, change only your own part, keep keys you do not
+  know, and save with `writeTextFile(path, text, expected)` using the text you
+  read as `expected`. If another view saved first, the write is refused: read
+  again and re-apply only your change.
+
+The file is your review work and lives outside this repository. Deleting it
+forgets that pull request's Viewed ticks, marks and drafts.
 
 ## After a reboot
 
