@@ -1,5 +1,5 @@
-// Park idle: quit a Pi that has sat idle for two hours, so its memory and its
-// MCP servers' memory are freed. The `pi` wrapper (bin/pi) started it as a child
+// Park idle: quit a Pi that has sat idle for two hours, so its memory (and that
+// of any MCP servers still running) is freed. The `pi` wrapper (bin/pi) started it as a child
 // with PI_PARK_FILE; it keeps the terminal and reopens the session written there
 // when the pane gets focus or a key. Without that wrapper this does nothing.
 //

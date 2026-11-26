@@ -1,8 +1,9 @@
 # Park idle
 
 Quits a Pi conversation that has sat idle for two hours, so the Pi process
-(~180 MB) and its MCP servers (~300 MB) are freed. The terminal stays. Coming
-back to it reopens the same conversation in about a second.
+(~180 MB) is freed, with any MCP servers still running (`mcp-idle-stop` usually
+stopped them after 10 idle minutes). The terminal stays. Coming back to it
+reopens the same conversation in about a second.
 
 1. 10:20: Pi finishes a reply. You move to other work.
 2. 12:20: no key has reached Pi and no agent run has started for two hours. The

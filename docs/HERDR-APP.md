@@ -434,7 +434,8 @@ agents (OMP) come back as shells.
 ## Idle conversations
 
 A Pi conversation left idle for two hours quits to free its memory (~180 MB,
-plus ~300 MB of MCP servers), and comes back when you return to it:
+plus any MCP servers that `mcp-idle-stop` has not already stopped), and comes
+back when you return to it:
 
 1. 10:20: Pi in `t7` finishes a reply. You work elsewhere.
 2. 12:20: nothing has reached it for two hours. The
