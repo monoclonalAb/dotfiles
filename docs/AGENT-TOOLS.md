@@ -65,7 +65,7 @@ context.
 
 | Extension | Adds |
 | --- | --- |
-| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) skill is on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows it as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
+| `selective-skills.ts` | `/skill` enables skills per session (the [`pi`](../bin/pi) wrapper passes `--no-skills`), from the standard skill folders and the folders in the `skills` setting of [`pi/settings.json`](../pi/settings.json); the [`pr`](../pi/skills/pr/SKILL.md) and [`socratic-tutor`](../pi/skills/socratic-tutor/SKILL.md) skills are on in every session (`ALWAYS_ON_SKILLS`; `/skill list` shows them as `always`); `everyday-ai-frontend-styleguide` starts on in sessions under `~/Desktop/projects/DE` and is not offered elsewhere |
 | `session-controls.ts` | `/drop` erases this session and starts a new one (Pi's `/new` keeps it) |
 | `copy-session.ts` | `/copy-session`, or `/copy` through `modal-vim-navigation`, copies this session's file path (to paste into another session), without `/session`'s slow statistics |
 | [`modal-vim-navigation`](../pi/extensions/modal-vim-navigation/README.md) | Vim navigation of the fullscreen transcript; clipboard images as `[img #N]` (Ctrl+V / Cmd+V); Ctrl+C copies the draft it clears; `/copy` runs `/copy-session` instead of copying the last reply |
