@@ -225,6 +225,11 @@ class ReviewAnalyse(unittest.TestCase):
         result = self.run_command("snapshot", "not a link")
         self.assertEqual(result.returncode, 1)
         self.assertIn("pull request link", result.stderr.decode())
+        for link in ("https://github.com/../app/pull/7", "https://github.com/example/../pull/7"):
+            result = self.run_command("snapshot", link)
+            self.assertEqual(result.returncode, 1, link)
+            self.assertIn("pull request link", result.stderr.decode())
+        self.assertFalse((self.home / ".cache").exists())
 
         (self.home / "gh.json").write_text(json.dumps({"fail": "gh: To get started with GitHub CLI, please run:  gh auth login"}))
         result = self.run_command("snapshot", LINK)

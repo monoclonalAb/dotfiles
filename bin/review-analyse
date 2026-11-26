@@ -71,6 +71,8 @@ def parse_link(text):
     if not m:
         raise AnalyseError(f"not a GitHub pull request link: {text}")
     owner, repo, number = m.group(1), re.sub(r"\.git$", "", m.group(2)), int(m.group(3))
+    if {owner, repo} & {"", ".", ".."}:  # they name folders in the cache
+        raise AnalyseError(f"not a GitHub pull request link: {text}")
     return owner, repo, number, f"https://github.com/{owner}/{repo}/pull/{number}"
 
 
