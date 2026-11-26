@@ -273,6 +273,9 @@ How it behaves:
 - Every enabled server connects when a session starts. After 10 minutes with no
   agent run, `mcp-idle-stop` stops the local (stdio) ones; `/mcp` shows them as
   disconnected, and the next call to a server's tools starts it again.
+  [`pi-mcp-stop`](../bin/pi-mcp-stop) does the same at once for every session
+  Herdr shows as done or idle, or only the terminals it is given, including
+  sessions that never loaded `mcp-idle-stop` (`--dry-run` lists them).
   `pi mcp list` connects each one and reports errors; `/reload` applies changes to
   a running session.
 - OAuth sign-ins (`pi mcp login <server>`) are stored in `~/.pi/agent/mcp-auth.json`.
