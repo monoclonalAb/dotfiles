@@ -17,7 +17,7 @@ import { checking, exec, setShared, shared, theme, window } from "herdr";
 export const OPEN = "review-mode.open";
 export const PAGE = 100; // GitHub's most search results per page
 export const CAP = 1000; // GitHub's search returns no more than this
-const BATCH = 50; // pull requests per details query (GitHub allows 100)
+const BATCH = 25; // pull requests per details query: GitHub allows 100, but 50 long ones can time out (HTTP 502)
 const REFRESH = 120000;
 // GitHub answers UNKNOWN until it has worked out a merge verdict (11 of 27
 // pull requests on a first load), so those are asked again after these waits.
@@ -41,7 +41,7 @@ export function chip(pr) {
   if (pr.checks?.state === "FAILURE" || pr.checks?.state === "ERROR") return "failing";
   if (pr.checks?.state === "PENDING" || pr.checks?.state === "EXPECTED") return "running";
   if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes";
-  if ((pr.mergeState === "CLEAN" || pr.mergeState === "HAS_HOOKS") && pr.mergeable === "MERGEABLE") return "ready";
+  if (pr.mergeState === "CLEAN" && pr.mergeable === "MERGEABLE") return "ready";
   if (pr.reviewDecision === "REVIEW_REQUIRED") return "review";
   if (pr.mergeState === "BLOCKED" || pr.mergeState === "BEHIND") return "blocked";
   return "unknown";
@@ -52,7 +52,7 @@ const searchArgs = (query, page) => ["api", "-X", "GET", "search/issues", "-f", 
 const DETAILS = `query($ids: [ID!]!) { nodes(ids: $ids) { ... on PullRequest {
   id number title url isDraft body repository { nameWithOwner } author { login }
   headRefName baseRefName additions deletions changedFiles mergeable mergeStateStatus reviewDecision
-  labels(first: 20) { nodes { name } }
+  labels(first: 100) { nodes { name } }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
   latestReviews(first: 20) { nodes { author { login } state } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts {
@@ -76,7 +76,7 @@ export function toPullRequest(n) {
   const counts = [...(rollup?.contexts?.checkRunCountsByState ?? []), ...(rollup?.contexts?.statusContextCountsByState ?? [])];
   const reviews = (n.latestReviews?.nodes ?? []).filter((r) => r?.author?.login).map((r) => ({ name: r.author.login, state: r.state }));
   const requested = (n.reviewRequests?.nodes ?? []).map((r) => r?.requestedReviewer?.login ?? r?.requestedReviewer?.name).filter(Boolean)
-    .filter((name) => !reviews.some((r) => r.name === name)).map((name) => ({ name, state: "REQUESTED" }));
+    .map((name) => ({ name, state: "REQUESTED" }));
   const pr = {
     id: n.id, number: n.number, title: n.title, url: n.url, repo: n.repository?.nameWithOwner ?? "",
     author: n.author?.login ?? "", base: n.baseRefName, head: n.headRefName, draft: n.isDraft === true,
@@ -118,8 +118,9 @@ async function search(gh, query) {
   return { ids, total, incomplete };
 }
 
-// The list: { at, sections: [{ key, title, prs, more, incomplete }] }, where
-// `more` counts what GitHub found beyond what it returned.
+// The list: { at, sections: [{ key, title, prs, more, missing, incomplete }] },
+// where `more` counts what GitHub found beyond what it returned, and `missing`
+// those it found but gave no details for.
 // gh(args) runs gh and resolves with { code, stdout, stderr }.
 export async function loadPullRequests(gh) {
   const found = [];
@@ -129,6 +130,7 @@ export async function loadPullRequests(gh) {
     at: Date.now(),
     sections: found.map((s) => ({
       key: s.key, title: s.title, incomplete: s.incomplete, more: Math.max(0, s.total - s.ids.length),
+      missing: s.ids.filter((id) => !byId.has(id)).length,
       prs: s.ids.map((id) => byId.get(id)).filter(Boolean),
     })),
   };
@@ -142,6 +144,14 @@ export async function recheckUnknown(gh, list) {
   const fresh = await details(gh, [...new Set(ids)]);
   const next = { ...list, sections: list.sections.map((s) => ({ ...s, prs: s.prs.map((p) => fresh.get(p.id) ?? p) })) };
   return { list: next, unknown: next.sections.flatMap((s) => s.prs).filter((p) => p.mergeState === "UNKNOWN").length };
+}
+
+// The open pull request as the list has it now; marked `gone` once it is no
+// longer listed (merged, closed, or no longer waiting for your review).
+export function openNow(open, list) {
+  if (!open) return null;
+  const now = list.sections.flatMap((s) => s.prs).find((p) => p.url === open.url);
+  return now ?? (open.gone ? open : { ...open, gone: true });
 }
 
 // The key's move through the list (1 or -1), "open", or null for any key the
@@ -203,8 +213,8 @@ export default class ReviewNav extends View {
   show(list) {
     this.list = list;
     const open = shared(OPEN);
-    const now = open && this.prs().find((p) => p.url === open.url);
-    if (now && JSON.stringify(now) !== JSON.stringify(open)) setShared(OPEN, now);
+    const now = openNow(open, list);
+    if (open && JSON.stringify(now) !== JSON.stringify(open)) setShared(OPEN, now);
     if (!this.prs().some((p) => p.url === this.selected)) this.selected = this.prs()[0]?.url ?? null;
   }
 
@@ -225,7 +235,7 @@ export default class ReviewNav extends View {
   reveal(index) {
     let child = 0, seen = 0;
     for (const s of this.list.sections) {
-      child += 1 + (s.more ? 1 : 0) + (s.incomplete ? 1 : 0);
+      child += 1 + (s.more ? 1 : 0) + (s.incomplete ? 1 : 0) + (s.missing ? 1 : 0);
       if (index < seen + s.prs.length) return this.scroll.scroll_to_item(child + index - seen);
       child += s.prs.length;
       seen += s.prs.length;
@@ -248,6 +258,7 @@ export default class ReviewNav extends View {
         .child(`${s.title} · ${s.prs.length}`));
       if (s.more) rows.push(note(`more-${s.key}`, `${s.more} more on GitHub`, t.muted));
       if (s.incomplete) rows.push(note(`partial-${s.key}`, "GitHub's search may be missing pull requests", t.working));
+      if (s.missing) rows.push(note(`missing-${s.key}`, `${s.missing} could not be loaded`, t.working));
       for (const p of s.prs) {
         const tone = { ready: t.done, failing: t.blocked, conflicts: t.blocked, changes: t.blocked, running: t.working, review: t.accent, blocked: t.working }[p.chip] ?? t.muted;
         rows.push(v_flex().id(`pr-${s.key}-${p.id}`).mx(6).px(8).py(6).gap(2).rounded(6)
