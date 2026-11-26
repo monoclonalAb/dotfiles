@@ -3,8 +3,8 @@
 **Status:** Active
 **Scope:** `pi/prompts/rho.md`, `pi/prompts/rho/`, `pi/prompts/rho-verify.md`, `bin/pi-agent`, `bin/rho-may-merge`,
 `lib/pi-agent/`, `lib/rho/`,
-`docs/AGENT-TOOLS.md`, `docs/VERIFICATION.md`; temporarily `pi/prompts/poteto.md`,
-the pstack entry in `pi/settings.json` and a pstack clone outside the repository.
+`docs/AGENT-TOOLS.md`, `docs/VERIFICATION.md`; temporarily `pi/prompts/poteto.md`
+and a pstack clone outside the repository.
 Later, a verify script in a first customer repository (its own branch and PR),
 and a spare Mac set up as an agent runner (outside this repository).
 
@@ -65,8 +65,10 @@ model's review, CI, and a per-repository merge rule.
 3. Verify script in the first customer repository.
 4. Parallel and overnight runs, on a spare Mac (below). Widen the merge rule
    (for example to DE repositories) only after a clean week.
-5. Remove `/poteto`, the pstack `skills` entry and the clone once `/rho` has
-   replaced them.
+5. Remove `/poteto` and the clone once `/rho` has replaced them. (The pstack
+   `skills` entry in `pi/settings.json` was removed on 2026-11-26 because no
+   pstack skill had been used; `/poteto` and `pi-agent -a` read the clone by
+   path, so they still work.)
 
 ### Step 4 on a spare Mac
 

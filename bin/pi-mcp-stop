@@ -1,0 +1,163 @@
+#!/usr/bin/python3
+"""Stop the local (stdio) MCP servers of Pi sessions that Herdr shows as done or idle.
+
+Each Pi session keeps its own copy of every stdio server from mcp.json. Pi marks
+a stopped server disconnected and starts it again on the next call to its tools.
+The mcp-idle-stop extension does this after 10 idle minutes, but only in sessions
+started or reloaded since it was installed; this does it now for every session.
+"""
+
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+
+STOPPABLE = ("done", "idle")
+USAGE = """Usage: pi-mcp-stop [--dry-run] [<terminal>...]
+
+Stop the local MCP servers of every Pi session Herdr shows as done or idle, or
+only of the named herdr-core terminals (t1jp). Working sessions keep theirs.
+Each session's status is read again just before its servers are stopped.
+
+  --dry-run  list the servers it would stop, without stopping them
+"""
+
+
+def herdr(*args):
+    return json.loads(subprocess.check_output(["herdr-core", *args]))
+
+
+def processes():
+    out = subprocess.check_output(["ps", "-axo", "pid=,ppid=,pgid=,command="], text=True)
+    procs, children = {}, {}
+    for line in out.splitlines():
+        fields = line.split(None, 3)
+        pid, ppid, pgid = map(int, fields[:3])
+        procs[pid] = (pgid, fields[3] if len(fields) > 3 else "")
+        children.setdefault(ppid, []).append(pid)
+    return procs, children
+
+
+def find_pi(procs, children, shell):
+    """The first process below the terminal's shell that Pi named `pi`."""
+    queue = list(children.get(shell, []))
+    while queue:
+        pid = queue.pop(0)
+        if procs[pid][1].strip() == "pi":
+            return pid
+        queue.extend(children.get(pid, []))
+    return None
+
+
+def cwd_of(pid):
+    out = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+                         capture_output=True, text=True).stdout
+    return next((line[1:] for line in out.splitlines() if line.startswith("n")), None)
+
+
+def expand_home(value):
+    if value == "~":
+        return str(Path.home())
+    return str(Path.home() / value[2:]) if value.startswith("~/") else value
+
+
+def stdio_servers(paths):
+    """(command, args) of the stdio servers in these mcp.json files, later files
+    replacing or overriding earlier entries as Pi does."""
+    entries = {}
+    for path in paths:
+        try:
+            servers = json.loads(Path(path).read_text()).get("mcpServers")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if not isinstance(servers, dict):
+            continue
+        for name, value in servers.items():
+            if not isinstance(value, dict):
+                continue
+            override = not any(key in value for key in ("command", "url", "type"))
+            entries[name] = {**entries.get(name, {}), **value} if override else value
+    result = []
+    for entry in entries.values():
+        command, args = entry.get("command"), entry.get("args", [])
+        if entry.get("type", "stdio") != "stdio" or not isinstance(command, str):
+            continue
+        if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+            continue
+        result.append((expand_home(command), [expand_home(arg) for arg in args]))
+    return result
+
+
+def is_server(command_line, servers):
+    """Whether `ps` shows one of these servers. The wrappers exec Node on a file in
+    a folder named like the wrapper (hark-mcp runs .../hark-mcp/server.mjs), and
+    npm-mcp consumes its first argument, the package, into that path."""
+    words = command_line.split()
+    for command, args in servers:
+        if words == [command, *args]:
+            return True
+        name = os.path.basename(command)
+        for index, word in enumerate(words[:2]):
+            if f"/{name}/" in word or word.endswith(f"/{name}"):
+                rest = words[index + 1:]
+                if rest == args or rest == args[1:]:
+                    return True
+    return False
+
+
+def main(argv):
+    if argv in (["-h"], ["--help"]) or any(arg.startswith("-") and arg != "--dry-run" for arg in argv):
+        sys.stderr.write(USAGE)
+        return 0 if argv in (["-h"], ["--help"]) else 2
+    dry_run = "--dry-run" in argv
+    named = {arg for arg in argv if arg != "--dry-run"}
+    missing = set(named)
+    global_config = Path.home() / ".pi" / "agent" / "mcp.json"
+    total = sessions = 0
+    for terminal in herdr("ls")["terminals"]:
+        address = terminal["address"]
+        if named and address not in named:
+            continue
+        missing.discard(address)
+        state = terminal.get("status") if terminal.get("agent") == "pi" else None
+        if state in STOPPABLE:
+            info = herdr("get", address)
+            state = (info.get("status") or {}).get("state")
+        if state not in STOPPABLE:
+            if named:
+                print(f"{address}\tskipped: {state or 'not a Pi session'}")
+            continue
+        procs, children = processes()
+        pi = find_pi(procs, children, info["pid"])
+        if pi is None:
+            continue
+        cwd = cwd_of(pi)
+        servers = stdio_servers([global_config] + ([Path(cwd) / ".pi" / "mcp.json"] if cwd else []))
+        # A stdio server leads its own process group, so the group is that server.
+        groups = [pid for pid in children.get(pi, [])
+                  if procs[pid][0] == pid and is_server(procs[pid][1], servers)]
+        if not groups:
+            continue
+        if not dry_run:
+            for group in groups:
+                try:
+                    os.killpg(group, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+        total += len(groups)
+        sessions += 1
+        print(f"{address}\t{state}\t{terminal.get('where', '')}\t"
+              f"{'would stop' if dry_run else 'stopped'} {len(groups)} (Pi {pi})")
+        if dry_run:
+            for group in groups:
+                print(f"\t{group}\t{procs[group][1].strip()}")
+    for address in sorted(missing):
+        print(f"{address}\tskipped: no such terminal")
+    print(f"{'Would stop' if dry_run else 'Stopped'} {total} MCP servers in {sessions} sessions.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

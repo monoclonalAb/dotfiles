@@ -1,27 +1,34 @@
-# Codex-only fast mode
+# Codex fast mode, on by default
 
-`/fast` toggles fast mode; `/fast on`, `/fast off` and `/fast status` are also
-available. Enable it while Pi is idle. The footer shows `fast:codex` when enabled.
+Fast mode is **on** whenever a supported Codex model is selected. The footer shows
+`fast` right after the model name (`gpt-6.2-sol • fast • xhigh`; drawn there by
+[`compact-ui`](../compact-ui/README.md), otherwise Pi lists it with the other
+statuses). `/fast` toggles it; `/fast on`, `/fast off` and `/fast status` are also
+available. Change it while Pi is idle.
 
 Only Pi's `openai-codex` provider with the native `openai-codex-responses` API is
-targeted. Supported models are GPT-5.4, GPT-5.5, GPT-5.6 (including Sol, Terra and
-Luna), GPT-6 Astra and GPT-6.2 (Sol and Astra); the reviewed allowlist lives in
+targeted. Supported models are the ones OpenAI's speed guide lists for Fast: GPT-5.6
+(including Sol, Terra and Luna), GPT-6 (Astra, Sol and Luna), GPT-6.1 (Sol and
+Terra) and GPT-6.2 (Astra and Sol); the reviewed allowlist lives in
 [`index.ts`](index.ts). Claude, direct OpenAI API, proxies under other provider
-names, Spark and unknown models are untouched. The command does not select a
-different model.
+names, Spark, retired models (GPT-5.4, GPT-5.5) and unknown models are untouched.
+The command does not select a different model.
 
-- Starts **off** on startup, `/reload` and every new/resumed/forked session,
-  unless Pi was started with `--fast` (as `pi-agent -f` does), which starts each
-  of those sessions **on**.
-- Switching to an unsupported model turns it off; supported Codex models keep it.
+- Every new, resumed or forked session, and `/reload`, starts **on**.
+- `/fast off` lasts for the rest of that session, including after switching to
+  Claude and back. Switching models never turns it on or off; it simply does
+  nothing while the model is unsupported, and the footer shows no `fast` then.
 - When on, the request hook sets only `service_tier: "priority"` on main-agent
   requests; nothing else in the payload changes. When off, payloads are untouched.
+- [`pi-agent`](../../../bin/pi-agent) helpers load this extension only with `-f`;
+  without it they run at the normal tier.
 
 Fast mode uses **more ChatGPT credits**. The indicator shows the requested tier, not
 proof the account has fast access; Pi's cost estimates may not include the
 surcharge. The wire value follows Codex's
 [`ServiceTier::Fast` mapping](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/config_types.rs);
 see [OpenAI's speed guide](https://developers.openai.com/codex/speed/) for availability.
+Ultrafast (`service_tier: "ultrafast"`) is not supported.
 
 ## Verification
 

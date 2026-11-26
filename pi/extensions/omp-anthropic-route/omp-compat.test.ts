@@ -2,18 +2,20 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
-import { OmpCompatibilityResolver, type OmpCommandRunner, OMP_FORMULA_TEMPLATE, validateOmpFormula, parseOmpVersion, parseLatestRelease, withUpdateLock, commandEnvironment } from "./omp-compat.ts";
+import { OmpCompatibilityResolver, type OmpCommandRunner, OMP_FORMULA_TEMPLATE, validateOmpFormula, parseOmpVersion, parseLatestRelease, withUpdateLock, commandEnvironment, locateExecutable } from "./omp-compat.ts";
 import { OMP_PROTOCOL_REVIEW_VERSION } from "./transport.ts";
 
 const version = "18.3.2";
-const formulaFor = (version: string) => OMP_FORMULA_TEMPLATE.replace("@VERSION@", version).replaceAll("@SHA256@", "a".repeat(64));
+const build = "20261125-171106-b55cd1b";
+const formulaFor = (version: string) => OMP_FORMULA_TEMPLATE.replaceAll("@VERSION@", version).replaceAll("@BUILD@", build).replaceAll("@SHA256@", "a".repeat(64));
 const formula = formulaFor(version);
-function fixture(options: { installed?: string; latest?: string; dirty?: boolean; formula?: string; origin?: string; fails?: string; afterUpgrade?: string; worktreeChanged?: boolean; headFormula?: string; onLockVersion?: string } = {}) {
+const homebrewOmp = "/test/brew/Cellar/omp/1/bin/omp";
+function fixture(options: { installed?: string; latest?: string; dirty?: boolean; formula?: string; origin?: string; fails?: string; afterUpgrade?: string; worktreeChanged?: boolean; headFormula?: string; onLockVersion?: string; ompOnPath?: string; prefix?: string } = {}) {
   const calls: string[] = [];
   const latest = options.latest ?? version;
   const candidate = options.formula ?? formulaFor(latest);
@@ -23,6 +25,7 @@ function fixture(options: { installed?: string; latest?: string; dirty?: boolean
     if (options.fails && call.includes(options.fails)) throw new Error("synthetic command failure");
     if (exe === "curl") return `https://github.com/can1357/oh-my-pi/releases/tag/v${latest}\n`;
     if (exe === "omp") return `omp/${installed}`;
+    if (exe === "brew" && args[0] === "--prefix") return `${options.prefix ?? "/test/brew"}\n`;
     if (exe === "brew" && args[0] === "--repository") return "/test/tap\n";
     if (exe === "brew" && args[0] === "upgrade") { installed = options.afterUpgrade ?? latest; return ""; }
     if (exe === "git") {
@@ -38,7 +41,7 @@ function fixture(options: { installed?: string; latest?: string; dirty?: boolean
   const resolver = new OmpCompatibilityResolver(command, async op => {
     if (options.onLockVersion) installed = options.onLockVersion;
     await op();
-  });
+  }, async exe => exe === "omp" ? options.ompOnPath ?? homebrewOmp : exe === "/test/brew/bin/omp" ? homebrewOmp : undefined);
   return { resolver, calls };
 }
 
@@ -72,7 +75,7 @@ for (const installed of ["18.1.5", "18.2.11", "18.3.0", "18.3.1"]) test(`upgrade
   const f = fixture({ installed });
   const r = await f.resolver.resolve();
   assert.equal(r.compatible, true); assert.equal(r.updateAttempted, true); assert.equal(r.installedVersion, version);
-  assert.deepEqual(f.calls.filter(c => c.startsWith("brew")), ["brew --repository can1357/tap", "brew upgrade can1357/tap/omp"]);
+  assert.deepEqual(f.calls.filter(c => c.startsWith("brew")), ["brew --prefix", "brew --repository can1357/tap", "brew upgrade can1357/tap/omp"]);
   assert.ok(f.calls.findIndex(c => c.includes("show HEAD:")) < f.calls.findIndex(c => c.includes("brew upgrade")));
   assert.equal(f.calls.at(-1), "omp --version");
 });
@@ -105,14 +108,46 @@ test("a second process finishes the upgrade while this one waits for the lock", 
   const f = fixture({ installed: "18.3.1", onLockVersion: version });
   const result = await f.resolver.resolve();
   assert.equal(result.compatible, true); assert.equal(result.updateAttempted, false); assert.equal(result.updateError, undefined);
-  assert.deepEqual(f.calls.filter(c => !c.startsWith("curl")), ["omp --version", "omp --version", "omp --version"]);
+  assert.deepEqual(f.calls.filter(c => !c.startsWith("curl")), ["omp --version", "brew --prefix", "omp --version", "omp --version"]);
+});
+
+test("an omp from another installer that shadows Homebrew's is left alone without a warning", async () => {
+  const f = fixture({ installed: "18.1.5", ompOnPath: "/Users/test/.local/share/other-installer/omp/18.1.5" });
+  const r = await f.resolver.resolve();
+  assert.equal(r.compatible, true); assert.equal(r.updateError, undefined); assert.equal(r.updateAttempted, false);
+  assert.match(r.updateSkipped!, /omp on PATH is \/Users\/test\/\.local\/share\/other-installer\/omp\/18\.1\.5, not Homebrew's/);
+  assert.equal(r.installedVersion, "18.1.5");
+  assert.deepEqual(f.calls.filter(c => c.startsWith("brew") || c.startsWith("git")), ["brew --prefix"]);
+});
+
+test("an invalid Homebrew prefix warns without upgrading", async () => {
+  const f = fixture({ installed: "18.1.5", prefix: "relative/prefix" });
+  const r = await f.resolver.resolve();
+  assert.equal(r.compatible, true); assert.match(r.updateError!, /invalid prefix/); assert.equal(r.updateSkipped, undefined);
+  assert.deepEqual(f.calls.filter(c => c.startsWith("brew")), ["brew --prefix"]);
+});
+
+test("locateExecutable follows PATH order, skips non-executables and resolves symlinks", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "omp-locate-")));
+  const saved = process.env.PATH;
+  try {
+    const [first, second, cellar] = ["first", "second", "Cellar/omp/1/bin"].map(dir => join(root, dir));
+    for (const dir of [first, second, cellar]) await mkdir(dir, { recursive: true });
+    await writeFile(join(first, "omp"), "not executable"); await chmod(join(first, "omp"), 0o600);
+    await writeFile(join(cellar, "omp"), "#!/bin/sh\n"); await chmod(join(cellar, "omp"), 0o755);
+    await symlink(join(cellar, "omp"), join(second, "omp"));
+    process.env.PATH = `${first}:${second}`;
+    assert.equal(await locateExecutable("omp"), join(cellar, "omp"));
+    assert.equal(await locateExecutable(join(second, "omp")), join(cellar, "omp"));
+    assert.equal(await locateExecutable(join(root, "missing")), undefined);
+  } finally { process.env.PATH = saved; await rm(root, { recursive: true, force: true }); }
 });
 
 test("an unexpected version change while waiting is kept rather than upgraded or downgraded", async () => {
   const f = fixture({ installed: "18.3.1", onLockVersion: "18.3.3" });
   const result = await f.resolver.resolve();
   assert.equal(result.compatible, true); assert.equal(result.installedVersion, "18.3.3");
-  assert.ok(!f.calls.some(c => c.startsWith("brew")));
+  assert.deepEqual(f.calls.filter(c => c.startsWith("brew")), ["brew --prefix"]);
 });
 
 test("a missing CLI blocks without an update and is rechecked on the next request", async () => {
@@ -132,11 +167,18 @@ test("a missing CLI blocks without an update and is rechecked on the next reques
   assert.notEqual(fixed, missing); assert.equal(fixed.compatible, true); assert.equal(fixed.installedVersion, version);
 });
 
-test("formula recipe permits only the matching stable version and four binary hashes", () => {
+test("formula recipe permits only the matching stable version, one build ID and four binary hashes", () => {
   validateOmpFormula(formula, version);
   validateOmpFormula(formula.replaceAll("a".repeat(64), "b".repeat(64)), version);
+  validateOmpFormula(formula.replaceAll(build, "20261201-000000-0123456789abcdef0123456789abcdef01234567"), version);
   for (const changed of [
     formulaFor("18.3.3"),
+    formula.replace(`v${version}/omp-darwin-x64`, "v18.3.3/omp-darwin-x64"),
+    formula.replace(`${build}/omp-linux-x64`, "20261125-171106-0000000/omp-linux-x64"),
+    formula.replaceAll(build, "latest"),
+    formula.replaceAll(build, "#{system('unreviewed')}"),
+    formula.replace("https://build.stencil.so/d/omp/", "https://example.com/d/omp/"),
+    formula.replace(/^      mirror .*\n/m, ""),
     formula + "system 'unreviewed'\n",
     formula.replace('  license "MIT"', '  depends_on "unreviewed"'),
     formula.replace("https://github.com/can1357/oh-my-pi/releases/download/", "https://example.com/"),

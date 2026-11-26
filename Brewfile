@@ -96,7 +96,7 @@ brew "tokei"                   # cheap repo/language sizing before a broad refac
 brew "ast-grep"                # structural search/rewrite rules
 brew "git-delta"               # readable patch and log rendering
 brew "tuicr"                   # C-a v in Herdr (herdr-review): comment on an agent's diff, send the comments back
-brew "worktrunk"               # wt: `tw` in .zshrc makes each Tern worktree session with it (docs/HERDR.md)
+brew "worktrunk"               # wt: git worktree manager; layout and .worktreeinclude copy in worktrunk/config.toml
 brew "watchexec"               # re-run tests on change during an agent loop
 brew "just"                    # stable, discoverable per-project task names
 brew "gitleaks"                # secret scan before commit

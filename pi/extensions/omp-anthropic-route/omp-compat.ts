@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
@@ -13,9 +14,12 @@ const OMP_VERSION_RE = /(?:^|\b)omp[\s/]v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)
 export const LATEST_RELEASE_URL = "https://github.com/can1357/oh-my-pi/releases/latest";
 const TAP_ORIGIN = "https://github.com/can1357/homebrew-tap";
 
-// Reviewed recipe at tap fbffe294ac114d89b8c7c71c08594a7a4ade3535.
-// Only a stable release number and the four binary hashes may change without
-// another recipe review. Compare text, never eval Ruby or download bridge code.
+// Reviewed recipe at tap 4f6b55ac3c2900ed641a38c4ff448f13a238f627 (omp v19.2.1).
+// Since v18.9.0 OMP's release CI publishes the same binaries to build.stencil.so
+// and the formula downloads from there, with the GitHub release as a mirror.
+// Only the stable release number, one build ID and the four binary hashes may
+// change without another recipe review. Compare text, never eval Ruby or
+// download bridge code.
 export const OMP_FORMULA_TEMPLATE = `class Omp < Formula
   desc "Coding agent with the IDE wired in"
   homepage "https://omp.sh"
@@ -24,26 +28,30 @@ export const OMP_FORMULA_TEMPLATE = `class Omp < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/can1357/oh-my-pi/releases/download/v#{version}/omp-darwin-arm64",
+      url "https://build.stencil.so/d/omp/@BUILD@/omp-darwin-arm64",
           using: :nounzip
+      mirror "https://github.com/can1357/oh-my-pi/releases/download/v@VERSION@/omp-darwin-arm64"
       sha256 "@SHA256@"
     end
     on_intel do
-      url "https://github.com/can1357/oh-my-pi/releases/download/v#{version}/omp-darwin-x64",
+      url "https://build.stencil.so/d/omp/@BUILD@/omp-darwin-x64",
           using: :nounzip
+      mirror "https://github.com/can1357/oh-my-pi/releases/download/v@VERSION@/omp-darwin-x64"
       sha256 "@SHA256@"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/can1357/oh-my-pi/releases/download/v#{version}/omp-linux-arm64",
+      url "https://build.stencil.so/d/omp/@BUILD@/omp-linux-arm64",
           using: :nounzip
+      mirror "https://github.com/can1357/oh-my-pi/releases/download/v@VERSION@/omp-linux-arm64"
       sha256 "@SHA256@"
     end
     on_intel do
-      url "https://github.com/can1357/oh-my-pi/releases/download/v#{version}/omp-linux-x64",
+      url "https://build.stencil.so/d/omp/@BUILD@/omp-linux-x64",
           using: :nounzip
+      mirror "https://github.com/can1357/oh-my-pi/releases/download/v@VERSION@/omp-linux-x64"
       sha256 "@SHA256@"
     end
   end
@@ -68,13 +76,16 @@ function stableVersionParts(version: string): number[] | undefined {
   return parts.every(Number.isSafeInteger) ? parts : undefined;
 }
 
+const BUILD_URL_RE = /^(      url "https:\/\/build\.stencil\.so\/d\/omp\/)(\d{8}-\d{6}-[0-9a-f]{7,40})\//gm;
+
 export function validateOmpFormula(formula: string, version: string): void {
-  const versions = [...formula.matchAll(/^  version "(\d+\.\d+\.\d+)"$/gm)];
-  const hashes = [...formula.matchAll(/^      sha256 "[0-9a-f]{64}"$/gm)];
-  const normalized = formula.replace(/^  version "\d+\.\d+\.\d+"$/gm, '  version "@VERSION@"')
+  // The version is substituted into the expected text, so the version line and
+  // all four mirror URLs must name exactly this release.
+  const builds = new Set([...formula.matchAll(BUILD_URL_RE)].map(match => match[2]));
+  const normalized = formula.replace(BUILD_URL_RE, "$1@BUILD@/")
     .replace(/^      sha256 "[0-9a-f]{64}"$/gm, '      sha256 "@SHA256@"');
-  if (!stableVersionParts(version) || versions.length !== 1 || versions[0][1] !== version ||
-      hashes.length !== 4 || normalized !== OMP_FORMULA_TEMPLATE) {
+  if (!stableVersionParts(version) || builds.size !== 1 ||
+      normalized !== OMP_FORMULA_TEMPLATE.replaceAll("@VERSION@", version)) {
     throw new Error("Latest OMP formula needs review or does not match the latest release; no formula was executed or binary upgraded.");
   }
 }
@@ -89,6 +100,8 @@ export interface OmpCompatibilityStatus {
   updateAttempted: boolean;
   /** Non-blocking: the best-effort update failed; the installed CLI is kept. */
   updateError?: string;
+  /** Not a failure: the `omp` on PATH is not Homebrew's, so it was left alone. */
+  updateSkipped?: string;
   /** Blocking: no usable OMP CLI. */
   error?: string;
 }
@@ -120,6 +133,20 @@ function runCommand(executable: string, args: readonly string[], signal?: AbortS
       reject(new Error(`${executable} failed during OMP preflight: ${reason.slice(0, 300)}`, { cause: error }));
     });
   });
+}
+
+/** Real path of an absolute executable, or of the first match for a bare name
+ * on commandEnvironment()'s PATH (the lookup execFile makes); else undefined. */
+export async function locateExecutable(executable: string): Promise<string | undefined> {
+  const candidates = isAbsolute(executable) ? [executable]
+    : (commandEnvironment().PATH ?? "").split(":").filter(Boolean).map(directory => join(directory, executable));
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.X_OK);
+      if ((await stat(candidate)).isFile()) return await realpath(candidate);
+    } catch { /* not here; keep looking */ }
+  }
+  return undefined;
 }
 
 export function parseOmpVersion(output: string): string | undefined {
@@ -181,11 +208,13 @@ export class OmpCompatibilityResolver {
 
   private readonly command: OmpCommandRunner;
   private readonly lock: UpdateLock;
+  private readonly locate: (executable: string) => Promise<string | undefined>;
 
   constructor(
     command: OmpCommandRunner = runCommand,
     lock: UpdateLock = (operation, signal) => withUpdateLock(join(homedir(), ".local/state/pi-omp-update.lock"), operation, signal),
-  ) { this.command = command; this.lock = lock; }
+    locate: (executable: string) => Promise<string | undefined> = locateExecutable,
+  ) { this.command = command; this.lock = lock; this.locate = locate; }
 
   resolve(): Promise<OmpCompatibilityStatus> {
     const current: Promise<OmpCompatibilityStatus> = this.resolved ??= this.check().then(status => {
@@ -237,6 +266,15 @@ export class OmpCompatibilityResolver {
     const difference = installed?.map((v, i) => v - target[i]).find(v => v !== 0);
     // Newer or manually installed pre-release CLIs are kept as-is: never downgrade.
     if (!installed || difference === undefined || difference > 0) return;
+    // Upgrading Homebrew's omp cannot change an `omp` that shadows it on PATH
+    // (for example another installer's copy in ~/.local/bin); that installer updates it.
+    const prefix = (await this.command("brew", ["--prefix"])).trim();
+    if (!isAbsolute(prefix) || /[\r\n]/.test(prefix)) throw new Error("Homebrew returned an invalid prefix.");
+    const onPath = await this.locate("omp");
+    if (!onPath || onPath !== await this.locate(join(prefix, "bin", "omp"))) {
+      status.updateSkipped = `omp on PATH is ${onPath ?? "not found"}, not Homebrew's; its own installer updates it`;
+      return;
+    }
     await this.lock(async () => {
       // Another Pi request may have changed OMP while we waited; keep its result
       // (the caller re-verifies it) rather than upgrading or downgrading again.

@@ -12,10 +12,13 @@
 // The app's pi-resume mod (herdr-app/mods/pi-resume) types
 // `pi --session <file>` into a terminal whose labels are still there but whose
 // shell pid changed, i.e. one that was recovered. Quitting Pi clears both labels,
-// so a conversation you ended is never reopened. Metadata only: nothing reaches
-// the model, and outside the Herdr app (no HC_TERMINAL_ID) it does nothing.
+// so a conversation you ended is never reopened. Parking is not quitting: when
+// park-idle has left the session in the wrapper's PI_PARK_FILE, the labels stay.
+// Metadata only: nothing reaches the model, and outside the Herdr app (no
+// HC_TERMINAL_ID) it does nothing.
 // Only an interactive Pi owns its terminal. A `pi -p` that an agent runs from
 // its shell inherits HC_TERMINAL_ID too, and must not unlabel the agent's Pi.
+import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export const SESSION_LABEL = "pi.session";
@@ -24,9 +27,12 @@ export const SHELL_LABEL = "pi.shell";
 export interface AppEnvironment {
   HC_TERMINAL_ID?: string;
   HC_BIN_PATH?: string;
+  PI_PARK_FILE?: string;
+  PI_PARK_PID?: string;
 }
 
-export function registerHerdrAppResume(pi: ExtensionAPI, environment: AppEnvironment = process.env as AppEnvironment) {
+export function registerHerdrAppResume(pi: ExtensionAPI, environment: AppEnvironment = process.env as AppEnvironment,
+  parentPid = process.ppid) {
   const terminal = environment.HC_TERMINAL_ID?.trim();
   if (!terminal) return;
   const hc = environment.HC_BIN_PATH?.trim() || "hc";
@@ -60,10 +66,16 @@ export function registerHerdrAppResume(pi: ExtensionAPI, environment: AppEnviron
     await label(file && pid ? [`${SESSION_LABEL}=${file}`, `${SHELL_LABEL}=${pid}`] : [`${SESSION_LABEL}=`, `${SHELL_LABEL}=`]);
   });
 
+  // The park file is only this Pi's when its parent is the wrapper that set it.
+  const parking = () => {
+    if (!environment.PI_PARK_FILE || environment.PI_PARK_PID !== String(parentPid)) return false;
+    try { return readFileSync(environment.PI_PARK_FILE, "utf8").length > 0; } catch { return false; }
+  };
+
   // Reload, /new, /resume and fork start another session right after; only a
   // quit ends the conversation in this terminal.
   pi.on("session_shutdown", async (event, ctx) => {
-    if (event.reason === "quit" && ctx.mode === "tui") await label([`${SESSION_LABEL}=`, `${SHELL_LABEL}=`]);
+    if (event.reason === "quit" && ctx.mode === "tui" && !parking()) await label([`${SESSION_LABEL}=`, `${SHELL_LABEL}=`]);
   });
 }
 

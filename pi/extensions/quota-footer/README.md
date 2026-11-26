@@ -26,7 +26,6 @@ or an elapsed reset window). Other states: `…` loading, `wait Nm` backoff, `/l
   output only and never enters the conversation.
 - The footer follows account switches immediately in this session and within five
   seconds in others. Polling never switches accounts; the router does.
-- With [`compact-ui`](../compact-ui/README.md), `MCP: N/M` shares the same line.
 
 ## Auth and data
 
