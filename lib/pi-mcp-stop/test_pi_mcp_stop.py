@@ -217,6 +217,8 @@ class PiMcpStopTest(unittest.TestCase):
         for key in self.SERVERS:
             self.assertTrue(alive(session[key]), f"{key} was stopped")
         self.assertIn("would stop 3", output)
+        listed = {int(line.split("\t")[1]) for line in output.splitlines() if line.startswith("\t")}
+        self.assertEqual(listed, {session["hark"], session["gcloud"], session["project"]})
         self.assertIn("Would stop 3 MCP servers in 1 sessions.", output)
 
 

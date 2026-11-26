@@ -150,6 +150,9 @@ def main(argv):
         sessions += 1
         print(f"{address}\t{state}\t{terminal.get('where', '')}\t"
               f"{'would stop' if dry_run else 'stopped'} {len(groups)} (Pi {pi})")
+        if dry_run:
+            for group in groups:
+                print(f"\t{group}\t{procs[group][1].strip()}")
     for address in sorted(missing):
         print(f"{address}\tskipped: no such terminal")
     print(f"{'Would stop' if dry_run else 'Stopped'} {total} MCP servers in {sessions} sessions.")
