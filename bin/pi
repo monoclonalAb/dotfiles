@@ -10,6 +10,14 @@
 # a reopen could not repeat are exec'd as before and never park.
 set -eu
 
+# `pi --parked … --session <file>` starts already parked: pi-resume types it into
+# a terminal that a reboot brought back while its conversation was parked.
+start_parked=false
+if [ "${1-}" = --parked ]; then
+    start_parked=true
+    shift
+fi
+
 # Reject --skill only where Pi would parse it as an option: before a literal
 # "--". Anything after "--" is message text and passes through untouched.
 seen_separator=false
@@ -97,29 +105,47 @@ quote() {
 # What a reopen repeats: trust, extension and display options. The session
 # restores its model, thinking level and name; messages were already sent. Any
 # other option (--no-tools, -p, --mode ...) would be lost, so such runs never park.
+# The same flags go to herdr-app-resume one per line (PI_PARK_ARGS), so a reboot
+# reopens with them too.
 parkable=$apply_session_defaults
 [ -t 0 ] && [ -t 1 ] || parkable=false
 [ "${PI_PARK_AFTER-}" != 0 ] || parkable=false
+newline='
+'
 replay=
+replay_lines=
+start_session=
 value=
 after_separator=false
 if [ "$parkable" = true ]; then
     for argument do
         if [ -n "$value" ]; then
-            [ "$value" = keep ] && replay="$replay $(quote "$argument")"
+            case "$value" in
+                keep) set_value=$argument ;;
+                session) start_session=$argument; set_value= ;;
+                *) set_value= ;;
+            esac
             value=
-            continue
+            [ -n "$set_value" ] || continue
+            argument=$set_value
+        else
+            [ "$after_separator" = false ] || continue
+            case "$argument" in
+                --) after_separator=true; continue ;;
+                -a|--approve|-na|--no-approve|-ns|--no-skills|-ne|--no-extensions|--no-mcp|--fast|--offline) ;;
+                -e|--extension|--tui-mode|--session-dir) value=keep ;;
+                --session) value=session; continue ;;
+                --session-id|--fork|-n|--name|--provider|--model|--thinking) value=drop; continue ;;
+                -c|--continue|-r|--resume) continue ;;
+                -*) parkable=false; break ;;
+                *) continue ;;
+            esac
         fi
-        [ "$after_separator" = false ] || continue
         case "$argument" in
-            --) after_separator=true ;;
-            -a|--approve|-na|--no-approve|-ns|--no-skills|-ne|--no-extensions|--no-mcp|--fast|--offline)
-                replay="$replay $argument" ;;
-            -e|--extension|--tui-mode|--session-dir) replay="$replay $argument"; value=keep ;;
-            --session|--session-id|--fork|-n|--name|--provider|--model|--thinking) value=drop ;;
-            -c|--continue|-r|--resume) ;;
-            -*) parkable=false; break ;;
+            *"$newline"*) parkable=false; break ;;
         esac
+        replay="$replay $(quote "$argument")"
+        replay_lines="$replay_lines$argument$newline"
     done
     [ -z "$value" ] || parkable=false
 fi
@@ -130,7 +156,9 @@ park_dir=${XDG_STATE_HOME:-$HOME/.local/state}/pi-park
 mkdir -p "$park_dir" 2>/dev/null && chmod 700 "$park_dir" || exec "$real_pi" "$@"
 PI_PARK_FILE=$park_dir/$$
 PI_PARK_PID=$$
-export PI_PARK_FILE PI_PARK_PID
+PI_PARK_ARGS=$replay_lines
+export PI_PARK_FILE PI_PARK_PID PI_PARK_ARGS
+[ -n "$start_session" ] || start_parked=false
 # Closing the pane signals its shell first; exiting through the trap removes the file.
 trap 'rm -f "$PI_PARK_FILE"' EXIT
 trap 'exit 129' HUP
@@ -165,7 +193,12 @@ wait_for_return() {
 while :; do
     rm -f "$PI_PARK_FILE"
     status=0
-    "$real_pi" "$@" || status=$?
+    if [ "$start_parked" = true ]; then
+        start_parked=false
+        printf '%s' "$start_session" > "$PI_PARK_FILE"
+    else
+        "$real_pi" "$@" || status=$?
+    fi
     if [ "$status" -ne 0 ] || ! [ -s "$PI_PARK_FILE" ]; then
         stty "$terminal" 2>/dev/null || :
         exit "$status"

@@ -451,7 +451,14 @@ themselves, as terminal Herdr's `resume_agents_on_restore` did:
    session file and its shell's pid (`hc get t7 | jq .labels`).
 2. 18:00: the Mac restarts. `t7` comes back as a new shell with a new pid.
 3. 18:01: the app's `pi-resume` mod sees the labels and the changed pid, and types
-   `pi --session '<file>'` into `t7`.
+   `pi --session '<file>'` into `t7`, with the flags the run had that a reopen
+   repeats, such as `--approve` (the `pi.args` label).
+
+A conversation that was [parked](#idle-conversations) when the Mac stopped
+(`pi.parked=1`) comes back parked: the mod types `pi --parked … --session
+'<file>'`, the pane shows the parked note, and Pi starts only when you focus it.
+So a restart does not reopen every parked conversation at once, and shows no
+"Resumed Pi" note for them.
 
 Quitting Pi clears the labels, so a conversation you ended stays ended. If
 something other than a shell is in front of the recovered terminal, or the
@@ -477,8 +484,8 @@ back when you return to it:
 It never quits with a draft in the editor or an open dialog, while the agent
 works, while a `!` command or a Ctrl+G editor runs, while an `/artifact-review`
 page is open, while an `hc` sub-terminal is live, or after `/tree` moved to an
-earlier point. It keeps the `herdr-app-resume` labels, so a reboot
-reopens a parked conversation like any other. Quitting Pi yourself still ends
+earlier point. It keeps the `herdr-app-resume` labels and adds `pi.parked`, so
+after a reboot it comes back still parked ([above](#after-a-reboot)). Quitting Pi yourself still ends
 the conversation. Only Pi started after this was installed parks: older
 sessions keep running until you restart them.
 
