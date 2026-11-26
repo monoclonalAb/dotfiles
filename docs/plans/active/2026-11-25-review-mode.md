@@ -235,22 +235,28 @@ Rules:
    current step's own work to its branch, and stop if anything else is left,
    because a switch silently carries uncommitted files into the next branch.
    A stacked draft PR targets that dependency branch. Once the dependency
-   merges, the next run, before working on the step, retargets its PR
-   (`gh pr edit review-mode/step-N --base main`), then on its branch merges the
-   dependency's local branch (bringing in its review fixes), notes this step's
-   own change as `git diff review-mode/step-M HEAD | git patch-id --stable`,
-   merges `origin/main` through step M, checks that `git diff origin/main HEAD |
-   git patch-id --stable` gives the same id, and pushes normally. Through step
-   M: main holds step M as one squash commit, so a plain merge sees M's files as
-   added on both sides and conflicts on every one this step edited. Instead,
-   after checking that `git diff review-mode/step-M <squash> -- <M's files>` is
-   empty, make main's merge into M with main's files (`git commit-tree
-   'origin/main^{tree}' -p review-mode/step-M -p origin/main`) and merge that
-   commit into this step's branch. A merge conflict (`git merge --abort`) or a
-   different id means stop without pushing: a clean merge can still undo a line
-   this step set back to its value before step M. Main's later edits within 3
-   lines of this step's also change the id; an attended session may check those
-   by hand and push.
+   merges, the next run moves the step onto main before working on it, locally
+   first: on its branch it merges the dependency's local branch (bringing in its
+   review fixes), notes this step's own change as `git diff review-mode/step-M
+   HEAD | git patch-id --stable`, merges `origin/main` through step M (below),
+   checks that `git diff origin/main HEAD | git patch-id --stable` gives the
+   same id, and reruns the step's checks. Only then does it retarget the PR
+   (`gh pr edit review-mode/step-N --base main`) and push normally. Through
+   step M: main holds step M as one squash commit, so a plain merge sees M's
+   files as added on both sides and conflicts on every one this step edited.
+   Instead, with M's merged head from `gh pr view <M> --json headRefOid`, check
+   that `git merge-tree --write-tree <squash>^ <M's head>` prints the squash's
+   tree (`git rev-parse '<squash>^{tree}'`), make main's merge into M with
+   main's files (`git commit-tree 'origin/main^{tree}' -p <M's head> -p
+   origin/main`), and merge that commit into this step's branch. A merge
+   conflict (`git merge --abort`) or a different id stops an unattended run
+   without pushing: a clean merge can still undo a line this step set back to
+   its value before step M, and main's edits within 3 lines of this step's
+   also change the id. An attended session may resolve conflicts, then checks
+   that `git diff origin/main HEAD` makes the same edits as the step did before
+   (same files, same words with `--word-diff=porcelain`) before pushing. A step
+   that waits for two steps (step 7) starts once one of them has merged,
+   stacked on the other.
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
 4. **Checks:** run the checks a step names plus the existing suites for files it
    touches (the `lib/review-analyse` suite only once it exists). Advance only on
