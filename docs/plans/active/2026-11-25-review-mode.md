@@ -234,29 +234,32 @@ Rules:
    Before every branch switch, `git status --short` must be empty: commit the
    current step's own work to its branch, and stop if anything else is left,
    because a switch silently carries uncommitted files into the next branch.
-   A stacked draft PR targets that dependency branch. Once the dependency
-   merges, the next run moves the step onto main before working on it, locally
-   first: on its branch it merges the dependency's local branch (bringing in its
-   review fixes), notes this step's own change as `git diff review-mode/step-M
-   HEAD | git patch-id --stable`, merges `origin/main` through step M (below),
-   checks that `git diff origin/main HEAD | git patch-id --stable` gives the
-   same id, and reruns the step's checks. Only then does it retarget the PR
-   (`gh pr edit review-mode/step-N --base main`) and push normally. Through
-   step M: main holds step M as one squash commit, so a plain merge sees M's
-   files as added on both sides and conflicts on every one this step edited.
-   Instead, with M's merged head from `gh pr view <M> --json headRefOid`, check
-   that `git merge-tree --write-tree <squash>^ <M's head>` prints the squash's
-   tree (`git rev-parse '<squash>^{tree}'`), make main's merge into M with
-   main's files (`git commit-tree 'origin/main^{tree}' -p <M's head> -p
-   origin/main`), and merge that commit into this step's branch. A merge
-   conflict (`git merge --abort`) or a different id stops an unattended run
-   without pushing: a clean merge can still undo a line this step set back to
-   its value before step M, and main's edits within 3 lines of this step's
-   also change the id. An attended session may resolve conflicts, then checks
-   that `git diff origin/main HEAD` makes the same edits as the step did before
-   (same files, same words with `--word-diff=porcelain`) before pushing. A step
-   that waits for two steps (step 7) starts once one of them has merged,
-   stacked on the other.
+   A stacked draft PR targets that dependency branch. Once the dependency M
+   merges, the next run moves the step onto main before working on it:
+   a. `git fetch origin`. Take M's merged head (`gh pr view <M> --json
+      headRefOid`) and its squash commit, which must be in `origin/main` (`git
+      merge-base --is-ancestor <squash> origin/main`) and rebuild from it: `git
+      merge-tree --write-tree <squash>^ <M's head>` prints `git rev-parse
+      '<squash>^{tree}'`.
+   b. On a temporary branch from the step's tip, merge M's head (its review
+      fixes) and note the step's own change: `git diff <M's head> HEAD | git
+      patch-id --stable`.
+   c. Merge main through M. Main holds M as one squash commit, so a plain merge
+      sees M's files as added on both sides and conflicts on every one this
+      step edited. Instead merge `git commit-tree 'origin/main^{tree}' -p <M's
+      head> -p origin/main`: main's merge into M, with main's files.
+   d. Check that `git diff origin/main HEAD | git patch-id --stable` gives the
+      same id, and rerun the step's checks.
+   e. Move the step's branch to the temporary one, push normally, and only then
+      retarget the PR (`gh pr edit review-mode/step-N --base main`).
+   A merge conflict (`git merge --abort`) or a different id stops an unattended
+   run without pushing: a clean merge can still undo a line this step set back
+   to its value before M, and main's edits within 3 lines of this step's also
+   change the id. An attended session may resolve conflicts, then check that
+   `git diff origin/main HEAD` makes the same edits as before (same files, same
+   words with `--word-diff=porcelain`) before pushing. Step 7 waits for steps 5
+   and 6: it starts once one has merged, stacked on the other after that one
+   is moved onto main as above, so both are in it.
    Never reuse, rewrite or publish another branch; preserve unrelated changes.
 4. **Checks:** run the checks a step names plus the existing suites for files it
    touches (the `lib/review-analyse` suite only once it exists). Advance only on
