@@ -31,9 +31,12 @@ const {
   colourModel,
   colourPath,
   colourStats,
+  compactStats,
+  compactStatuses,
   contextPaths,
   discoverExtensionEntries,
   extensionDescriptors,
+  footerPairRow,
   footerRow,
   installFooterLayout,
   registerCompactUi,
@@ -310,22 +313,70 @@ test("the model status stays in Pi's status row if Pi drew that row differently"
   expect(takeModelStatus("", undefined)).toEqual({ statusLine: "", modelStatus: "" });
 });
 
-test("on a narrow terminal a row splits instead of losing text, and never overflows", () => {
+test("on a narrow terminal row 2 compacts progressively before splitting, and never overflows", () => {
   codingAgent.initTheme("dark", false);
   const Footer = footerClass();
   installFooterLayout(Footer, () => ansiTheme);
-  const footer = footerFixture(Footer, new Map([["00-quota-footer", "1% | 57% · 68%"]]));
-  // 60 columns: the model fits beside the folder; the usage figures move below the statuses.
-  expect(plainLines(footer.render(60))).toEqual([
-    expect.stringMatching(/^~\/dotfiles \(main\) +\(anthropic\) claude-opus-4-5 • high$/),
-    "1% | 57% · 68%",
-    expect.stringMatching(/^ +↑1\.2k .* 81\.4%\/200k \(auto\)$/),
+  const fullStatuses = new Map([
+    ["00-quota-footer", "3% | 4% · 0%"],
+    ["quota-router", `${painted("dim", "· ")}@main`],
+    ["selective-skills", `${painted("dim", "| ")}${paintedBold("mdLink", "2")}${painted("dim", " skills")}`],
+    ["token-speed", `${painted("dim", "| ")}${painted("dim", "~")}${paintedBold("mdCode", "71")}${painted("dim", " tok/s")}`],
   ]);
-  // 42 columns: the provider goes first, as in Pi's own footer.
-  expect(plainLines(footer.render(42))[0]).toMatch(/^~\/dotfiles \(main\) +claude-opus-4-5 • high$/);
-  for (const width of [8, 20, 40, 60, 100, 146]) {
+  const footer = footerFixture(Footer, fullStatuses);
+
+  // 110 columns: everything fits in full on two rows.
+  expect(plainLines(footer.render(110))).toEqual([
+    expect.stringMatching(/^~\/dotfiles \(main\) +\(anthropic\) claude-opus-4-5 • high$/),
+    expect.stringMatching(/^3% \| 4% · 0% · @main \| 2 skills \| ~71 tok\/s +↑1\.2k ↓340 R56k W800 CH96\.6% \$0\.420 \(sub\) 81\.4%\/200k \(auto\)$/),
+  ]);
+  // 90 columns: drops static (sub)/(auto) and extra decimals, stays on two rows.
+  expect(plainLines(footer.render(90))[1]).toMatch(
+    /^3% \| 4% · 0% · @main \| 2 skills \| ~71 tok\/s +↑1\.2k ↓340 R56k W800 CH97% \$0\.42 81\.4%\/200k$/,
+  );
+  // 80 columns: drops raw R/W cache counts (CH97% remains), stays on two rows.
+  expect(plainLines(footer.render(80))[1]).toMatch(
+    /^3% \| 4% · 0% · @main \| 2 skills \| ~71 tok\/s +↑1\.2k ↓340 CH97% \$0\.42 81\.4%\/200k$/,
+  );
+  // 62 columns: compacts left (@main hidden, 2s, ~71t/s) while keeping ANSI colours and ↑/↓.
+  const at62 = footer.render(62);
+  expect(at62).toHaveLength(2);
+  expect(plainLines(at62)[1]).toMatch(/^3% \| 4% · 0% \| 2s \| ~71t\/s +↑1\.2k ↓340 CH97% \$0\.42 81\.4%\/200k$/);
+  expect(at62[1]).toContain(paintedBold("mdLink", "2") + painted("dim", "s"));
+  expect(at62[1]).toContain(paintedBold("mdCode", "71") + painted("dim", "t/s"));
+  // 52 columns: drops ↑/↓ token counts, keeps CH97%, cost and context on one line.
+  expect(plainLines(footer.render(52))).toHaveLength(2);
+  expect(plainLines(footer.render(52))[1]).toMatch(/^3% \| 4% · 0% \| 2s \| ~71t\/s +CH97% \$0\.42 81\.4%\/200k$/);
+  // 42 columns: provider drops on row 1; row 2 keeps quotas, speed, cost and context on one line.
+  const at42 = plainLines(footer.render(42));
+  expect(at42).toHaveLength(2);
+  expect(at42[0]).toMatch(/^~\/dotfiles \(main\) +claude-opus-4-5 • high$/);
+  expect(at42[1]).toMatch(/^3% \| 4% · 0% \| ~71t\/s +\$0\.42 81\.4%\/200k$/);
+  // 30 columns: narrower than the most compact single line, so row 2 splits cleanly.
+  const at30 = plainLines(footer.render(30));
+  expect(at30.slice(-2)).toEqual([
+    "3% | 4% · 0% | 2s | ~71t/s",
+    expect.stringMatching(/^ +CH97% \$0\.42 81\.4%\/200k$/),
+  ]);
+  for (const width of [8, 20, 30, 40, 52, 62, 80, 90, 110, 146]) {
     expect(footer.render(width).every((line: string) => visibleWidth(line) <= width)).toBe(true);
   }
+  // Switched accounts (@work) stay visible when compacting statuses; only default @main hides.
+  const awayStatuses = new Map([
+    ["00-quota-footer", "3% | 4% · 0%"],
+    ["quota-router", "· @work"],
+    ["selective-skills", "| 1 skill"],
+    ["token-speed", "| 71 tok/s"],
+  ]);
+  expect(compactStatuses(awayStatuses)).toBe("3% | 4% · 0% · @work | 1s | 71t/s");
+  expect(compactStats("↑16 ↓2.8k R111k W32k CH97.4% $0.236 (sub) 3.5%/1.0M (auto)")).toEqual({
+    full: "↑16 ↓2.8k R111k W32k CH97.4% $0.236 (sub) 3.5%/1.0M (auto)",
+    trimmed: "↑16 ↓2.8k R111k W32k CH97% $0.24 3.5%/1M",
+    noCacheRw: "↑16 ↓2.8k CH97% $0.24 3.5%/1M",
+    noIo: "CH97% $0.24 3.5%/1M",
+    essential: "$0.24 3.5%/1M",
+  });
+  expect(footerPairRow([], [], [], 40, "...")).toEqual([]);
   // Without extension statuses the usage figures stay on the right of the second row.
   const quiet = plainLines(footerFixture(Footer).render(146));
   expect(quiet).toHaveLength(2);

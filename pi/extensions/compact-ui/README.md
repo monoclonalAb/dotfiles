@@ -31,9 +31,16 @@ The footer shows Pi's own text, rearranged into two rows instead of Pi's three:
 
 The first row is the folder, with the model on the right. The second is the
 extension statuses (quota, account, skills, tokens per second), with the usage
-figures on the right. A row too wide for the terminal splits in two: its right
-part moves to a row of its own below, still right-aligned. Before that, the model
-drops its `(provider)`, as in Pi's own footer.
+figures on the right. When a row is too wide for the terminal, it compacts
+before splitting onto a row below:
+
+- Row 1 drops the model's `(provider)`, as in Pi's own footer.
+- Row 2 progressively drops `(sub)`/`(auto)` and extra decimals, then raw
+  `R…`/`W…` cache counts (keeping `CH…%`), then compacts the statuses (hiding
+  the default `@main` while keeping switched accounts such as `@work`, and
+  shortening `skills` → `s` and `tok/s` → `t/s`), then drops `↑…`/`↓…` token
+  counts, and finally drops the skill count and `CH…%` so quotas, speed, cost
+  and context share stay on one line down to ~36–42 columns before splitting.
 
 The folder, usage and model text get the colours of the extension statuses: each
 value in its own colour, numbers bold, labels and separators dim.

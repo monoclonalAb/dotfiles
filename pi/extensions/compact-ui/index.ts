@@ -253,9 +253,54 @@ export function splitStatsLine(native: string): { stats: string; model: string }
 }
 
 const TOKEN_COUNT = /^([↑↓RW])(\d+(?:\.\d+)?[kM]?)$/;
+const IO_TOKEN_COUNT = /^[↑↓]\d+(?:\.\d+)?[kM]?$/;
+const CACHE_TOKEN_COUNT = /^[RW]\d+(?:\.\d+)?[kM]?$/;
 const CACHE_HIT = /^CH(\d+(?:\.\d+)?%)$/;
 const COST = /^\$\d+\.\d+$/;
 const CONTEXT = /^(\d+(?:\.\d+)?)%(\/\S+)$/;
+const STATIC_STAT_TAGS = new Set(["(sub)", "(auto)"]);
+
+function trimStatWord(word: string): string {
+  let match: RegExpExecArray | null;
+  if ((match = CACHE_HIT.exec(word))) return `CH${Math.round(Number(match[1]!.slice(0, -1)))}%`;
+  if (COST.test(word)) return `$${Number(word.slice(1)).toFixed(2)}`;
+  if ((match = CONTEXT.exec(word))) {
+    const percent = match[1]!.replace(/\.0+$/, "");
+    const limit = match[2]!.replace(/\.0+(?=[kM]?$)/, "");
+    return `${percent}%${limit}`;
+  }
+  return word;
+}
+
+/**
+ * Progressive compact variants of Pi's usage figures, from full down to essentials:
+ * 1. `full`: Pi's exact text
+ * 2. `trimmed`: drops static `(sub)`/`(auto)` tags and trims extra decimals
+ * 3. `noCacheRw`: drops raw `R…`/`W…` cache counts (`CH…%` summarizes caching)
+ * 4. `noIo`: drops `↑…`/`↓…` token counts
+ * 5. `essential`: keeps cost, context share, and any unrecognised words
+ */
+export function compactStats(stats: string): {
+  full: string;
+  trimmed: string;
+  noCacheRw: string;
+  noIo: string;
+  essential: string;
+} {
+  if (!stats) return { full: "", trimmed: "", noCacheRw: "", noIo: "", essential: "" };
+  const words = stats.split(" ").filter((word) => word.length > 0);
+  const trimmedWords = words.filter((word) => !STATIC_STAT_TAGS.has(word)).map(trimStatWord);
+  const noCacheRwWords = trimmedWords.filter((word) => !CACHE_TOKEN_COUNT.test(word));
+  const noIoWords = noCacheRwWords.filter((word) => !IO_TOKEN_COUNT.test(word));
+  const essentialWords = noIoWords.filter((word) => !CACHE_HIT.test(word));
+  return {
+    full: stats,
+    trimmed: trimmedWords.join(" "),
+    noCacheRw: noCacheRwWords.join(" "),
+    noIo: noIoWords.join(" "),
+    essential: essentialWords.join(" "),
+  };
+}
 
 /**
  * Pi's usage figures, styled like the extension statuses: each value bold in its own colour,
@@ -307,6 +352,9 @@ export function colourModel(model: string, theme: UiTheme, modelStatus = ""): st
 
 /** The extension status drawn beside the model instead of in the status row: codex-fast's `fast`. */
 export const MODEL_STATUS_KEY = "codex-fast";
+const QUOTA_ROUTER_KEY = "quota-router";
+const SELECTIVE_SKILLS_KEY = "selective-skills";
+const TOKEN_SPEED_KEY = "token-speed";
 
 /** A status on one line, as Pi shows it. */
 const oneLine = (text: string) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
@@ -314,6 +362,34 @@ const oneLine = (text: string) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, 
 /** Pi's status row: the extension statuses sorted by key, each on one line, joined by spaces. */
 export function statusRow(statuses: ReadonlyMap<string, string>): string {
   return [...statuses].sort(([a], [b]) => a.localeCompare(b)).map(([, text]) => oneLine(text)).join(" ");
+}
+
+/**
+ * Compacted extension status row: hides the default `· @main` account label (keeping switched
+ * accounts such as `@work`), shortens `N skills` → `Ns` and `tok/s` → `t/s` while preserving
+ * ANSI styling, and optionally drops the skill count on very narrow terminals.
+ */
+export function compactStatuses(
+  statuses: ReadonlyMap<string, string>,
+  options: { dropModelStatus?: boolean; dropSkills?: boolean } = {},
+): string {
+  const next = new Map<string, string>();
+  for (const [key, raw] of statuses) {
+    if (options.dropModelStatus && key === MODEL_STATUS_KEY) continue;
+    const text = oneLine(raw);
+    if (key === QUOTA_ROUTER_KEY && stripVTControlCharacters(text) === "· @main") continue;
+    if (key === SELECTIVE_SKILLS_KEY) {
+      if (options.dropSkills) continue;
+      next.set(key, text.replace(/ skills?\b/, "s"));
+      continue;
+    }
+    if (key === TOKEN_SPEED_KEY) {
+      next.set(key, text.replace(/ tok\/s\b/, "t/s"));
+      continue;
+    }
+    next.set(key, text);
+  }
+  return statusRow(next);
 }
 
 /**
@@ -352,13 +428,54 @@ export function footerRow(left: string, rights: readonly string[], width: number
   return [fit(left), ...footerRow("", options, width, ellipsis)];
 }
 
+/**
+ * Progressive single-row layout for status + usage figures: tries `(left, right)` pairs from
+ * richest to most compact and picks the first that fits on one line with a 2-space gap. If none
+ * fits, splits into two lines using the widest variant of each side that fits `width`.
+ */
+export function footerPairRow(
+  pairs: readonly { left: string; right: string }[],
+  leftFallbacks: readonly string[],
+  rightFallbacks: readonly string[],
+  width: number,
+  ellipsis: string,
+): string[] {
+  const fit = (text: string) => truncateToWidth(text, Math.max(0, width), ellipsis);
+  const alignRight = (text: string) => " ".repeat(Math.max(0, width - visibleWidth(text))) + text;
+  const pickFit = (options: readonly string[]) => {
+    const nonEmpty = options.filter((text) => text.length > 0);
+    if (nonEmpty.length === 0) return "";
+    return nonEmpty.find((text) => visibleWidth(text) <= width) ?? fit(nonEmpty.at(-1)!);
+  };
+  for (const { left, right } of pairs) {
+    if (!left && !right) continue;
+    if (!right) {
+      if (visibleWidth(left) <= width) return [left];
+      continue;
+    }
+    if (!left) {
+      if (visibleWidth(right) <= width) return [alignRight(right)];
+      continue;
+    }
+    const gap = width - visibleWidth(left) - visibleWidth(right);
+    if (gap >= 2) return [left + " ".repeat(gap) + right];
+  }
+  const left = pickFit(leftFallbacks);
+  const right = pickFit(rightFallbacks);
+  const rows: string[] = [];
+  if (left) rows.push(left);
+  if (right) rows.push(alignRight(right));
+  return rows;
+}
+
 /** Pi draws its footer this wide so nothing is cut; `layoutFooter` fits the parts itself. */
 const UNCUT_WIDTH = 1000;
 
 /**
  * Pi's footer lines, drawn at `UNCUT_WIDTH`, in two coloured rows: the folder with the model on
  * the right, then the extension statuses with the usage figures on the right. codex-fast's status
- * moves from the statuses to beside the model. A row too wide for the terminal splits in two.
+ * moves from the statuses to beside the model. On narrower terminals, Row 2 progressively compacts
+ * low-priority tags and labels before splitting into two rows.
  */
 export function layoutFooter(
   lines: readonly string[],
@@ -378,6 +495,24 @@ export function layoutFooter(
   const { statusLine, modelStatus } = model
     ? takeModelStatus(piStatusLine, parts.statuses)
     : { statusLine: piStatusLine, modelStatus: "" };
+  const canCompactStatuses = Boolean(
+    parts.statuses && stripVTControlCharacters(statusRow(parts.statuses)) === stripVTControlCharacters(piStatusLine),
+  );
+  const l0 = statusLine;
+  const l1 = canCompactStatuses
+    ? compactStatuses(parts.statuses!, { dropModelStatus: Boolean(model), dropSkills: false })
+    : l0;
+  const l2 = canCompactStatuses
+    ? compactStatuses(parts.statuses!, { dropModelStatus: Boolean(model), dropSkills: true })
+    : l0;
+
+  const s = compactStats(stats);
+  const r0 = s.full ? colourStats(s.full, theme) : "";
+  const r1 = s.trimmed ? colourStats(s.trimmed, theme) : "";
+  const r2 = s.noCacheRw ? colourStats(s.noCacheRw, theme) : "";
+  const r3 = s.noIo ? colourStats(s.noIo, theme) : "";
+  const r4 = s.essential ? colourStats(s.essential, theme) : "";
+
   // Like Pi, drop the provider before anything else when the model does not fit.
   const withoutProvider = model.replace(/^\([^)]*\) /, "");
   const models = withoutProvider === model ? [model] : [model, withoutProvider];
@@ -389,7 +524,20 @@ export function layoutFooter(
       width,
       ellipsis,
     ),
-    ...footerRow(statusLine, [colourStats(stats, theme)], width, ellipsis),
+    ...footerPairRow(
+      [
+        { left: l0, right: r0 },
+        { left: l0, right: r1 },
+        { left: l0, right: r2 },
+        { left: l1, right: r2 },
+        { left: l1, right: r3 },
+        { left: l2, right: r4 },
+      ],
+      [l0, l1, l2],
+      [r0, r1, r2, r3, r4],
+      width,
+      ellipsis,
+    ),
   ];
 }
 
