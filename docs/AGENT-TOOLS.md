@@ -76,7 +76,7 @@ context.
 | [`quota-router`](../pi/extensions/quota-router/README.md) | `/accounts` picker: switch logins, choose main, manage saved accounts and automation; `/route` controls fallback when a login hits a limit |
 | [`compact-ui`](../pi/extensions/compact-ui/README.md) | One-line startup header (enable **Quiet startup** in `/settings`) and a two-row coloured footer: folder and model, then statuses and usage |
 | `mcp-idle-stop` | Stops the session's local (stdio) MCP servers after 10 idle minutes; Pi starts each again on the next call to its tools |
-| `restart` | A line just above the input box when the session is out of date: a newer Pi is installed (`/restart` reopens the same conversation in a new Pi in the same Herdr app pane; `/reload` does not update Pi itself), or extensions, prompt templates, settings, keybindings, `mcp.json` or AGENTS.md files changed since it started (`/reload`) (below) |
+| `restart` | A line just above the input box when the session is out of date: a newer Pi is installed (`/restart` reopens the same conversation in a new Pi in the same pane; `/reload` does not update Pi itself), or extensions, prompt templates, settings, keybindings, `mcp.json` or AGENTS.md files changed since it started (`/reload`) (below) |
 | [`pi-compat`](../pi/extensions/pi-compat/README.md) | After each Pi update, runs once the tests of the workflows that use Pi internals (Vim editing, Pi Tasks, account switching, compact footer, Claude via OMP and others); failures show in the footer, `pi-compat-check --status` has the logs |
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
@@ -93,6 +93,11 @@ conversation is in its session file, so a new process continues it:
    installed; this session runs 1.5.2. Type /restart to reopen it on 1.6.0.`
 3. When you next use it, type `/restart`. Pi quits and the same conversation
    reopens on 1.6.0 in that pane. Pi never restarts by itself.
+
+A Pi the [`pi`](../bin/pi) wrapper runs (any Pi started in a terminal since
+2026-11-26, Pi Tasks included) is reopened by the wrapper itself, with the
+flags it repeats. An older one needs the Herdr app: a helper types
+`pi --session '<file>'` into the shell that comes back.
 
 Meanwhile [`pi-compat`](../pi/extensions/pi-compat/README.md) tests the workflows
 that use Pi internals against 1.6.0. If its footer shows `Pi 1.6.0: 2 checks
