@@ -1,6 +1,6 @@
 # Park idle Pi conversations and reopen them on return
 
-**Status:** Active (PRs 1 and 2 merged and deployed 2026-11-26; PR 4 waits on a decision)
+**Status:** Complete (2026-11-28)
 **Scope:** [`bin/pi`](../../../bin/pi), a new `pi/extensions/park-idle/`,
 [`herdr-app-resume`](../../../pi/extensions/herdr-app-resume/index.ts),
 [`pi-resume`](../../../herdr-app/mods/pi-resume/main.js), their tests and
@@ -245,12 +245,20 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
   `create` lines, because it also listed another task's uncommitted
   `pi-compat` files. Pi sessions started from then on park; older ones do not.
 - [x] Overall done check on the deployed files (below).
-- [ ] PR 4: after a reboot, parked conversations come back parked, with flags.
-  Opened; checked by hand with the worktree's files (below). The live
-  `pi-resume` mod can only be checked once it is merged and deployed.
+- [x] PR 4 merged as #55 (`0536c0f`; two review rounds) and deployed with the
+  main checkout's fast-forward to `fceb572`; the `pi-resume` link was touched
+  and `herdr-app check` passed. Checked live (below).
 
 ## Verification
 
+- PR 4, live, 2026-11-28: a throwaway Space's shell was labelled as a terminal
+  a reboot brought back while parked (`pi.session`, `pi.shell=1`,
+  `pi.parked=1`, `pi.args` with `--approve`). Within a second the live
+  `pi-resume` mod typed `pi --parked --approve --session-dir … --session '<file>'`;
+  the pane showed the parked note with no Pi and reported an idle Pi. Focusing
+  it (owner away, display on) opened the conversation in 0.5 s with its last
+  message once; the new labels kept `--approve` and dropped `pi.parked`;
+  `Ctrl+D` cleared them.
 - PR 4, by hand, worktree files, 2026-11-27: a Pi run with `--approve` labelled
   its terminal `pi.args` (the replayed flags) and, once parked, `pi.parked=1`.
   The worktree `pi-resume` rules, given those labels on a "recovered" terminal,
@@ -286,4 +294,17 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
 
 ## Outcome
 
-<Complete when moved to completed/.>
+An interactive Pi idle for two hours quits; its terminal stays as an idle Pi
+in Herdr and reopens the conversation on focus or a key in under a second. A
+reboot brings a parked conversation back parked and every conversation back
+with its replayed flags. Merged: #30 (plan), #31 (wrapper), #32 (`park-idle`,
+`herdr-app-resume`), #49 (pseudo-terminal pane-close rule), #55 (reboot),
+with #52 and this note recording progress.
+
+Gaps and follow-ups:
+
+- Sessions started before 2026-11-26 never park until restarted.
+- With the display asleep, one focus did not wake a parked pane; a key does.
+- Reading by scrolling for two hours without a key can park a conversation.
+- `/restart` (`pi/extensions/restart`) still types `pi --session` into a shell
+  after Pi quits; reopening through the wrapper would also work in Pi Tasks.
