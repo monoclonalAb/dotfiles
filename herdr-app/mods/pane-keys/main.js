@@ -2,6 +2,8 @@
 // the status bar (0 px), where its key commands always arrive.
 //
 //   pane-keys.last              the pane focused before this one (C-a `)
+//   pane-keys.back / .forward   step back and forward through the panes you were in,
+//                               as a browser's Back and Forward (C-a [ / C-a ])
 //   pane-keys.next / .prev      cycle the panes of this tab (C-a Tab / C-a S-Tab)
 //   pane-keys.go:<direction>    pane.go, after showing a zoomed tab whole (C-a h/j/k/l)
 //   pane-keys.agent:<n>         the n-th conversation in the Spaces tree (C-a M-1..9)
@@ -41,6 +43,33 @@ export function panelPlan(tree, id) {
   if (!panel || !body?.children?.some((c) => c.id === id)) return { error: `This layout has no ${id || "such"} panel` };
   if (!panel.hidden && body.active === id) return { commands: [["layout.hide", { id: "panel" }]] };
   return { commands: [["layout.select", { stack: "panel-body", child: id }], ["layout.show", { id: "panel" }]] };
+}
+
+// Back and forward. `trail`: { list: pane ids, oldest first, each once, at its
+// latest visit; at: the index of the pane you are in }. Example: you visit A,
+// B, C, D; back goes to C, then B; forward goes to C again. Focus that lands
+// anywhere by other means (a click, C-a u) drops what was ahead, as a browser
+// drops Forward after you open a new page.
+const TRAIL_CAP = 50;
+
+export function emptyTrail() {
+  return { list: [], at: -1 };
+}
+
+// The trail after focus lands on `pane` other than by back or forward.
+export function visitTrail(trail, pane, cap = TRAIL_CAP) {
+  if (!pane || trail.list[trail.at] === pane) return trail;
+  const list = [...trail.list.slice(0, trail.at + 1).filter((p) => p !== pane), pane].slice(-cap);
+  return { list, at: list.length - 1 };
+}
+
+// One step back (-1) or forward (+1), over panes since closed:
+// { trail, pane }, or null at that end.
+export function stepTrail(trail, delta, isLive) {
+  for (let i = trail.at + delta; i >= 0 && i < trail.list.length; i += delta) {
+    if (isLive(trail.list[i])) return { trail: { list: trail.list, at: i }, pane: trail.list[i] };
+  }
+  return null;
 }
 
 const RECENT = "pane-keys.recent";
@@ -100,6 +129,8 @@ const WORKTREE = { new: { width: 440, height: 260 }, open: { width: 560, height:
 export default class PaneKeys extends View {
   init(_props, cx) {
     this.history = []; // pane ids, most recent first
+    this.trail = emptyTrail(); // for back and forward
+    this.stepping = null; // { from, to } until a back or forward lands
     this.seen = null; // { pane, zoomed } at the last render, for zoomFix
     this.fixing = null; // the state a zoom fix was sent for
     this.keys = cx.focus_handle(); // holds the keyboard while H/J/K/L repeat
@@ -123,6 +154,13 @@ export default class PaneKeys extends View {
       const previous = this.history.find((p) => p !== f?.pane && live.some((x) => x.pane === p));
       if (!previous) return notify({ title: "No previous pane", level: "info", timeout: 2000 });
       return run("pane.focus", { pane: previous });
+    }
+    if (command === "back" || command === "forward") {
+      const step = stepTrail(this.trail, command === "back" ? -1 : 1, (p) => p !== f?.pane && live.some((x) => x.pane === p));
+      if (!step) return notify({ title: command === "back" ? "No earlier pane" : "No later pane", level: "info", timeout: 2000 });
+      this.trail = step.trail;
+      this.stepping = { from: f?.pane, to: step.pane };
+      return run("pane.focus", { pane: step.pane });
     }
     if (command === "next" || command === "prev") {
       const mine = live.filter((p) => p.tab === f?.tab);
@@ -198,6 +236,13 @@ export default class PaneKeys extends View {
     // Focus history for `last`: render runs whenever focus changes.
     const pane = focused()?.pane;
     if (pane && this.history[0] !== pane) this.history = [pane, ...this.history.filter((p) => p !== pane)].slice(0, 20);
+    // Back and forward: a focus they did not make is a new visit. Until theirs
+    // lands, the pane they left is still focused; that is no visit.
+    if (pane && this.stepping?.to === pane) this.stepping = null;
+    else if (pane && this.stepping?.from !== pane) {
+      this.stepping = null;
+      this.trail = visitTrail(this.trail, pane);
+    }
     // A zoom hiding the focused pane: fix it once per state, after this render,
     // and only if nothing moved in between.
     const now = this.zoomState();

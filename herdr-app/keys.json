@@ -180,6 +180,8 @@
     "cmd-alt-up": "pane-keys.go:up",
     "cmd-alt-down": "pane-keys.go:down",
     "ctrl-a `": "pane-keys.last",
+    "ctrl-a [": "pane-keys.back",
+    "ctrl-a ]": "pane-keys.forward",
     "ctrl-a tab": "pane-keys.next",
     "ctrl-a shift-tab": "pane-keys.prev",
     "ctrl-a alt-1": "pane-keys.agent:1",

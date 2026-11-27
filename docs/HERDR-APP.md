@@ -207,6 +207,8 @@ change tabs or move worktrees.
 | `C-a h/j/k/l`, `Cmd+Alt+arrows` | The pane in that direction; in a zoomed tab, unzooms first |
 | `C-a H/J/K/L`, `Ctrl+Alt+arrows` | [Resize](#resizing-panes): move the pane's edge left / down / up / right; after `C-a H/J/K/L`, `H/J/K/L` alone repeat |
 | `` C-a ` ``, `C-a Tab` / `C-a S-Tab` | Last pane, next / previous pane in this tab |
+| `C-a [` / `C-a ]` | [Back / forward](#back-and-forward) through the panes you were in, in any tab or Space |
+| `Cmd+[` / `Cmd+]`, `C-a S-↑` / `C-a S-↓` | Previous / next agent (the app's order) |
 | `C-a M-1..9` | The n-th conversation in the sidebar |
 | `C-a g` / `C-a G` / `C-a C-g` | Open / new / remove worktree (the app's dialog) |
 | `C-a b`, `Cmd+B` | The sidebar in the right-hand panel; again: close the panel |
@@ -226,6 +228,23 @@ Example, a tab with `fix login` and `migrate store` split side by side:
    `migrate store`. The tab unzooms and shows both, focus on `migrate store`.
 3. 10:06: `C-a z` again zooms `migrate store`. `C-a h` unzooms and moves left.
 4. A pane header's zoom button zooms that pane and moves focus to it.
+
+### Back and forward
+
+`C-a [` and `C-a ]` work like a browser's Back and Forward, for panes.
+They are undo and redo for where you are, not for what you typed. Example:
+
+1. 10:00: you are in `fix login`. 10:05: you click `migrate store` in the
+   sidebar. 10:10: `C-a h` moves to the Neovim pane beside it.
+2. `C-a [` goes back to `migrate store`; `C-a [` again, to `fix login`.
+3. `C-a ]` goes forward to `migrate store`, then to Neovim.
+4. If instead, while back on `fix login`, you go anywhere by another key or a
+   click, the panes that were ahead are dropped, as a browser drops Forward.
+
+Every move counts: other tabs and Spaces, Personal and Work alike. Each pane
+is listed once, at its latest visit, so going back and forth between two
+panes does not fill the list. Closed panes are skipped. `Cmd+[` / `Cmd+]`
+stay the app's previous / next agent.
 
 ### Resizing panes
 
@@ -444,9 +463,9 @@ Switching layouts restarts each layout's mods. Coming back, the sidebar and
 the status bar mods start again and reload what they keep in storage (folds,
 unread marks, recent visits, and each Space's repository and branch, so the
 sidebar's tree shows at once while git is asked again); the focused pane and the panel's view and width
-belong to the app and do not change. ``C-a ` `` forgets the pane before, which
-`pane-keys` keeps only while it runs, so it does nothing until you move to
-another pane.
+belong to the app and do not change. ``C-a ` ``, `C-a [` and `C-a ]`
+forget the panes before, which `pane-keys` keeps only while it runs, so they
+do nothing until you move to another pane.
 
 ### State of a pull request's review
 
