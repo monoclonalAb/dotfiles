@@ -76,6 +76,7 @@ function startupPackageJson(): string | undefined {
 export interface RestartOptions {
   env?: { HC_TERMINAL_ID?: string; HC_BIN_PATH?: string; PI_PARK_FILE?: string; PI_PARK_PID?: string; PI_PARK_NOW?: string };
   parentPid?: number;
+  write?: (path: string, text: string) => void;
   running?: string;
   packageJson?: string;
   read?: (path: string) => string;
@@ -119,10 +120,12 @@ export function registerRestart(pi: ExtensionAPI, options: RestartOptions = {}) 
   const launch = options.launch ?? launchHelper;
   const pid = options.pid ?? process.pid;
   // The `pi` wrapper (bin/pi) that started this Pi reopens a session left in
-  // PI_PARK_FILE; with PI_PARK_FILE.now it does so at once (PI_PARK_NOW: a wrapper
-  // that knows .now; an older one would wait for a key). Any terminal, Pi Tasks too.
-  const wrapper = env.PI_PARK_FILE && env.PI_PARK_NOW === "1" && env.PI_PARK_PID === String(options.parentPid ?? process.ppid)
-    ? env.PI_PARK_FILE : undefined;
+  // PI_PARK_FILE; with PI_PARK_FILE.now it does so at once. PI_PARK_NOW holds the
+  // pid of a wrapper that knows .now: an older one would wait for a key, and it may
+  // have inherited a newer one's PI_PARK_NOW. Any terminal, Pi Tasks too.
+  const parent = String(options.parentPid ?? process.ppid);
+  const wrapper = env.PI_PARK_FILE && env.PI_PARK_PID === parent && env.PI_PARK_NOW === parent ? env.PI_PARK_FILE : undefined;
+  const write = options.write ?? writeFileSync;
   let timer: ReturnType<typeof setInterval> | undefined;
   let shown: string | undefined;
   let resources: ReturnType<typeof resourceWatch> | undefined;
@@ -170,10 +173,13 @@ export function registerRestart(pi: ExtensionAPI, options: RestartOptions = {}) 
           return;
         }
         try {
-          writeFileSync(`${wrapper}.now`, "");
-          writeFileSync(wrapper, file);
+          write(`${wrapper}.now`, "");
+          write(wrapper, file);
         } catch {
-          rmSync(`${wrapper}.now`, { force: true });
+          // A partly written session file would turn the next quit into a park.
+          for (const path of [wrapper, `${wrapper}.now`]) {
+            try { rmSync(path, { force: true }); } catch { /* best effort */ }
+          }
           ctx.ui.notify(`Could not hand this conversation to the pi wrapper, so Pi stays open. To restart, quit, then run: ${command}`, "error");
           return;
         }
