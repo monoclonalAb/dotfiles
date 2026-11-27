@@ -246,10 +246,18 @@ touch `pi-resume` and go one after the other. Screenshots before merge: PR 2
   `pi-compat` files. Pi sessions started from then on park; older ones do not.
 - [x] Overall done check on the deployed files (below).
 - [ ] PR 4: after a reboot, parked conversations come back parked, with flags.
-  Not started; waits on the owner.
+  Opened; checked by hand with the worktree's files (below). The live
+  `pi-resume` mod can only be checked once it is merged and deployed.
 
 ## Verification
 
+- PR 4, by hand, worktree files, 2026-11-27: a Pi run with `--approve` labelled
+  its terminal `pi.args` (the replayed flags) and, once parked, `pi.parked=1`.
+  The worktree `pi-resume` rules, given those labels on a "recovered" terminal,
+  produced `pi --parked … --approve … --session '<file>'`. Typed into a fresh
+  shell terminal, it waited with no Pi and the parked note; a key opened the
+  conversation once, the new labels kept `--approve` and dropped `pi.parked`;
+  `Ctrl+D` cleared them.
 - Overall (brief), deployed — passed 2026-11-26 in a throwaway Space running
   `PI_PARK_AFTER=20 pi …` from a login shell (the deployed wrapper and every
   deployed extension, Pi 1.6.1): a draft kept Pi running for 25 s; 25 s after
