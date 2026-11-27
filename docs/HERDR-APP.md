@@ -532,8 +532,10 @@ back when you return to it:
    and still reports an idle Pi, so the sidebar row, its dot, Mission control and
    `next-agent` (an unread finish stays unread) are unchanged.
 3. 15:00: you click `t7`. The app tells the terminal it has focus, and the same
-   conversation is back in about a second. Any key also brings it back; the key
-   that wakes it is not typed.
+   conversation is back in about a second. If `t7` already had focus (you left
+   Herdr with it selected), the click itself does it: switching back to the app
+   sends no focus. Any key also brings it back; the key or click that wakes it
+   never reaches Pi.
 
 It never quits with a draft in the editor or an open dialog, while the agent
 works, while a `!` command or a Ctrl+G editor runs, while an `/artifact-review`

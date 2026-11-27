@@ -81,7 +81,7 @@ context.
 | `token-speed` | Output tokens per second in the footer: a live `~` estimate while a reply streams, then the exact rate; `/tps` adds session and per-model averages |
 | [`local-file-links`](../pi/extensions/local-file-links/README.md) | Clickable file links that open in Neovim |
 | [`readable-transcript`](../pi/extensions/readable-transcript/README.md) | Frames thinking blocks behind a `│` rail and tidies `codemode` and multi-line `bash` script rows (display only) |
-| [`park-idle`](../pi/extensions/park-idle/README.md) | Quits a Pi idle for two hours to free its memory; the [`pi`](../bin/pi) wrapper keeps the terminal and reopens the conversation on focus or a key ([Herdr app](HERDR-APP.md#idle-conversations)) |
+| [`park-idle`](../pi/extensions/park-idle/README.md) | Quits a Pi idle for two hours to free its memory; the [`pi`](../bin/pi) wrapper keeps the terminal and reopens the conversation on focus, a click or a key ([Herdr app](HERDR-APP.md#idle-conversations)) |
 | `herdr-task-summary` | Conversation titles in the Herdr sidebar (small model request per task; see [`HERDR.md`](HERDR.md#agent-state)); titles only, no background conversation summaries |
 | [`omp-anthropic-route`](../pi/extensions/omp-anthropic-route/README.md) | Sends Claude OAuth requests in OMP's reviewed shape (below) |
 
