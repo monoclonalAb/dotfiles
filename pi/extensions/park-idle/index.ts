@@ -62,6 +62,12 @@ export function hasLiveChild(replies: string, terminal: string) {
 // `input`: the terminal's raw input. Fullscreen Pi takes mouse wheel, clicks and focus
 // reports before ctx.ui.onTerminalInput listeners see them, so a person reading
 // by scrolling would look idle; stdin carries every byte.
+// Terminal replies, which arrive without anyone there (a light/dark switch makes
+// Pi query the colours): private CSI reports (ESC [ ? … c/n/u/$y), OSC, DCS and
+// APC strings. Anything else is a person: keys, the mouse, focus.
+const REPLIES = /\x1b\[\?[\d;:]*[a-zA-Z$]+|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][^\x1b]*\x1b\\/g;
+export const isActivity = (input: string) => input.replace(REPLIES, "").length > 0;
+
 export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment = process.env as ParkEnvironment,
   parentPid = process.ppid, input: NodeJS.ReadableStream = process.stdin) {
   const file = environment.PI_PARK_FILE;
@@ -135,8 +141,7 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
     if (!ctx.hasUI) return;
     stopListening?.();
     const onInput = (chunk: Buffer | string) => {
-      // The terminal reports a light/dark switch by itself; no one is there.
-      if (/^(?:\x1b\[\?997;\d+n)+$/.test(String(chunk))) return;
+      if (!isActivity(String(chunk))) return;
       inputs++;
       arm();
     };

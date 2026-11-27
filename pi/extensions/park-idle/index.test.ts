@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { childPids, hasCommandChild, hasLiveChild, registerParkIdle } from "./index.ts";
+import { childPids, hasCommandChild, hasLiveChild, isActivity, registerParkIdle } from "./index.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const AFTER = 0.05; // seconds
@@ -117,13 +117,23 @@ test("scrolling or clicking the transcript puts it off too", async () => {
   assert.equal(h.shutdowns, 1);
 });
 
-test("a colour-scheme report from the terminal is not activity", async () => {
-  const h = harness();
-  h.emit("session_start", { reason: "startup" });
-  await sleep(AFTER * 600);
-  h.report("\x1b[?997;1n");
-  await sleep(AFTER * 600);
-  assert.equal(h.shutdowns, 1, "parked on time");
+test("the terminal's own reports are not activity", async () => {
+  // A light/dark switch: the scheme report, then the replies to Pi's colour queries.
+  for (const reports of ["\x1b[?997;1n", "\x1b]11;rgb:ffff/ffff/ffff\x07\x1b[?1;2c", "\x1b]10;rgb:0/0/0\x1b\\", "\x1b[?2026;2$y"]) {
+    const h = harness();
+    h.emit("session_start", { reason: "startup" });
+    await sleep(AFTER * 600);
+    h.report(reports);
+    await sleep(AFTER * 600);
+    assert.equal(h.shutdowns, 1, `parked on time after ${JSON.stringify(reports)}`);
+  }
+});
+
+test("keys, the mouse and focus are activity", () => {
+  for (const bytes of ["a", "\r", "\x1b", "\x1b[A", "\x1b[97;5u", "\x1bOP", "\x1b[<35;4;5M", "\x1b[I", "\x1b[O"]) {
+    assert.equal(isActivity(bytes), true, JSON.stringify(bytes));
+  }
+  assert.equal(isActivity("\x1b[?997;2n\x1b[?1;2c"), false);
 });
 
 test("nothing that would be lost is parked, and it tries again later", async () => {
