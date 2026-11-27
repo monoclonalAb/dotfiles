@@ -175,6 +175,19 @@
               "content": {
                 "mod": "pi-resume"
               }
+            },
+            {
+              "id": "status-review-warm",
+              "type": "block",
+              "size": {
+                "px": 0
+              },
+              "content": {
+                "mod": "review-nav",
+                "props": {
+                  "part": "warm"
+                }
+              }
             }
           ]
         }
