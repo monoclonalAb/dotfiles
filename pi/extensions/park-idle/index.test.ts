@@ -1,5 +1,6 @@
 // bun test ./pi/extensions/park-idle/*.test.ts
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,6 +38,8 @@ function harness(over: Partial<World> = {}, env: Record<string, string> = {}, ui
   const handlers = new Map<string, (...args: any[]) => any>();
   const calls: string[][] = [];
   let input: (() => unknown) | undefined;
+  // The terminal's raw input, as process.stdin delivers it.
+  const terminal = new EventEmitter();
   let shutdowns = 0;
   const pi = {
     on(name: string, handler: (...args: any[]) => any) { handlers.set(name, handler); },
@@ -59,11 +62,15 @@ function harness(over: Partial<World> = {}, env: Record<string, string> = {}, ui
       getEntries: () => [{ id: "e1" }, { id: "e2" }] },
   };
   registerParkIdle(pi as never, { PI_PARK_FILE: parkFile, PI_PARK_PID: "4242", PI_PARK_AFTER: String(AFTER),
-    HC_TERMINAL_ID: "t7", ...env }, 4242);
+    HC_TERMINAL_ID: "t7", ...env }, 4242, terminal as never);
   return {
     world, handlers, calls, parkFile, session, dir,
     emit: (name: string, event: object = {}) => handlers.get(name)?.(event, ctx),
-    type: () => input?.(),
+    // A key reaches Pi's input listeners and stdin.
+    type: () => { terminal.emit("data", Buffer.from("a")); input?.(); },
+    // Fullscreen Pi takes the wheel, clicks and focus reports before its input
+    // listeners see them (measured on Pi 1.6.1); only stdin carries them.
+    scroll: () => terminal.emit("data", Buffer.from("\x1b[<64;10;10M")),
     get shutdowns() { return shutdowns; },
     parked: () => existsSync(parkFile) ? readFileSync(parkFile, "utf8") : undefined,
   };
@@ -94,6 +101,17 @@ test("a key, or a run that starts, puts it off until a full period after", async
   await sleep(WAIT);
   assert.equal(h.shutdowns, 0, "working");
   h.emit("agent_settled");
+  await sleep(WAIT);
+  assert.equal(h.shutdowns, 1);
+});
+
+test("scrolling or clicking the transcript puts it off too", async () => {
+  const h = harness();
+  h.emit("session_start", { reason: "startup" });
+  await sleep(AFTER * 600);
+  h.scroll();
+  await sleep(AFTER * 600);
+  assert.equal(h.shutdowns, 0, "scrolled 30 ms ago");
   await sleep(WAIT);
   assert.equal(h.shutdowns, 1);
 });
