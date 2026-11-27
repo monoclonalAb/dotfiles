@@ -65,7 +65,7 @@ export function hasLiveChild(replies: string, terminal: string) {
 // Terminal replies, which arrive without anyone there (a light/dark switch makes
 // Pi query the colours): private CSI reports (ESC [ ? … c/n/u/$y), OSC, DCS and
 // APC strings. Anything else is a person: keys, the mouse, focus.
-const REPLIES = /\x1b\[\?[\d;:]*[a-zA-Z$]+|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][^\x1b]*\x1b\\/g;
+const REPLIES = /\x1b\[\?[\d;:]*(?:\$y|[a-zA-Z])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][^\x1b]*\x1b\\/g;
 export const isActivity = (input: string) => input.replace(REPLIES, "").length > 0;
 
 export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment = process.env as ParkEnvironment,

@@ -134,6 +134,7 @@ test("keys, the mouse and focus are activity", () => {
     assert.equal(isActivity(bytes), true, JSON.stringify(bytes));
   }
   assert.equal(isActivity("\x1b[?997;2n\x1b[?1;2c"), false);
+  assert.equal(isActivity("\x1b[?1;2cj"), true, "a key read together with a reply");
 });
 
 test("nothing that would be lost is parked, and it tries again later", async () => {
