@@ -59,8 +59,11 @@ export function hasLiveChild(replies: string, terminal: string) {
   throw new Error("hc gave no terminal list");
 }
 
+// `input`: the terminal's raw input. Fullscreen Pi takes mouse wheel, clicks and focus
+// reports before ctx.ui.onTerminalInput listeners see them, so a person reading
+// by scrolling would look idle; stdin carries every byte.
 export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment = process.env as ParkEnvironment,
-  parentPid = process.ppid) {
+  parentPid = process.ppid, input: NodeJS.ReadableStream = process.stdin) {
   const file = environment.PI_PARK_FILE;
   const seconds = Number(environment.PI_PARK_AFTER || PARK_AFTER_SECONDS);
   // A Pi the agent started inherits the variables but not the wrapper.
@@ -131,11 +134,12 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
     current = ctx;
     if (!ctx.hasUI) return;
     stopListening?.();
-    stopListening = ctx.ui.onTerminalInput(() => {
+    const onInput = () => {
       inputs++;
       arm();
-      return undefined;
-    });
+    };
+    input.on("data", onInput);
+    stopListening = () => input.off("data", onInput);
     arm();
   });
   pi.on("agent_start", () => clearTimeout(timer));
