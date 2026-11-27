@@ -384,7 +384,9 @@ reviewers, labels and diff, file by file. Example:
 The list is GitHub's pull request search, as `gh search prs --state=open
 --archived=false` runs it but most recently updated first, every page,
 loaded each time Review mode opens and every 2 minutes while the window
-shows; `Refreshing…` marks a reload. GitHub returns at most 1000 results per
+shows. Review mode opens on the list it loaded last time, marked
+`Refreshing…` until the new one is in (about 3 s: both searches, then the
+details in batches of 6 pull requests side by side). GitHub returns at most 1000 results per
 search: past that, a section says how many more there are on GitHub. When
 GitHub says a search may be incomplete, or gives no details for some pull
 requests, the section says so. An open pull request that leaves the list

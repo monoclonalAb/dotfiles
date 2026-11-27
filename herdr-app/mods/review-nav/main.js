@@ -22,7 +22,10 @@ export const SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWE
 const SNAPSHOT_TIMEOUT = 600000; // the first one clones the repository
 export const PAGE = 100; // GitHub's most search results per page
 export const CAP = 1000; // GitHub's search returns no more than this
-const BATCH = 25; // pull requests per details query: GitHub allows 100, but 50 long ones can time out (HTTP 502)
+// Pull requests per details query, and queries at once. GitHub's time grows
+// with the pull requests in one query (1: 0.9 s, 6: 1.4 s, 18: 3.5 s; 50 long
+// ones can time out, HTTP 502), so small queries run side by side.
+const BATCH = 6, AT_ONCE = 4;
 const REFRESH = 120000;
 // GitHub answers UNKNOWN until it has worked out a merge verdict (11 of 27
 // pull requests on a first load), so those are asked again after these waits.
@@ -100,11 +103,20 @@ export function toPullRequest(n) {
 
 async function details(gh, ids) {
   const byId = new Map();
-  for (let i = 0; i < ids.length; i += BATCH) {
-    for (const n of reply(await gh(detailArgs(ids.slice(i, i + BATCH)))).data?.nodes ?? []) {
-      if (n?.id) byId.set(n.id, toPullRequest(n));
+  const batches = [];
+  for (let i = 0; i < ids.length; i += BATCH) batches.push(ids.slice(i, i + BATCH));
+  let failed = false; // then start no more: GitHub may be throttling
+  const next = async () => {
+    for (let batch; !failed && (batch = batches.shift());) {
+      try {
+        for (const n of reply(await gh(detailArgs(batch))).data?.nodes ?? []) if (n?.id) byId.set(n.id, toPullRequest(n));
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(AT_ONCE, batches.length) }, next));
   return byId;
 }
 
@@ -128,8 +140,7 @@ async function search(gh, query) {
 // those it found but gave no details for.
 // gh(args) runs gh and resolves with { code, stdout, stderr }.
 export async function loadPullRequests(gh) {
-  const found = [];
-  for (const s of SEARCHES) found.push({ ...s, ...(await search(gh, s.query)) });
+  const found = await Promise.all(SEARCHES.map(async (s) => ({ ...s, ...(await search(gh, s.query)) })));
   const byId = await details(gh, [...new Set(found.flatMap((s) => s.ids))]);
   return {
     at: Date.now(),
@@ -157,6 +168,27 @@ export function openNow(open, list) {
   if (!open) return null;
   const now = list.sections.flatMap((s) => s.prs).find((p) => p.id === open.id || p.url === open.url);
   return now ?? (open.gone ? open : { ...open, gone: true });
+}
+
+// The last list, kept so Review mode opens on it while a fresh one loads:
+// C-a p restarts this mod, and GitHub takes seconds. Only a list shaped as
+// loadPullRequests makes it is drawn.
+const KEPT = "list", KEPT_VERSION = 1, KEPT_MAX = 512 * 1024;
+const text = (v) => typeof v === "string";
+const keptPr = (p) => text(p?.id) && text(p.url) && text(p.title) && text(p.repo) && text(p.body) && Number.isInteger(p.number)
+  && p.chip in CHIPS && Array.isArray(p.labels) && p.labels.every(text)
+  && Array.isArray(p.reviewers) && p.reviewers.every((r) => text(r?.name) && text(r.state));
+
+export function keptList(stored) {
+  try {
+    const kept = JSON.parse(stored ?? "null");
+    const list = kept?.version === KEPT_VERSION ? kept.list : null;
+    if (!Array.isArray(list?.sections)) return null;
+    const fine = list.sections.every((s) => text(s?.key) && text(s.title) && Array.isArray(s.prs) && s.prs.every(keptPr));
+    return fine ? list : null;
+  } catch {
+    return null;
+  }
 }
 
 // The key's move through the list (1 or -1), "open", "back" (Esc, to the
@@ -248,6 +280,7 @@ const answer = (result) => {
 export default class ReviewNav extends View {
   init(_props, cx) {
     this.list = null;
+    try { this.list = keptList(localStorage.getItem(KEPT)); } catch { /* nothing kept */ }
     this.error = null;
     this.loading = false;
     // The Files view of the open pull request, not the list: as it was before
@@ -257,7 +290,7 @@ export default class ReviewNav extends View {
     if (snap?.status === "loading") setShared(SNAPSHOT, null);
     this.files = snap?.status === "ready" && snap.pr === shared(OPEN)?.url;
     if (!this.files && shared(FILE)) setShared(FILE, null);
-    this.selected = shared(OPEN)?.url ?? null;
+    this.selected = shared(OPEN)?.url ?? this.prs()[0]?.url ?? null;
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.scroll = ScrollHandle.new();
@@ -273,7 +306,7 @@ export default class ReviewNav extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        this.show(await loadPullRequests(gh));
+        this.fresh(await loadPullRequests(gh));
         this.error = null;
         this.recheck(cx, 0);
       } catch (e) {
@@ -291,11 +324,21 @@ export default class ReviewNav extends View {
       try {
         const { list } = await recheckUnknown(gh, this.list);
         if (this.list.at !== at) return; // a full refresh came in meanwhile
-        this.show(list);
+        this.fresh(list);
         cx.notify();
         this.recheck(cx, attempt + 1);
       } catch { /* the next refresh asks again */ }
     }));
+  }
+
+  // Shows a freshly loaded list and keeps it for the next start.
+  fresh(list) {
+    this.show(list);
+    const stored = JSON.stringify({ version: KEPT_VERSION, list });
+    try {
+      if (utf8Bytes(stored) <= KEPT_MAX) localStorage.setItem(KEPT, stored);
+      else localStorage.removeItem(KEPT); // an older list would be wrong
+    } catch { /* outside the app */ }
   }
 
   show(list) {
