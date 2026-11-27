@@ -134,7 +134,9 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
     current = ctx;
     if (!ctx.hasUI) return;
     stopListening?.();
-    const onInput = () => {
+    const onInput = (chunk: Buffer | string) => {
+      // The terminal reports a light/dark switch by itself; no one is there.
+      if (/^(?:\x1b\[\?997;\d+n)+$/.test(String(chunk))) return;
       inputs++;
       arm();
     };

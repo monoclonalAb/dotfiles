@@ -71,6 +71,7 @@ function harness(over: Partial<World> = {}, env: Record<string, string> = {}, ui
     // Fullscreen Pi takes the wheel, clicks and focus reports before its input
     // listeners see them (measured on Pi 1.6.1); only stdin carries them.
     scroll: () => terminal.emit("data", Buffer.from("\x1b[<64;10;10M")),
+    report: (bytes: string) => terminal.emit("data", Buffer.from(bytes)),
     get shutdowns() { return shutdowns; },
     parked: () => existsSync(parkFile) ? readFileSync(parkFile, "utf8") : undefined,
   };
@@ -114,6 +115,15 @@ test("scrolling or clicking the transcript puts it off too", async () => {
   assert.equal(h.shutdowns, 0, "scrolled 30 ms ago");
   await sleep(WAIT);
   assert.equal(h.shutdowns, 1);
+});
+
+test("a colour-scheme report from the terminal is not activity", async () => {
+  const h = harness();
+  h.emit("session_start", { reason: "startup" });
+  await sleep(AFTER * 600);
+  h.report("\x1b[?997;1n");
+  await sleep(AFTER * 600);
+  assert.equal(h.shutdowns, 1, "parked on time");
 });
 
 test("nothing that would be lost is parked, and it tries again later", async () => {

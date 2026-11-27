@@ -6,9 +6,9 @@ stopped them after 10 idle minutes). The terminal stays. Coming back to it
 reopens the same conversation in about a second.
 
 1. 10:20: Pi finishes a reply. You move to other work.
-2. 12:20: no key, click or scroll has reached Pi and no agent run has started
-   for two hours. The extension writes the session file to `PI_PARK_FILE` and
-   quits Pi.
+2. 12:20: no key, click, scroll, pointer movement or focus change has reached Pi
+   and no agent run has started for two hours. The extension writes the
+   session file to `PI_PARK_FILE` and quits Pi.
 3. The [`pi`](../../../bin/pi) wrapper, which started Pi as its child, prints
    "Pi closed while idle to free memory. Press a key to reopen this
    conversation." It tells Herdr it is an idle Pi, so the sidebar, Mission
