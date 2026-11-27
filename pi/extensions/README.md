@@ -35,9 +35,10 @@ Display-only extensions (no approval needed, but keep them that way):
   the model. Queued with Alt+Enter while Pi works, `/copy` is sent unchanged, as
   text for the model.
 - `herdr-app-resume/` labels its Herdr app terminal with the session file and
-  shell pid (`pi.session`, `pi.shell`; cleared on quit, kept when `park-idle`
-  parks) so the app's `pi-resume` mod can reopen the conversation after a
-  reboot. Labels only; nothing reaches the model.
+  shell pid (`pi.session`, `pi.shell`), the flags the `pi` wrapper repeats
+  (`pi.args`) and, once `park-idle` parks, `pi.parked=1`, so the app's
+  `pi-resume` mod can reopen the conversation after a reboot, parked if it was.
+  A quit clears them all. Labels only; nothing reaches the model.
 - `herdr-task-summary/` publishes a Herdr pane title (in the Herdr app, `hc`
   labels on its terminal: `task_summary`, `task_summary_pending`,
   `task_summary_error`). It observes user messages
