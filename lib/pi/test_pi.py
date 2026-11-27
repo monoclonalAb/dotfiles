@@ -38,7 +38,7 @@ if runs and os.environ.get("FAKE_PI_READ"):
 with open(log, "a") as f:
     f.write(json.dumps({"args": sys.argv[1:], "pid": os.getpid(), "ppid": os.getppid(),
                         "park_file": os.environ.get("PI_PARK_FILE"), "park_pid": os.environ.get("PI_PARK_PID"),
-                        "park_args": os.environ.get("PI_PARK_ARGS"),
+                        "park_args": os.environ.get("PI_PARK_ARGS"), "park_now": os.environ.get("PI_PARK_NOW"),
                         "stdin": got.hex()}) + "\\n")
 if step.startswith(("park", "restart")) and "PI_PARK_FILE" in os.environ:
     if step == "restart":
@@ -144,6 +144,7 @@ class PiParkingTest(unittest.TestCase):
         self.assertTrue(first["park_file"].startswith(self.env["XDG_STATE_HOME"]))
         self.assertEqual(first["park_args"], "-a\n--session-dir\n/s d/x\n-ne\n-e\nbuiltin:mcp\n--no-skills\n--tui-mode\nfullscreen\n",
                          "the replayed flags, one per line, for herdr-app-resume to label")
+        self.assertEqual(first["park_now"], "1", "tells /restart this wrapper reopens at once on PI_PARK_FILE.now")
         self.assertIsNone(t.proc.poll())
 
         t.type(FOCUS_OUT)

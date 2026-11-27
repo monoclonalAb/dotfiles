@@ -94,10 +94,11 @@ conversation is in its session file, so a new process continues it:
 3. When you next use it, type `/restart`. Pi quits and the same conversation
    reopens on 1.6.0 in that pane. Pi never restarts by itself.
 
-A Pi the [`pi`](../bin/pi) wrapper runs (any Pi started in a terminal since
-2026-11-26, Pi Tasks included) is reopened by the wrapper itself, with the
-flags it repeats. An older one needs the Herdr app: a helper types
-`pi --session '<file>'` into the shell that comes back.
+A Pi the [`pi`](../bin/pi) wrapper runs (a Pi started in a terminal, Pi Tasks
+included, unless `PI_PARK_AFTER=0`) is reopened by the wrapper itself, with
+the flags it repeats. Otherwise, as for a Pi or wrapper started before this,
+the Herdr app is needed: a helper types `pi --session '<file>'` into the shell
+that comes back.
 
 Meanwhile [`pi-compat`](../pi/extensions/pi-compat/README.md) tests the workflows
 that use Pi internals against 1.6.0. If its footer shows `Pi 1.6.0: 2 checks

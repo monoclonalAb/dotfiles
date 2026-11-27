@@ -154,7 +154,8 @@ mkdir -p "$park_dir" 2>/dev/null && chmod 700 "$park_dir" || exec "$real_pi" "$@
 PI_PARK_FILE=$park_dir/$$
 PI_PARK_PID=$$
 PI_PARK_ARGS=$replay_lines
-export PI_PARK_FILE PI_PARK_PID PI_PARK_ARGS
+PI_PARK_NOW=1
+export PI_PARK_FILE PI_PARK_PID PI_PARK_ARGS PI_PARK_NOW
 [ -n "$start_session" ] || start_parked=false
 # Closing the pane can deliver several hangups. The first one cleans up and
 # ignores the rest: a hangup arriving while bash runs `exit` from the trap would
