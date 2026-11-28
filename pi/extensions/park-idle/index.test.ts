@@ -10,6 +10,11 @@ import { childPids, hasCommandChild, hasLiveChild, isActivity, registerParkIdle 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const AFTER = 0.05; // seconds
 const WAIT = 120; // ms: past AFTER and the checks
+// Waits for a park that must happen, so a slow machine delays the test instead of failing it.
+async function until(done: () => boolean, ms = 3000) {
+  const end = Date.now() + ms;
+  while (!done() && Date.now() < end) await sleep(10);
+}
 
 interface World {
   idle: boolean;
@@ -86,7 +91,7 @@ test("only a Pi run by the wrapper, with a period, parks", () => {
 test("an idle Pi writes its session file for the wrapper and quits", async () => {
   const h = harness();
   h.emit("session_start", { reason: "startup" });
-  await sleep(WAIT);
+  await until(() => h.shutdowns > 0);
   assert.equal(h.parked(), h.session);
   assert.equal(h.shutdowns, 1);
 });
@@ -102,7 +107,7 @@ test("a key, or a run that starts, puts it off until a full period after", async
   await sleep(WAIT);
   assert.equal(h.shutdowns, 0, "working");
   h.emit("agent_settled");
-  await sleep(WAIT);
+  await until(() => h.shutdowns > 0);
   assert.equal(h.shutdowns, 1);
 });
 
@@ -113,7 +118,7 @@ test("scrolling or clicking the transcript puts it off too", async () => {
   h.scroll();
   await sleep(AFTER * 600);
   assert.equal(h.shutdowns, 0, "scrolled 30 ms ago");
-  await sleep(WAIT);
+  await until(() => h.shutdowns > 0);
   assert.equal(h.shutdowns, 1);
 });
 
@@ -160,7 +165,7 @@ test("nothing that would be lost is parked, and it tries again later", async () 
     assert.equal(h.parked(), undefined, name);
     Object.assign(h.world, { idle: true, pending: false, draft: "", session: h.session, leaf: "e2", ...MCP, lsof: "",
       hc: JSON.stringify({ id: 2, result: { terminals: [] } }) });
-    await sleep(WAIT);
+    await until(() => h.shutdowns > 0);
     assert.equal(h.shutdowns, 1, `${name}: parks once it clears`);
   }
 });
@@ -172,7 +177,7 @@ test("an open dialog holds it until the dialog closes", async () => {
   await sleep(WAIT);
   assert.equal(h.shutdowns, 0);
   h.emit("ui_prompt_end", { kind: "input" });
-  await sleep(WAIT);
+  await until(() => h.shutdowns > 0);
   assert.equal(h.shutdowns, 1);
 });
 
@@ -197,7 +202,7 @@ test("a park file it cannot write leaves Pi running", async () => {
 test("outside Herdr it skips the sub-terminal check; without a UI it never arms", async () => {
   const h = harness({}, { HC_TERMINAL_ID: "" });
   h.emit("session_start", { reason: "startup" });
-  await sleep(WAIT);
+  await until(() => h.shutdowns > 0);
   assert.equal(h.shutdowns, 1);
   assert.ok(!h.calls.some((c) => c[0] === "/bin/sh"));
   const print = harness({}, {}, false);
