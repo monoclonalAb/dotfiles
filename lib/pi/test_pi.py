@@ -181,7 +181,9 @@ class PiParkingTest(unittest.TestCase):
     def test_a_click_or_focus_wakes_it_without_its_mouse_reports_reaching_pi(self):
         # Clicking the pane that is already focused sends a press and a release; clicking
         # another one sends focus-in first. Neither may reach Pi (a click there could open a link).
-        for gestures in ([CLICK, RELEASE], [FOCUS_IN, CLICK, RELEASE], [FOCUS_IN]):
+        wheel16 = b"\x1b[<64;1000;1000M"  # 16 bytes: od would print a repeat of it as "*"
+        for gestures in ([CLICK, RELEASE], [FOCUS_IN, CLICK, RELEASE], [FOCUS_IN],
+                         [FOCUS_IN + CLICK * 8, RELEASE], [FOCUS_IN, wheel16 * 3, RELEASE]):
             with self.subTest(gestures=gestures):
                 self.log.unlink(missing_ok=True)
                 t = self.start(FAKE_PI_READ="1")
