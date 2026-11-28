@@ -12,7 +12,15 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, ScrollHandle } from "gpui-base";
-import { checking, exec, home, props, readTextFile, settings, setShared, shared, theme, window, writeTextFile } from "herdr";
+import { appHome, checking, exec, home, props, readTextFile, settings, setShared, shared, theme, window, writeTextFile } from "herdr";
+// The Paper design's look (file "Review", frames "D · Mix"): the theme's
+// see-through surfaces made solid, and the theme file's own text colour,
+// which the app swaps for near-black in panels.
+const solid = (c) => (/^#[0-9a-f]{8}$/i.test(c ?? "") ? c.slice(0, 7) : c);
+export function lookOf(t, ink) {
+  return { ...t, background: solid(t.background), canvas: solid(t.canvas), chrome: solid(t.chrome), foreground: ink ?? t.foreground };
+}
+
 
 export const OPEN = "review-mode.open";
 // The open pull request's snapshot ({ pr, status: "loading" | "ready" |
@@ -546,10 +554,26 @@ export default class ReviewNav extends View {
       const snap = shared(SNAPSHOT);
       if (snap?.pr === toggle.pr && snap.snapshot === toggle.snapshot) this.tick(toggle.path, cx);
     }
-    const t = theme();
-    return v_flex().id("review-nav").size_full().pt(20).px(12).pb(16).track_focus(this.handle)
+    const t = lookOf(theme(), this.ink(cx));
+    return v_flex().id("review-nav").size_full().bg(t.canvas).pt(28).pl(20).pr(12).pb(24).line_height(1.25).track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))
       .children(this.inFiles() ? this.renderFiles(t) : this.renderList(t));
+  }
+
+  // The theme file's text colour, read once per theme.
+  ink(cx) {
+    const name = settings().theme;
+    if (name !== this.inkTheme) {
+      this.inkTheme = name;
+      this.inkColor = null;
+      if (name && !checking()) cx.spawn(async (cx) => {
+        try {
+          const file = JSON.parse(await readTextFile(`${appHome()}/themes/${name}.json`));
+          if (this.inkTheme === name && /^#[0-9a-f]{6}$/i.test(file?.foreground ?? "")) { this.inkColor = file.foreground; cx.notify(); }
+        } catch { /* a built-in theme, or unreadable: the app's colour */ }
+      });
+    }
+    return this.inkColor;
   }
 
   renderList(t) {

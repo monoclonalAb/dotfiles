@@ -11,7 +11,15 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { setShared, shared, theme } from "herdr";
+import { appHome, checking, readTextFile, setShared, settings, shared, theme } from "herdr";
+// The Paper design's look (file "Review", frames "D · Mix"): the theme's
+// see-through surfaces made solid, and the theme file's own text colour,
+// which the app swaps for near-black in panels.
+const solid = (c) => (/^#[0-9a-f]{8}$/i.test(c ?? "") ? c.slice(0, 7) : c);
+export function lookOf(t, ink) {
+  return { ...t, background: solid(t.background), canvas: solid(t.canvas), chrome: solid(t.chrome), foreground: ink ?? t.foreground };
+}
+
 
 const OPEN = "review-mode.open", SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWED = "review-mode.viewed";
 const TAB = "review-mode.tab";
@@ -85,17 +93,36 @@ export function shownSteps() {
 const REVIEW = { REQUESTED: "requested", APPROVED: "approved", CHANGES_REQUESTED: "changes requested", COMMENTED: "commented", DISMISSED: "dismissed", PENDING: "pending" };
 
 export default class ReviewSide extends View {
-  render() {
-    const t = theme();
+  // The theme file's text colour, read once per theme.
+  ink(cx) {
+    const name = settings().theme;
+    if (name !== this.inkTheme) {
+      this.inkTheme = name;
+      this.inkColor = null;
+      if (name && !checking()) cx.spawn(async (cx) => {
+        try {
+          const file = JSON.parse(await readTextFile(`${appHome()}/themes/${name}.json`));
+          if (this.inkTheme === name && /^#[0-9a-f]{6}$/i.test(file?.foreground ?? "")) { this.inkColor = file.foreground; cx.notify(); }
+        } catch { /* a built-in theme, or unreadable: the app's colour */ }
+      });
+    }
+    return this.inkColor;
+  }
+
+  render(cx) {
+    const t = lookOf(theme(), this.ink(cx));
+    // The canvas round the panel stands in for the layout's gaps.
+    const panel = (inner) => v_flex().size_full().bg(t.canvas).pt(8).pr(8).pb(8).line_height(1.25)
+      .child(inner.flex_1().min_h(0).rounded(12).bg(t.background));
     const pr = shared(OPEN);
     const heading = (right) => h_flex().items_baseline()
       .child(div().text_size(24).font_extrabold().text_color(t.foreground).child("Your review"))
       .child(div().flex_1())
       .when(!!right, (el) => el.child(div().text_size(14).font_bold().text_color(t.muted).child(right)));
     if (!pr) {
-      return v_flex().id("review-side").size_full().px(26).py(24).gap(12)
+      return panel(v_flex().id("review-side").px(26).py(24).gap(12)
         .child(heading(null))
-        .child(div().text_size(15).text_color(t.muted).child("Open a pull request to start."));
+        .child(div().text_size(15).text_color(t.muted).child("Open a pull request to start.")));
     }
     const { snap, viewed, steps, done, action } = shownSteps();
     const green = t.ansi2 ?? t.done;
@@ -128,10 +155,10 @@ export default class ReviewSide extends View {
     const checkTone = !c.total ? t.dim : c.state === "SUCCESS" ? green : c.state === "FAILURE" || c.state === "ERROR" ? t.blocked : t.working;
     const reviewTone = { APPROVED: green, CHANGES_REQUESTED: t.blocked, REQUESTED: t.working };
 
-    return v_flex().id("review-side").size_full().px(26).py(24).gap(22)
+    return panel(v_flex().id("review-side").px(26).py(24).gap(22)
       .child(v_flex().gap(12)
         .child(heading(`${done} of ${steps.length}`))
-        .child(h_flex().gap(4).h(6).children(steps.map((_, i) => div().flex_1().h(6).rounded(3).bg(i < done ? t.accent : t.chrome)))))
+        .child(h_flex().h(6).rounded(3).bg(t.chrome).child(div().h(6).rounded(3).bg(t.accent).w(`${(100 * done) / steps.length}%`))))
       .child(v_flex().gap(18).children(steps.map(step)))
       .when(!!action, (el) => el.child(h_flex().id("review-action").gap(10).py(12).rounded(10).bg(t.accent).items_center().justify_center().cursor_pointer()
         .on_click((_e, cx) => go(cx))
@@ -142,6 +169,6 @@ export default class ReviewSide extends View {
         .child(fact(checkTone, "Checks", c.total ? `${c.passed} of ${c.total} passed` : "none"))
         .children((pr.reviewers ?? []).slice(0, REVIEWERS_SHOWN).map((r) => fact(reviewTone[r.state] ?? t.dim, r.name, REVIEW[r.state] ?? r.state.toLowerCase())))
         .when((pr.reviewers ?? []).length > REVIEWERS_SHOWN, (el) => el.child(div().text_size(14).text_color(t.muted).child(`and ${pr.reviewers.length - REVIEWERS_SHOWN} more reviewers`)))
-        .child(div().text_size(14).text_color(t.muted).child(pr.labels?.length ? pr.labels.join(" · ") : "No labels")));
+        .child(div().text_size(14).text_color(t.muted).child(pr.labels?.length ? pr.labels.join(" · ") : "No labels"))));
   }
 }
