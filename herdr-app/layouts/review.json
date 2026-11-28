@@ -12,7 +12,7 @@
         }
       },
       "size": {
-        "px": 42
+        "px": 48
       },
       "window_drag": true
     },
@@ -27,16 +27,10 @@
             "mod": "review-nav"
           },
           "size": {
-            "px": 300
+            "px": 340
           },
-          "min": 220,
-          "max": 600,
-          "background": "chrome",
-          "border": {
-            "width": 1,
-            "color": "border"
-          },
-          "radius": 10
+          "min": 260,
+          "max": 600
         },
         {
           "id": "review-page",
@@ -45,11 +39,7 @@
             "mod": "review-page"
           },
           "background": "background",
-          "border": {
-            "width": 1,
-            "color": "border"
-          },
-          "radius": 10
+          "radius": 14
         },
         {
           "id": "review-side",
@@ -58,16 +48,12 @@
             "mod": "review-side"
           },
           "size": {
-            "px": 340
+            "px": 400
           },
-          "min": 260,
+          "min": 300,
           "max": 700,
-          "background": "chrome",
-          "border": {
-            "width": 1,
-            "color": "border"
-          },
-          "radius": 10
+          "background": "background",
+          "radius": 12
         }
       ],
       "padding": 8,

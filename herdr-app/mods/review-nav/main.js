@@ -12,13 +12,17 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, ScrollHandle } from "gpui-base";
-import { checking, exec, home, props, readTextFile, setShared, shared, theme, window, writeTextFile } from "herdr";
+import { checking, exec, home, props, readTextFile, settings, setShared, shared, theme, window, writeTextFile } from "herdr";
 
 export const OPEN = "review-mode.open";
 // The open pull request's snapshot ({ pr, status: "loading" | "ready" |
 // "error", ...review-analyse snapshot }), the file its diff shows ({ pr,
 // snapshot, path }) and its Viewed files ({ snapshot, paths }).
 export const SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWED = "review-mode.viewed";
+// The open pull request's tab ("description", "files" or "checks"; the Files
+// tab turns this column into its files), and a Viewed click in the middle
+// column ({ pr, snapshot, path, nonce }), which only this mod saves.
+export const TAB = "review-mode.tab", TOGGLE = "review-mode.toggle";
 const SNAPSHOT_TIMEOUT = 600000; // the first one clones the repository
 export const PAGE = 100; // GitHub's most search results per page
 export const CAP = 1000; // GitHub's search returns no more than this
@@ -58,7 +62,7 @@ export function chip(pr) {
 const searchArgs = (query, page) => ["api", "-X", "GET", "search/issues", "-f", `q=${query}`, "-f", "sort=updated", "-f", "order=desc", "-f", `per_page=${PAGE}`, "-f", `page=${page}`];
 
 const DETAILS = `query($ids: [ID!]!) { nodes(ids: $ids) { ... on PullRequest {
-  id number title url isDraft body repository { nameWithOwner } author { login }
+  id number title url isDraft body createdAt repository { nameWithOwner } author { login }
   headRefName baseRefName additions deletions changedFiles mergeable mergeStateStatus reviewDecision
   labels(first: 100) { nodes { name } }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
@@ -88,7 +92,7 @@ export function toPullRequest(n) {
   const pr = {
     id: n.id, number: n.number, title: n.title, url: n.url, repo: n.repository?.nameWithOwner ?? "",
     author: n.author?.login ?? "", base: n.baseRefName, head: n.headRefName, draft: n.isDraft === true,
-    body: n.body ?? "", additions: n.additions ?? 0, deletions: n.deletions ?? 0, files: n.changedFiles ?? 0,
+    body: n.body ?? "", created: n.createdAt ?? null, additions: n.additions ?? 0, deletions: n.deletions ?? 0, files: n.changedFiles ?? 0,
     mergeable: n.mergeable ?? null, mergeState: n.mergeStateStatus ?? null, reviewDecision: n.reviewDecision ?? null,
     checks: {
       state: rollup?.state ?? null,
@@ -306,19 +310,17 @@ export default class ReviewNav extends View {
       cx.timer.every(CHECK, due);
       return;
     }
-    // The Files view of the open pull request, not the list: as it was before
-    // a layout switch restarted this mod. A snapshot that was still loading
-    // then has nobody to finish it.
-    const snap = shared(SNAPSHOT);
-    if (snap?.status === "loading") setShared(SNAPSHOT, null);
-    this.files = snap?.status === "ready" && snap.pr === shared(OPEN)?.url;
-    if (!this.files && shared(FILE)) setShared(FILE, null);
     this.selected = shared(OPEN)?.url ?? null;
+    this.toggled = shared(TOGGLE)?.nonce ?? null; // a click from before a restart is not replayed
     this.handle = cx.focus_handle();
     this.handle.focus();
     this.scroll = ScrollHandle.new();
     this.fileScroll = ScrollHandle.new();
     if (checking()) return;
+    // A snapshot still loading when a layout switch restarted this mod has
+    // nobody left to finish it: take it again.
+    const open = shared(OPEN), snap = shared(SNAPSHOT);
+    if (open && snap?.pr === open.url && snap.status === "loading") this.snapshot(open, cx);
     cx.spawn(async (cx) => {
       const kept = keptList(await readTextFile(keptPath()).catch(() => null));
       if (!kept || this.list) return; // a fresh list came first
@@ -417,18 +419,24 @@ export default class ReviewNav extends View {
     }
   }
 
-  // Opening takes a fresh snapshot (SNAPSHOT) and shows its files; the first
-  // file's diff shows in the middle (FILE).
+  // Opening shows the pull request's Description tab, with this list still
+  // here, and takes its snapshot for the Files tab.
   open(pr, cx) {
     if (!pr) return;
     this.selected = pr.url;
-    this.files = true;
-    // Each opening is its own request: a slower earlier one never wins.
-    const request = `${Date.now()}-${Math.random()}`;
     setShared(OPEN, pr);
-    setShared(SNAPSHOT, { pr: pr.url, status: "loading", request });
+    setShared(TAB, "description");
     setShared(FILE, null);
     setShared(VIEWED, null);
+    this.snapshot(pr, cx);
+  }
+
+  // Takes a snapshot (SNAPSHOT); once in, its first file waits in FILE for
+  // the Files tab.
+  snapshot(pr, cx) {
+    // Each request is its own: a slower earlier one never wins.
+    const request = `${Date.now()}-${Math.random()}`;
+    setShared(SNAPSHOT, { pr: pr.url, status: "loading", request });
     cx.spawn(async (cx) => {
       let next;
       try {
@@ -439,7 +447,9 @@ export default class ReviewNav extends View {
       if (shared(SNAPSHOT)?.request !== request) return; // opened again, or another pull request
       setShared(SNAPSHOT, next);
       if (next.status === "ready") {
-        if (next.files.length && this.files) setShared(FILE, { pr: pr.url, snapshot: next.snapshot, path: next.files[0].path });
+        const file = shared(FILE);
+        const kept = file?.pr === pr.url && next.files.some((f) => f.path === file.path);
+        if (next.files.length) setShared(FILE, { pr: pr.url, snapshot: next.snapshot, path: kept ? file.path : next.files[0].path });
         const text = await readTextFile(statePath(home(), pr.url)).catch(() => null);
         // Unless a tick saved meanwhile (it set VIEWED from a newer read).
         if (shared(SNAPSHOT)?.snapshot === next.snapshot && shared(SNAPSHOT)?.pr === pr.url && !shared(VIEWED)) {
@@ -450,9 +460,8 @@ export default class ReviewNav extends View {
     });
   }
 
-  back() {
-    this.files = false;
-    setShared(FILE, null);
+  inFiles() {
+    return shared(TAB) === "files" && !!shared(OPEN);
   }
 
   snapshotFiles() {
@@ -490,55 +499,68 @@ export default class ReviewNav extends View {
   key(e, cx) {
     const step = navKey(e);
     if (step === null) return;
-    if (this.files) {
-      if (step === "back") this.back();
+    if (this.inFiles()) {
+      if (step === "back") setShared(TAB, "description");
       else if (step === "viewed") this.tick(shared(FILE)?.path, cx);
       else if (typeof step === "number") this.pick(step);
-    } else if (step === "open") this.open(this.prs().find((p) => p.url === this.selected), cx);
-    else if (typeof step === "number") this.move(step);
+    } else if (step === "open") {
+      // Enter on the open pull request goes on to its files.
+      const pr = this.prs().find((p) => p.url === this.selected);
+      if (pr && pr.url === shared(OPEN)?.url) setShared(TAB, "files");
+      else this.open(pr, cx);
+    } else if (typeof step === "number") this.move(step);
     cx.notify();
   }
 
   render(cx) {
     if (this.warm) return div();
+    // A Viewed click from the middle column (review-page), saved here once.
+    const toggle = shared(TOGGLE);
+    if (toggle && toggle.nonce !== this.toggled) {
+      this.toggled = toggle.nonce;
+      const snap = shared(SNAPSHOT);
+      if (snap?.pr === toggle.pr && snap.snapshot === toggle.snapshot) this.tick(toggle.path, cx);
+    }
     const t = theme();
-    return v_flex().id("review-nav").size_full().track_focus(this.handle)
+    return v_flex().id("review-nav").size_full().pt(20).px(12).pb(16).track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))
-      .children(this.files ? this.renderFiles(t) : this.renderList(t));
+      .children(this.inFiles() ? this.renderFiles(t) : this.renderList(t));
   }
 
   renderList(t) {
     const open = shared(OPEN)?.url;
-    const note = (id, text, color) => div().id(id).px(12).py(2).text_size(11).text_color(color).child(text);
+    const note = (id, text, color) => div().id(id).px(12).py(2).text_size(13).text_color(color).child(text);
     const rows = [];
     for (const s of this.list?.sections ?? []) {
-      rows.push(div().id(`h-${s.key}`).px(12).pt(12).pb(4).text_size(11).font_semibold().text_color(t.muted)
-        .child(`${s.title} · ${s.prs.length}`));
+      rows.push(h_flex().id(`h-${s.key}`).px(12).pt(18).pb(8).gap(8).items_baseline()
+        .child(div().text_size(12).font_extrabold().text_color(t.dim).child(s.title.toUpperCase()))
+        .child(div().text_size(12).font_semibold().text_color(t.dim).child(String(s.prs.length))));
       if (s.more) rows.push(note(`more-${s.key}`, `${s.more} more on GitHub`, t.muted));
       if (s.incomplete) rows.push(note(`partial-${s.key}`, "GitHub's search may be missing pull requests", t.working));
       if (s.missing) rows.push(note(`missing-${s.key}`, `${s.missing} could not be loaded`, t.working));
       for (const p of s.prs) {
-        const tone = { ready: t.done, failing: t.blocked, conflicts: t.blocked, changes: t.blocked, running: t.working, review: t.accent, blocked: t.working }[p.chip] ?? t.muted;
-        rows.push(v_flex().id(`pr-${s.key}-${p.id}`).mx(6).px(8).py(6).gap(2).rounded(6)
-          .when(p.url === this.selected, (el) => el.bg(t.selected))
+        const tone = toneOf(t, p.chip);
+        rows.push(h_flex().id(`pr-${s.key}-${p.id}`).gap(12).px(12).py(10).rounded(10)
+          .when(p.url === this.selected, (el) => el.bg(t.background))
           .when(p.url !== this.selected, (el) => el.hover((st) => st.bg(t.hover)))
           .on_click((_e, cx) => { this.handle.focus(); this.open(p, cx); cx.notify(); })
-          .child(div().truncate().text_size(13).text_color(p.url === open ? t.accent : t.foreground).child(p.title))
-          .child(h_flex().gap(8).items_center()
-            .child(div().truncate().text_size(11).text_color(t.muted).child(`${p.repo} #${p.number}`))
-            .child(div().flex_1())
-            .child(div().text_size(11).text_color(tone).child(CHIPS[p.chip]))));
+          .child(div().w(8).flex_none().pt(8).child(div().size(8).rounded(4).bg(tone)))
+          .child(v_flex().flex_1().min_w(0).gap(3)
+            .child(div().truncate().text_size(15).text_color(t.foreground).when(p.url === open, (el) => el.font_extrabold()).when(p.url !== open, (el) => el.font_semibold()).child(p.title))
+            .child(h_flex().min_w(0)
+              .child(div().truncate().text_size(13).text_color(t.muted).child(`${p.repo} #${p.number} · `))
+              .child(div().flex_none().text_size(13).font_bold().text_color(tone).child(CHIPS[p.chip])))));
       }
     }
     const status = this.error ? this.error : this.loading && !this.list ? "Loading your pull requests…" : this.list && !this.prs().length && !this.list.sections.some((s) => s.missing) ? "No open pull requests." : null;
     return [
-      h_flex().px(12).pt(12).pb(4).items_center()
-        .child(div().text_size(13).font_semibold().text_color(t.foreground).child("Pull requests"))
+      h_flex().px(12).pt(4).items_baseline()
+        .child(div().text_size(22).font_extrabold().text_color(t.foreground).child("Pull requests"))
         .child(div().flex_1())
-        .when(this.loading && !!this.list, (el) => el.child(div().text_size(11).text_color(t.dim).child("Refreshing…"))),
-      ...(status ? [div().px(12).py(6).text_size(12).text_color(this.error ? t.blocked : t.muted).child(status)] : []),
-      v_flex().id("review-nav-list").flex_1().overflow_y_scrollbar().track_scroll(this.scroll).pb(8).children(rows),
-      div().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j/k move · Enter open"),
+        .when(this.loading && !!this.list, (el) => el.child(div().text_size(13).text_color(t.dim).child("Refreshing…"))),
+      ...(status ? [div().px(12).pt(12).text_size(14).text_color(this.error ? t.blocked : t.muted).child(status)] : []),
+      v_flex().id("review-nav-list").flex_1().overflow_y_scrollbar().track_scroll(this.scroll).gap(2).pb(8).children(rows),
+      keysHint(t, [["j", "k"], "move", ["↵"], "open"]),
     ];
   }
 
@@ -549,34 +571,70 @@ export default class ReviewNav extends View {
     const viewed = new Set(v && snap?.status === "ready" && v.snapshot === snap.snapshot && v.pr === snap.pr ? v.paths : []);
     const at = shared(FILE)?.path;
     const status = this.error ?? (snap?.status === "loading" ? "Taking a snapshot…" : snap?.status === "error" ? snap.error : null);
+    const ready = t.ansi2 ?? t.done;
     const rows = files.map((f, i) => {
       const slash = f.path.lastIndexOf("/");
-      return h_flex().id(`file-${i}`).mx(6).px(8).py(4).gap(8).rounded(6).items_center()
-        .when(f.path === at, (el) => el.bg(t.selected))
+      const seen = viewed.has(f.path);
+      return h_flex().id(`file-${i}`).gap(12).px(12).py(10).rounded(10)
+        .when(f.path === at, (el) => el.bg(t.background))
         .when(f.path !== at, (el) => el.hover((st) => st.bg(t.hover)))
         .on_click((_e, cx) => { this.handle.focus(); setShared(FILE, { pr: snap.pr, snapshot: snap.snapshot, path: f.path }); cx.notify(); })
-        .child(div().id(`tick-${i}`).flex_none().text_size(13).text_color(viewed.has(f.path) ? t.done : t.dim)
+        .child(div().id(`tick-${i}`).w(18).flex_none().pt(2).cursor_pointer()
           .on_click((_e, cx) => { this.handle.focus(); this.tick(f.path, cx); })
-          .child(viewed.has(f.path) ? "☑" : "☐"))
-        .child(v_flex().flex_1().min_w(0)
-          .child(div().truncate().text_size(12).text_color(viewed.has(f.path) ? t.muted : t.foreground).child(f.path.slice(slash + 1)))
-          .when(slash > 0, (el) => el.child(div().truncate().text_size(10).text_color(t.dim).child(f.path.slice(0, slash)))))
-        .child(div().flex_none().text_size(11).text_color(t.done).child(f.binary ? "bin" : `+${f.additions}`))
-        .child(div().flex_none().text_size(11).text_color(t.blocked).when(f.binary, (el) => el.text_color(t.dim)).child(f.binary ? "" : `−${f.deletions}`));
+          .child(tickBox(t, seen)))
+        .child(v_flex().flex_1().min_w(0).gap(3)
+          .child(div().truncate().text_size(15).text_color(seen ? t.muted : t.foreground).when(f.path === at, (el) => el.font_extrabold()).when(f.path !== at, (el) => el.font_semibold()).child(f.path.slice(slash + 1)))
+          .child(div().truncate().text_size(12).font_family(mono()).text_color(t.dim).child(slash > 0 ? f.path.slice(0, slash + 1) : "top folder")))
+        .child(v_flex().w(64).flex_none().items_end().gap(3)
+          .when(f.too_large, (el) => el.child(div().text_size(12).font_family(mono()).text_color(t.dim).child(f.binary ? "binary" : "large")))
+          .when(!f.too_large, (el) => el
+            .child(div().text_size(12).font_family(mono()).text_color(ready).child(`+${f.additions}`))
+            .child(div().text_size(12).font_family(mono()).text_color(t.blocked).child(`−${f.deletions}`))));
     });
     return [
-      div().id("review-nav-back").px(12).pt(12).pb(4).text_size(12).text_color(t.accent).cursor_pointer()
-        .on_click((_e, cx) => { this.handle.focus(); this.back(); cx.notify(); })
-        .child("← All pull requests"),
-      h_flex().px(12).pt(6).pb(4).items_center()
-        .child(div().text_size(13).font_semibold().text_color(t.foreground).child(`Files · ${files.length}`))
+      h_flex().px(12).pt(4).pb(10).gap(8).items_center()
+        .child(div().id("review-nav-back").text_size(15).font_bold().text_color(t.accent).cursor_pointer()
+          .on_click((_e, cx) => { this.handle.focus(); setShared(TAB, "description"); cx.notify(); })
+          .child("← All pull requests"))
+        .child(keyChip(t, "esc")),
+      h_flex().px(12).pt(4).pb(12).items_baseline()
+        .child(div().text_size(22).font_extrabold().text_color(t.foreground).child("Files"))
         .child(div().flex_1())
-        .when(files.length > 0, (el) => el.child(div().text_size(11).text_color(t.dim).child(`Viewed ${files.filter((f) => viewed.has(f.path)).length}/${files.length}`))),
-      ...(status ? [div().px(12).py(6).text_size(12).text_color(this.error || snap?.status === "error" ? t.blocked : t.muted).child(status)] : []),
+        .when(files.length > 0, (el) => el.child(div().text_size(13).font_bold().text_color(t.muted).child(`${files.filter((f) => viewed.has(f.path)).length} of ${files.length} viewed`))),
+      ...(status ? [div().px(12).pb(8).text_size(14).text_color(this.error || snap?.status === "error" ? t.blocked : t.muted).child(status)] : []),
       ...(files.length && snap.changed_files > files.length
-        ? [div().px(12).py(2).text_size(11).text_color(t.working).child(`${snap.changed_files - files.length} more files not listed`)] : []),
-      v_flex().id("review-nav-files").flex_1().overflow_y_scrollbar().track_scroll(this.fileScroll).pb(8).children(rows),
-      div().px(12).py(8).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j/k file · v viewed · Esc back"),
+        ? [div().px(12).pb(6).text_size(13).text_color(t.working).child(`${snap.changed_files - files.length} more files not listed`)] : []),
+      v_flex().id("review-nav-files").flex_1().overflow_y_scrollbar().track_scroll(this.fileScroll).gap(2).pb(8).children(rows),
+      keysHint(t, [["j", "k"], "file", ["v"], "viewed"]),
     ];
   }
+}
+
+// The UI font is the layout's; code and keys use the terminal font.
+const mono = () => settings().font_family ?? "Maple Mono NF";
+
+// A state's colour: green ready, red when something blocks, blue while
+// waiting on someone, dim for drafts and the unknown.
+function toneOf(t, chip) {
+  return { ready: t.ansi2 ?? t.done, failing: t.blocked, conflicts: t.blocked, changes: t.blocked, running: t.working, review: t.working, blocked: t.working }[chip] ?? t.dim;
+}
+
+function keyChip(t, k) {
+  return div().px(6).py(1).rounded(5).bg(t.chrome).text_size(12).font_family(mono()).text_color(t.muted).child(k);
+}
+
+// Keys at the column's foot: [["j", "k"], "move", ["↵"], "open"].
+function keysHint(t, parts) {
+  const row = h_flex().px(12).pt(8).gap(6).items_center();
+  parts.forEach((part, i) => {
+    if (Array.isArray(part)) part.forEach((k) => row.child(keyChip(t, k)));
+    else row.child(div().text_size(13).text_color(t.dim).child(part)).when(i < parts.length - 1, (el) => el.child(div().w(8)));
+  });
+  return row;
+}
+
+function tickBox(t, on) {
+  return on
+    ? div().size(16).rounded(4).bg(t.ansi2 ?? t.done).flex().items_center().justify_center().child(div().text_size(11).font_black().text_color(t.accent_foreground ?? t.background).child("✓"))
+    : div().size(16).rounded(4).border(1).border_color(t.input ?? t.border);
 }
