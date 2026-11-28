@@ -155,7 +155,7 @@ export default class ReviewPage extends View {
       if (name && !checking()) cx.spawn(async (cx) => {
         try {
           const file = JSON.parse(await readTextFile(`${appHome()}/themes/${name}.json`));
-          if (this.inkTheme === name && /^#[0-9a-f]{6}$/i.test(file?.foreground ?? "")) { this.inkColor = file.foreground; cx.notify(); }
+          if (this.inkTheme === name && typeof file?.foreground === "string" && /^#[0-9a-f]{6}$/i.test(file.foreground)) { this.inkColor = file.foreground; cx.notify(); }
         } catch { /* a built-in theme, or unreadable: the app's colour */ }
       });
     }
