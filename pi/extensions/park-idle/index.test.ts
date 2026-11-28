@@ -30,6 +30,7 @@ interface World {
   stdin: string;
   lsof: string;
   hc: string;
+  latency: number; // fake ms each mocked command takes
   onExec?: () => void;
 }
 
@@ -42,7 +43,7 @@ function harness(over: Partial<World> = {}, env: Record<string, string> = {}, ui
   const session = join(dir, "session.jsonl");
   writeFileSync(session, "{}\n");
   const parkFile = join(dir, "park");
-  const world: World = { idle: true, pending: false, draft: "", session, leaf: "e2", ...MCP, lsof: "",
+  const world: World = { idle: true, pending: false, draft: "", session, leaf: "e2", ...MCP, lsof: "", latency: 0,
     hc: JSON.stringify({ id: 2, result: { terminals: [{ address: "t7", parent: null, state: "live" }] } }), ...over };
   const handlers = new Map<string, (...args: any[]) => any>();
   const calls: string[][] = [];
@@ -55,7 +56,7 @@ function harness(over: Partial<World> = {}, env: Record<string, string> = {}, ui
     async exec(command: string, args: string[]) {
       calls.push([command, ...args]);
       world.onExec?.();
-      await Promise.resolve();
+      await (world.latency ? new Promise((resolve) => setTimeout(resolve, world.latency)) : Promise.resolve());
       const stdout = command === "/bin/ps" ? world.ps : command === "/bin/sh" ? world.hc
         : args.includes("-d") ? world.stdin : world.lsof;
       return { code: command === "/usr/sbin/lsof" && !stdout ? 1 : 0, stdout, stderr: "", killed: false };
@@ -113,9 +114,12 @@ test("a key, or a run that starts, puts it off until a full period after", async
   assert.equal(h.shutdowns, 0, "typed 49 ms ago");
   await tick(2);
   assert.equal(h.shutdowns, 1, "a period after the key");
+  // A key, then a run: the run cancels the timer the key set.
   const run = harness();
   run.emit("session_start", { reason: "startup" });
   await tick(30);
+  run.type();
+  await tick(10);
   run.emit("agent_start");
   await tick(200);
   assert.equal(run.shutdowns, 0, "working");
@@ -183,14 +187,24 @@ test("nothing that would be lost is parked, and it tries again later", async () 
     await tick(2);
     assert.equal(h.shutdowns, 1, `${name}: parks once it clears`);
   }
+  // With commands that take time, the period counts from the end of the checks.
+  const slow = harness({ lsof: `${process.pid}\n`, latency: 1 });
+  slow.emit("session_start", { reason: "startup" });
+  await tick(60);
+  assert.equal(slow.shutdowns, 0);
+  slow.world.lsof = "";
+  await tick(46);
+  assert.equal(slow.shutdowns, 0, "checks ended at 54 ms, so the retry starts at 104 ms");
+  await tick(10);
+  assert.equal(slow.shutdowns, 1);
 });
 
 test("an open dialog holds it until the dialog closes", async () => {
   const h = harness();
   h.emit("session_start", { reason: "startup" });
   h.emit("ui_prompt_start", { kind: "input" });
-  await tick(60);
-  assert.equal(h.shutdowns, 0);
+  await tick(110);
+  assert.equal(h.shutdowns, 0, "held at the first try and the retry");
   h.emit("ui_prompt_end", { kind: "input" });
   await tick(39);
   assert.equal(h.shutdowns, 0);
