@@ -497,8 +497,9 @@ export default class ReviewNav extends View {
     // the first's intent, not from the screen.
     this.pending ??= new Map();
     const key = `${snap.snapshot}\n${path}`;
-    const on = this.pending.has(key) ? !this.pending.get(key) : !(shared(VIEWED)?.paths ?? []).includes(path);
-    this.pending.set(key, on);
+    const on = this.pending.has(key) ? !this.pending.get(key).on : !(shared(VIEWED)?.paths ?? []).includes(path);
+    const press = (this.presses = (this.presses ?? 0) + 1);
+    this.pending.set(key, { on, press });
     // One save at a time, in order; each in its own task (its cx may wait).
     const before = this.saving ?? Promise.resolve();
     let done;
@@ -512,7 +513,7 @@ export default class ReviewNav extends View {
       } catch (e) {
         this.error = String(e?.message ?? e).split("\n")[0];
       }
-      if (this.pending.get(key) === on) this.pending.delete(key);
+      if (this.pending.get(key)?.press === press) this.pending.delete(key); // no later press waiting
       done();
       cx.notify();
     });

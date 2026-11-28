@@ -15,8 +15,9 @@ import { setShared, shared, theme } from "herdr";
 
 const OPEN = "review-mode.open", SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWED = "review-mode.viewed";
 const TAB = "review-mode.tab";
-// The snapshot whose description you left for another tab ({ pr, snapshot }),
-// so step 1 stays done when you come back to it.
+// The pull request whose description you left for another tab ({ pr,
+// snapshot }, snapshot null if it wasn't in yet), so step 1 stays done when
+// you come back to it.
 const READ = "review-mode.read";
 const REVIEWERS_SHOWN = 4;
 
@@ -59,10 +60,26 @@ export function reviewSteps({ tab, files, viewed, read = false, total = null, fa
     { title: "Walk the tour", sub: "Not available yet", state: "todo" },
     { title: "Submit your review", sub: "Not available yet", state: "todo" },
   ];
-  const action = !files || allRead ? null
+  const action = !files || allRead || !next ? null
     : tab === "files" ? { label: "Next file", key: null, go: "next" }
       : { label: "Start with the files", key: "↵", go: "files" };
   return { steps, done: steps.filter((s) => s.state === "done").length, action };
+}
+
+// The checklist as the shared state has it now. Leaving the description
+// marks it read, for this snapshot or, before one is in, this pull request.
+export function shownSteps() {
+  const pr = shared(OPEN);
+  const snap = shared(SNAPSHOT);
+  const ready = !!pr && snap?.status === "ready" && snap.pr === pr.url;
+  const v = shared(VIEWED);
+  const viewed = ready && v?.snapshot === snap.snapshot && v.pr === pr.url ? v.paths : [];
+  const tab = shared(TAB) ?? "description";
+  const r = shared(READ);
+  const read = !!pr && r?.pr === pr.url && (r.snapshot === null || (ready && r.snapshot === snap.snapshot));
+  if (pr && !read && tab !== "description") setShared(READ, { pr: pr.url, snapshot: ready ? snap.snapshot : null });
+  const failed = pr && snap?.pr === pr.url && snap.status === "error" ? snap.error : null;
+  return { pr, snap, ready, viewed, tab, ...reviewSteps({ tab, files: ready ? snap.files : null, viewed, read, total: ready ? snap.changed_files : null, failed }) };
 }
 
 const REVIEW = { REQUESTED: "requested", APPROVED: "approved", CHANGES_REQUESTED: "changes requested", COMMENTED: "commented", DISMISSED: "dismissed", PENDING: "pending" };
@@ -80,16 +97,7 @@ export default class ReviewSide extends View {
         .child(heading(null))
         .child(div().text_size(15).text_color(t.muted).child("Open a pull request to start."));
     }
-    const snap = shared(SNAPSHOT);
-    const ready = snap?.status === "ready" && snap.pr === pr.url;
-    const v = shared(VIEWED);
-    const viewed = ready && v?.snapshot === snap.snapshot && v.pr === pr.url ? v.paths : [];
-    const tab = shared(TAB) ?? "description";
-    // Leaving the description marks it read for this snapshot.
-    const read = ready && shared(READ)?.pr === pr.url && shared(READ)?.snapshot === snap.snapshot;
-    if (ready && !read && tab !== "description") setShared(READ, { pr: pr.url, snapshot: snap.snapshot });
-    const failed = snap?.pr === pr.url && snap.status === "error" ? snap.error : null;
-    const { steps, done, action } = reviewSteps({ tab, files: ready ? snap.files : null, viewed, read, total: ready ? snap.changed_files : null, failed });
+    const { snap, viewed, steps, done, action } = shownSteps();
     const green = t.ansi2 ?? t.done;
     const onAccent = t.accent_foreground ?? t.background;
 
