@@ -4,16 +4,20 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { afterEach, beforeEach, jest, test } from "bun:test";
 import { childPids, hasCommandChild, hasLiveChild, isActivity, registerParkIdle } from "./index.ts";
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Fake timers: the 50 ms period and every check land on exact milliseconds,
+// however busy the machine is.
 const AFTER = 0.05; // seconds
-const WAIT = 120; // ms: past AFTER and the checks
-// Waits for a park that must happen, so a slow machine delays the test instead of failing it.
-async function until(done: () => boolean, ms = 3000) {
-  const end = Date.now() + ms;
-  while (!done() && Date.now() < end) await sleep(10);
+beforeEach(() => { jest.useFakeTimers(); });
+afterEach(() => { jest.useRealTimers(); });
+const flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
+async function tick(ms: number) {
+  for (let i = 0; i < ms; i++) {
+    jest.advanceTimersByTime(1);
+    await flush();
+  }
 }
 
 interface World {
@@ -51,7 +55,7 @@ function harness(over: Partial<World> = {}, env: Record<string, string> = {}, ui
     async exec(command: string, args: string[]) {
       calls.push([command, ...args]);
       world.onExec?.();
-      await sleep(1);
+      await Promise.resolve();
       const stdout = command === "/bin/ps" ? world.ps : command === "/bin/sh" ? world.hc
         : args.includes("-d") ? world.stdin : world.lsof;
       return { code: command === "/usr/sbin/lsof" && !stdout ? 1 : 0, stdout, stderr: "", killed: false };
@@ -88,50 +92,59 @@ test("only a Pi run by the wrapper, with a period, parks", () => {
   }
 });
 
-test("an idle Pi writes its session file for the wrapper and quits", async () => {
+test("an idle Pi writes its session file for the wrapper and quits, once", async () => {
   const h = harness();
   h.emit("session_start", { reason: "startup" });
-  await until(() => h.shutdowns > 0);
+  await tick(49);
+  assert.equal(h.shutdowns, 0);
+  await tick(2);
   assert.equal(h.parked(), h.session);
   assert.equal(h.shutdowns, 1);
+  await tick(300);
+  assert.equal(h.shutdowns, 1, "no second shutdown");
 });
 
 test("a key, or a run that starts, puts it off until a full period after", async () => {
   const h = harness();
   h.emit("session_start", { reason: "startup" });
-  await sleep(AFTER * 600);
+  await tick(30);
   h.type();
-  await sleep(AFTER * 600);
-  assert.equal(h.shutdowns, 0, "typed 30 ms ago");
-  h.emit("agent_start");
-  await sleep(WAIT);
-  assert.equal(h.shutdowns, 0, "working");
-  h.emit("agent_settled");
-  await until(() => h.shutdowns > 0);
-  assert.equal(h.shutdowns, 1);
+  await tick(49);
+  assert.equal(h.shutdowns, 0, "typed 49 ms ago");
+  await tick(2);
+  assert.equal(h.shutdowns, 1, "a period after the key");
+  const run = harness();
+  run.emit("session_start", { reason: "startup" });
+  await tick(30);
+  run.emit("agent_start");
+  await tick(200);
+  assert.equal(run.shutdowns, 0, "working");
+  run.emit("agent_settled");
+  await tick(49);
+  assert.equal(run.shutdowns, 0, "settled 49 ms ago");
+  await tick(2);
+  assert.equal(run.shutdowns, 1);
 });
 
 test("scrolling or clicking the transcript puts it off too", async () => {
   const h = harness();
   h.emit("session_start", { reason: "startup" });
-  await sleep(AFTER * 600);
+  await tick(30);
   h.scroll();
-  await sleep(AFTER * 600);
-  assert.equal(h.shutdowns, 0, "scrolled 30 ms ago");
-  await until(() => h.shutdowns > 0);
+  await tick(49);
+  assert.equal(h.shutdowns, 0, "scrolled 49 ms ago");
+  await tick(2);
   assert.equal(h.shutdowns, 1);
 });
 
 test("the terminal's own reports are not activity", async () => {
   // A light/dark switch: the scheme report, then the replies to Pi's colour queries.
   for (const reports of ["\x1b[?997;1n", "\x1b]11;rgb:ffff/ffff/ffff\x07\x1b[?1;2c", "\x1b]10;rgb:0/0/0\x1b\\", "\x1b[?2026;2$y"]) {
-    // A 0.6 s period: on time it parks at about 0.61 s; a report at 0.3 s that reset
-    // the timer would push it past 0.9 s. (With a 50 ms period, parking took up to 64 ms.)
-    const h = harness({}, { PI_PARK_AFTER: "0.6" });
+    const h = harness();
     h.emit("session_start", { reason: "startup" });
-    await sleep(300);
+    await tick(30);
     h.report(reports);
-    await sleep(460);
+    await tick(21);
     assert.equal(h.shutdowns, 1, `parked on time after ${JSON.stringify(reports)}`);
   }
 });
@@ -160,12 +173,14 @@ test("nothing that would be lost is parked, and it tries again later", async () 
   for (const [name, over] of cases) {
     const h = harness(over);
     h.emit("session_start", { reason: "startup" });
-    await sleep(WAIT);
+    await tick(60);
     assert.equal(h.shutdowns, 0, name);
     assert.equal(h.parked(), undefined, name);
     Object.assign(h.world, { idle: true, pending: false, draft: "", session: h.session, leaf: "e2", ...MCP, lsof: "",
       hc: JSON.stringify({ id: 2, result: { terminals: [] } }) });
-    await until(() => h.shutdowns > 0);
+    await tick(39);
+    assert.equal(h.shutdowns, 0, `${name}: the next try is a full period after the first`);
+    await tick(2);
     assert.equal(h.shutdowns, 1, `${name}: parks once it clears`);
   }
 });
@@ -174,10 +189,12 @@ test("an open dialog holds it until the dialog closes", async () => {
   const h = harness();
   h.emit("session_start", { reason: "startup" });
   h.emit("ui_prompt_start", { kind: "input" });
-  await sleep(WAIT);
+  await tick(60);
   assert.equal(h.shutdowns, 0);
   h.emit("ui_prompt_end", { kind: "input" });
-  await until(() => h.shutdowns > 0);
+  await tick(39);
+  assert.equal(h.shutdowns, 0);
+  await tick(2);
   assert.equal(h.shutdowns, 1);
 });
 
@@ -185,9 +202,9 @@ test("a key while the checks run (Ctrl+D to quit) cancels the park", async () =>
   const h = harness();
   h.world.onExec = () => { h.world.onExec = undefined; h.type(); };
   h.emit("session_start", { reason: "startup" });
-  await sleep(AFTER * 1000 + 20);
+  await tick(70);
   h.emit("session_shutdown", { reason: "quit" });
-  await sleep(WAIT);
+  await tick(200);
   assert.equal(h.parked(), undefined);
   assert.equal(h.shutdowns, 0);
 });
@@ -195,19 +212,19 @@ test("a key while the checks run (Ctrl+D to quit) cancels the park", async () =>
 test("a park file it cannot write leaves Pi running", async () => {
   const h = harness({}, { PI_PARK_FILE: "/nonexistent-park-dir/park" });
   h.emit("session_start", { reason: "startup" });
-  await sleep(WAIT);
+  await tick(200);
   assert.equal(h.shutdowns, 0);
 });
 
 test("outside Herdr it skips the sub-terminal check; without a UI it never arms", async () => {
   const h = harness({}, { HC_TERMINAL_ID: "" });
   h.emit("session_start", { reason: "startup" });
-  await until(() => h.shutdowns > 0);
+  await tick(51);
   assert.equal(h.shutdowns, 1);
   assert.ok(!h.calls.some((c) => c[0] === "/bin/sh"));
   const print = harness({}, {}, false);
   print.emit("session_start", { reason: "startup" });
-  await sleep(WAIT);
+  await tick(200);
   assert.equal(print.shutdowns, 0);
 });
 
@@ -215,7 +232,7 @@ test("a quit or a session switch stops the timer", async () => {
   const h = harness();
   h.emit("session_start", { reason: "startup" });
   h.emit("session_shutdown", { reason: "quit" });
-  await sleep(WAIT);
+  await tick(200);
   assert.equal(h.shutdowns, 0);
 });
 
