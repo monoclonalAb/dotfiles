@@ -383,20 +383,26 @@ of the Space you work in. Example:
 `C-a p` turns the window into a screen for reviewing GitHub pull requests: the
 `review` layout. `C-a p` there brings back the `eric` layout. The
 [Review mode plan](plans/active/2026-11-25-review-mode.md) builds it in steps;
-so far it lists your pull requests and shows one's description, checks,
-reviewers, labels and diff, file by file. Example:
+so far it lists your pull requests and shows one's description, diff (file by
+file) and checks, with a checklist of the review beside them. Its design is the
+Paper file "Review", frames "D · Mix". Example:
 
 1. 10:00: you are in `fix login`, with the `dotfiles` repository folded in the
    sidebar and Files showing in the right-hand panel. `C-a p` shows Review mode.
    On the left, **Needs your review** lists the open pull requests waiting for
    your review, then **Yours** the open ones you wrote, each with its state.
-2. 10:01: `j` twice and `Enter` (or a click) opens `example-app #42`: its
-   title, branches, size and checks at the top of the middle, its checks,
-   reviewers and labels on the right. The left turns into its **Files**, and
-   the middle shows the first file's diff a few seconds later.
-3. 10:02: `j`/`k` go through the files; `v` ticks the shown file Viewed (☑).
-   `Esc` (or `← All pull requests`) goes back to the list, and the middle
-   shows the description again.
+2. 10:01: `j` twice and `Enter` (or a click) opens `example-app #42` on its
+   **Description** tab: its state, title, who wants to merge which branch into
+   which, its size, and its text. The list stays on the left. On the right,
+   **Your review** lists four steps: read the description, read the files,
+   walk the tour, submit. The last two are not available yet.
+3. 10:02: `Enter` again (or the **Files** tab, or **Start with the files**)
+   turns the left into the pull request's files and shows the first one's
+   diff. `j`/`k` go through the files; `v` (or **Viewed** above the diff)
+   ticks the shown file. The checklist counts the ticks and offers **Next
+   file**, the next one not yet viewed. `Esc` (or `← All pull requests`) goes
+   back to the list and the description; Files opens on the same file again.
+   **Checks** says whether the checks passed and links to them on GitHub.
 4. 10:05: `C-a p` again. You are back in `fix login`, `dotfiles` is still
    folded and the panel still shows Files. Next time, `#42` is still open.
 
@@ -445,14 +451,18 @@ for a big one; later ones fetch only what is new. The cache can be deleted at
 any time. Viewed ticks are saved in the pull request's state file (below), per
 snapshot, so a new snapshot starts unticked.
 
-The columns are three mods: `review-nav` (left: your pull requests),
-`review-page` (middle: the open pull request; with props `{ "part": "bar" }` it
-is also the top bar that drags the window) and `review-side` (right: Info and
-Chat). The open pull request is the shared `review-mode.open`, which
-`review-nav` sets and the other two show, as with its snapshot
-(`review-mode.snapshot`), the file shown (`review-mode.file`) and its Viewed
-files (`review-mode.viewed`). `review-nav` takes the keyboard when
-Review mode opens: `j`/`k` or the arrows move, `Enter` opens; it ignores any
+The columns are three mods: `review-nav` (left: your pull requests, or the open
+one's files), `review-page` (middle: the open pull request under its tabs; with
+props `{ "part": "bar" }` it is also the top bar that drags the window) and
+`review-side` (right: the Your review checklist, with checks, reviewers and
+labels at its foot). The open pull request is the shared `review-mode.open`,
+which `review-nav` sets and the other two show, as with its snapshot
+(`review-mode.snapshot`), the file shown (`review-mode.file`), its Viewed files
+(`review-mode.viewed`) and the tab (`review-mode.tab`), which any of them can
+change. A click on **Viewed** above the diff is passed to `review-nav` as
+`review-mode.toggle`, so only `review-nav` writes the state file. `review-nav`
+takes the keyboard when Review mode opens: `j`/`k` or the arrows move, `Enter`
+opens, and on the open pull request goes to its files; it ignores any
 key with Ctrl, Alt, Cmd or Shift, so chords reach their bindings. `C-a p` is
 bound only in the `layout:eric` and `layout:review` sections
 of `keys.json`, so it never goes to a third layout; `Cmd+Shift+L` still cycles
