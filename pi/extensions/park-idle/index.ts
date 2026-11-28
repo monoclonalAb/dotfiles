@@ -59,8 +59,17 @@ export function hasLiveChild(replies: string, terminal: string) {
   throw new Error("hc gave no terminal list");
 }
 
+// `input`: the terminal's raw input. Fullscreen Pi takes mouse wheel, clicks and focus
+// reports before ctx.ui.onTerminalInput listeners see them, so a person reading
+// by scrolling would look idle; stdin carries every byte.
+// Terminal replies, which arrive without anyone there (a light/dark switch makes
+// Pi query the colours): private CSI reports (ESC [ ? … c/n/u/$y), OSC, DCS and
+// APC strings. Anything else is a person: keys, the mouse, focus.
+const REPLIES = /\x1b\[\?[\d;:]*(?:\$y|[a-zA-Z])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][^\x1b]*\x1b\\/g;
+export const isActivity = (input: string) => input.replace(REPLIES, "").length > 0;
+
 export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment = process.env as ParkEnvironment,
-  parentPid = process.ppid) {
+  parentPid = process.ppid, input: NodeJS.ReadableStream = process.stdin) {
   const file = environment.PI_PARK_FILE;
   const seconds = Number(environment.PI_PARK_AFTER || PARK_AFTER_SECONDS);
   // A Pi the agent started inherits the variables but not the wrapper.
@@ -131,11 +140,13 @@ export function registerParkIdle(pi: ExtensionAPI, environment: ParkEnvironment 
     current = ctx;
     if (!ctx.hasUI) return;
     stopListening?.();
-    stopListening = ctx.ui.onTerminalInput(() => {
+    const onInput = (chunk: Buffer | string) => {
+      if (!isActivity(String(chunk))) return;
       inputs++;
       arm();
-      return undefined;
-    });
+    };
+    input.on("data", onInput);
+    stopListening = () => input.off("data", onInput);
     arm();
   });
   pi.on("agent_start", () => clearTimeout(timer));
