@@ -155,10 +155,13 @@ PI_PARK_PID=$$
 PI_PARK_ARGS=$replay_lines
 export PI_PARK_FILE PI_PARK_PID PI_PARK_ARGS
 [ -n "$start_session" ] || start_parked=false
-# Closing the pane signals its shell first; exiting through the trap removes the file.
-trap 'rm -f "$PI_PARK_FILE"' EXIT
-trap 'exit 129' HUP
-trap 'exit 143' TERM
+# Closing the pane can deliver several hangups. The first one cleans up and
+# ignores the rest: a hangup arriving while bash runs `exit` from the trap would
+# skip the EXIT trap and leave the file behind.
+cleanup() { rm -f "$PI_PARK_FILE"; }
+trap cleanup EXIT
+trap 'trap "" HUP TERM; cleanup; exit 129' HUP
+trap 'trap "" HUP TERM; cleanup; exit 143' TERM
 terminal=$(stty -g)
 
 # Herdr keeps listing the terminal as an idle Pi. Every key wakes it (Ctrl+C
