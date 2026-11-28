@@ -51,6 +51,7 @@ sys.exit(0 if step == "restart" else int(step[4:] or 0))
 IDLE = b"\x1b]7501;state=idle:app=pi\x1b\\"
 NOTE = b"Pi closed while idle"
 FOCUS_IN, FOCUS_OUT = b"\x1b[I", b"\x1b[O"
+CLICK, RELEASE = b"\x1b[<0;12;7M", b"\x1b[<0;12;7m"
 
 
 class Terminal:
@@ -159,7 +160,7 @@ class PiParkingTest(unittest.TestCase):
         self.assertEqual(t.proc.wait(10), 0)
 
     def test_focus_or_any_key_reopens_it(self):
-        for wake in (FOCUS_IN, b"\x03", b"\x04", b"q"):
+        for wake in (FOCUS_IN, CLICK, b"\x1b[<64;5;5M", b"\x03", b"\x04", b"q"):
             with self.subTest(wake=wake):
                 self.log.unlink(missing_ok=True)
                 t = self.start()
@@ -167,6 +168,31 @@ class PiParkingTest(unittest.TestCase):
                 t.type(wake)
                 self.assertTrue(t.wait_for(lambda: len(self.runs()) == 2))
                 self.assertEqual(self.runs()[1]["args"][-2:], ["--session", self.session])
+                self.assertEqual(t.proc.wait(10), 0)
+
+    def test_mouse_reporting_is_on_only_while_parked(self):
+        t = self.start(FAKE_PI_PLAN="park,quit")
+        self.parked(t)
+        self.assertIn(b"\x1b[?1000h\x1b[?1006h", t.output)
+        t.type(b"x")
+        self.assertEqual(t.proc.wait(10), 0)
+        self.assertIn(b"\x1b[?1006l\x1b[?1000l", t.output)
+
+    def test_a_click_or_focus_wakes_it_without_its_mouse_reports_reaching_pi(self):
+        # Clicking the pane that is already focused sends a press and a release; clicking
+        # another one sends focus-in first. Neither may reach Pi (a click there could open a link).
+        wheel16 = b"\x1b[<64;1000;1000M"  # 16 bytes: od would print a repeat of it as "*"
+        for gestures in ([CLICK, RELEASE], [FOCUS_IN, CLICK, RELEASE], [FOCUS_IN],
+                         [FOCUS_IN + CLICK * 8, RELEASE], [FOCUS_IN, wheel16 * 3, RELEASE]):
+            with self.subTest(gestures=gestures):
+                self.log.unlink(missing_ok=True)
+                t = self.start(FAKE_PI_READ="1")
+                self.parked(t)
+                for gesture in gestures:
+                    t.type(gesture)
+                    time.sleep(0.04)
+                self.assertTrue(t.wait_for(lambda: len(self.runs()) == 2))
+                self.assertEqual(bytes.fromhex(self.runs()[1]["stdin"]), b"")
                 self.assertEqual(t.proc.wait(10), 0)
 
     def test_keys_typed_after_waking_reach_pi(self):

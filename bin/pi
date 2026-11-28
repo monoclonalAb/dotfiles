@@ -6,7 +6,7 @@
 # Parking: in a terminal, Pi runs as a child so it can quit while idle and come
 # back. The park-idle extension writes the session file to PI_PARK_FILE and quits
 # Pi; this script then waits in the terminal, still reported to Herdr as an idle
-# Pi, and reopens that session when its pane gets focus or a key, or at once when
+# Pi, and reopens that session on focus, a click or a key, or at once when
 # PI_PARK_FILE.now exists too (/restart, after a Pi update). Runs whose options
 # a reopen could not repeat are exec'd as before and never park.
 set -eu
@@ -166,16 +166,38 @@ trap 'trap "" HUP TERM; cleanup; exit 129' HUP
 trap 'trap "" HUP TERM; cleanup; exit 143' TERM
 terminal=$(stty -g)
 
-# Herdr keeps listing the terminal as an idle Pi. Every key wakes it (Ctrl+C
-# too: the terminal goes raw before the note shows); a focus-out alone does not,
-# or leaving a parked pane would reopen it.
+# Whether a chunk of input (hex) is only mouse (SGR) and focus reports.
+only_mouse_or_focus() {
+    rest=$1
+    while [ -n "$rest" ]; do
+        case "$rest" in
+            1b5b49*|1b5b4f*) rest=${rest#??????} ;;
+            1b5b3c*)
+                rest=${rest#1b5b3c}
+                while :; do
+                    case "$rest" in
+                        3[0-9]*|3b*) rest=${rest#??} ;;
+                        4d*|6d*) rest=${rest#??}; break ;;
+                        *) return 1 ;;
+                    esac
+                done
+                ;;
+            *) return 1 ;;
+        esac
+    done
+}
+
+# Herdr keeps listing the terminal as an idle Pi. Focus, a click (on a pane that
+# is already focused, nothing else arrives) or any key wakes it (Ctrl+C too: the
+# terminal goes raw before the note shows); a focus-out alone does not, or
+# leaving a parked pane would reopen it.
 wait_for_return() {
     stty raw -echo
     printf '\033]7501;state=idle:app=pi\033\\'
-    printf '\r\n%s\r\n' 'Pi closed while idle to free memory. Press a key to reopen this conversation.'
-    printf '\033[?1004h'
+    printf '\r\n%s\r\n' 'Pi closed while idle to free memory. Click or press a key to reopen this conversation.'
+    printf '\033[?1004h\033[?1000h\033[?1006h'
     while :; do
-        input=$(dd bs=64 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        input=$(dd bs=1024 count=1 2>/dev/null | od -An -v -tx1 | tr -d ' \n')
         [ -n "$input" ] || exit 129
         rest=$input
         while :; do
@@ -186,7 +208,16 @@ wait_for_return() {
         done
         [ -z "$rest" ] || break
     done
-    printf '\033[?1004l'
+    printf '\033[?1006l\033[?1000l\033[?1004l'
+    # The rest of the click (its release, or press and release after a focus-in)
+    # must not reach Pi, where it could land on a link. A key ends the wait and is lost.
+    if only_mouse_or_focus "$input"; then
+        stty min 0 time 3
+        while :; do
+            more=$(dd bs=1024 count=1 2>/dev/null | od -An -v -tx1 | tr -d ' \n')
+            [ -n "$more" ] && only_mouse_or_focus "$more" || break
+        done
+    fi
     stty "$terminal"
     stty -echo -icanon -isig
 }

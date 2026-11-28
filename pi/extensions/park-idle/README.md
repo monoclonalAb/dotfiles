@@ -10,10 +10,11 @@ reopens the same conversation in about a second.
    and no agent run has started for two hours. The extension writes the
    session file to `PI_PARK_FILE` and quits Pi.
 3. The [`pi`](../../../bin/pi) wrapper, which started Pi as its child, prints
-   "Pi closed while idle to free memory. Press a key to reopen this
+   "Pi closed while idle to free memory. Click or press a key to reopen this
    conversation." It tells Herdr it is an idle Pi, so the sidebar, Mission
    control and `next-agent` keep the conversation.
-4. 15:00: you click the pane. The focus, or any key, reopens
+4. 15:00: you click the pane. The focus, the click (also on a pane that already
+   had focus), or any key reopens
    `pi --session <file>` with the run's trust and display flags.
 
 It does not park while something would be lost, and tries again two hours later:
