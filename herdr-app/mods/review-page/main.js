@@ -13,7 +13,15 @@
 
 import { View, div, uniform_list } from "gpui-kit";
 import { h_flex, v_flex, TextView } from "gpui-base";
-import { exec, home, props, settings, setShared, shared, theme } from "herdr";
+import { appHome, checking, exec, home, props, readTextFile, settings, setShared, shared, theme } from "herdr";
+// The Paper design's look (file "Review", frames "D · Mix"): the theme's
+// see-through surfaces made solid, and the theme file's own text colour,
+// which the app swaps for near-black in panels.
+const solid = (c) => (/^#[0-9a-f]{8}$/i.test(c ?? "") ? c.slice(0, 7) : c);
+export function lookOf(t, ink) {
+  return { ...t, background: solid(t.background), canvas: solid(t.canvas), chrome: solid(t.chrome), foreground: ink ?? t.foreground };
+}
+
 
 const OPEN = "review-mode.open", SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWED = "review-mode.viewed";
 const TAB = "review-mode.tab", TOGGLE = "review-mode.toggle";
@@ -117,23 +125,43 @@ export default class ReviewPage extends View {
   }
 
   render(cx) {
-    const t = theme();
+    const t = lookOf(theme(), this.ink(cx));
     const pr = shared(OPEN);
-    if (this.bar) return this.renderBar(t, pr);
+    if (this.bar) return this.renderBar(t, pr).bg(t.canvas).line_height(1.25);
+    // The canvas round the sheet stands in for the layout's gaps.
+    const sheet = (inner) => v_flex().size_full().bg(t.canvas).pt(8).px(8).pb(8).line_height(1.25)
+      .child(inner.flex_1().min_h(0).rounded(14).bg(t.background).overflow_hidden());
     if (!pr) {
-      return v_flex().id("review-page").size_full().items_center().justify_center().gap(8)
+      return sheet(v_flex().id("review-page").items_center().justify_center().gap(8)
         .child(div().text_size(20).font_extrabold().text_color(t.foreground).child("No pull request open"))
-        .child(div().text_size(15).text_color(t.muted).child("Pick one on the left with j, k and ↵."));
+        .child(div().text_size(15).text_color(t.muted).child("Pick one on the left with j, k and ↵.")));
     }
     const snap = shared(SNAPSHOT);
     const pinned = snap?.status === "ready" && snap.pr === pr.url;
     const tab = shared(TAB) ?? "description";
     const body = tab === "files" ? this.renderFiles(t, pr, snap, cx) : tab === "checks" ? this.renderChecks(t, pr) : this.renderDescription(t, pr);
-    return v_flex().id("review-page").size_full()
+    return sheet(v_flex().id("review-page")
       .child(tab === "files" ? this.renderTitleLine(t, pr) : this.renderTitle(t, pr, pinned ? snap : null))
       .child(this.renderTabs(t, pr, pinned ? snap : null, tab))
-      .child(body);
+      .child(body));
   }
+
+  // The theme file's text colour, read once per theme.
+  ink(cx) {
+    const name = settings().theme;
+    if (name !== this.inkTheme) {
+      this.inkTheme = name;
+      this.inkColor = null;
+      if (name && !checking()) cx.spawn(async (cx) => {
+        try {
+          const file = JSON.parse(await readTextFile(`${appHome()}/themes/${name}.json`));
+          if (this.inkTheme === name && /^#[0-9a-f]{6}$/i.test(file?.foreground ?? "")) { this.inkColor = file.foreground; cx.notify(); }
+        } catch { /* a built-in theme, or unreadable: the app's colour */ }
+      });
+    }
+    return this.inkColor;
+  }
+
 
   renderBar(t, pr) {
     const slash = (text) => div().text_size(14).text_color(t.dim).child(text);

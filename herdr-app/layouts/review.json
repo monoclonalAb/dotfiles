@@ -37,9 +37,7 @@
           "type": "block",
           "content": {
             "mod": "review-page"
-          },
-          "background": "background",
-          "radius": 14
+          }
         },
         {
           "id": "review-side",
@@ -51,13 +49,11 @@
             "px": 400
           },
           "min": 300,
-          "max": 700,
-          "background": "background",
-          "radius": 12
+          "max": 700
         }
       ],
-      "padding": 8,
-      "gap": 8
+      "padding": 0,
+      "gap": 0
     }
   ],
   "background": "canvas",
