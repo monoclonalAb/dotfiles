@@ -268,13 +268,14 @@ export default class ReviewPage extends View {
     const number = (n, kind) => h_flex().w(56).h(ROW).flex_none().justify_end().items_center().pr(10)
       .when(!!gutter[kind], (el) => el.bg(gutter[kind]))
       .child(div().text_size(13).font_family(mono()).text_color(t.dim).child(n === null ? "" : String(n)));
-    const list = this.height > 0 && uniform_list("review-diff-lines", count, (i) => `${diff.key}\n${i}`, (range) => {
+    // Rows can't hold click handlers (the app throws); the list's own
+    // on_item_click gets the clicked row's key.
+    const list = this.height > 0 && uniform_list("review-diff-lines", count, (i) => (i < rows.length ? `${diff.key}\n${i}` : `${diff.key}\nmore`), (range) => {
       const out = [];
       for (let i = range.start; i < range.end; i++) {
         const row = rows[i];
         if (!row) {
           out.push(h_flex().id(`diff-more-${i}`).h(ROW).px(16).items_center().cursor_pointer()
-            .on_click((_e, cx) => { this.more(file, cx); cx.notify(); })
             .child(div().text_size(13).text_color(diff.error ? t.blocked : t.accent).child(diff.error ?? (diff.loading ? "Loading…" : "Load 2000 more lines"))));
         } else if (row.kind === "hunk") {
           const [, at, rest] = /^(@@[^@]*@@)(.*)$/.exec(row.text) ?? [null, row.text, ""];
@@ -293,7 +294,7 @@ export default class ReviewPage extends View {
         }
       }
       return out;
-    }).h(Math.max(0, this.height - 2));
+    }).on_item_click((key, cx) => { if (key.endsWith("\nmore")) { this.more(file, cx); cx.notify(); } }).h(Math.max(0, this.height - 2));
     return v_flex().flex_1().min_h(0).child(header)
       .child(v_flex().flex_1().min_h(0).px(PAD).pb(24)
         .child(div().id("review-diff-box").flex_1().min_h(0).rounded(10).border(1).border_color(t.border).overflow_hidden()

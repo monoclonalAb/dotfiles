@@ -321,6 +321,8 @@ export default class ReviewNav extends View {
     // nobody left to finish it: take it again.
     const open = shared(OPEN), snap = shared(SNAPSHOT);
     if (open && snap?.pr === open.url && snap.status === "loading") this.snapshot(open, cx);
+    // Or stopped between the snapshot and reading its Viewed ticks.
+    else if (open && snap?.pr === open.url && snap.status === "ready" && !(shared(VIEWED)?.snapshot === snap.snapshot && shared(VIEWED)?.pr === open.url)) this.readViewed(open.url, snap.snapshot, cx);
     cx.spawn(async (cx) => {
       const kept = keptList(await readTextFile(keptPath()).catch(() => null));
       if (!kept || this.list) return; // a fresh list came first
@@ -450,11 +452,19 @@ export default class ReviewNav extends View {
         const file = shared(FILE);
         const kept = file?.pr === pr.url && next.files.some((f) => f.path === file.path);
         if (next.files.length) setShared(FILE, { pr: pr.url, snapshot: next.snapshot, path: kept ? file.path : next.files[0].path });
-        const text = await readTextFile(statePath(home(), pr.url)).catch(() => null);
-        // Unless a tick saved meanwhile (it set VIEWED from a newer read).
-        if (shared(SNAPSHOT)?.snapshot === next.snapshot && shared(SNAPSHOT)?.pr === pr.url && !shared(VIEWED)) {
-          setShared(VIEWED, { pr: pr.url, snapshot: next.snapshot, paths: viewedIn(text, pr.url, next.snapshot) });
-        }
+        this.readViewed(pr.url, next.snapshot, cx);
+      }
+      cx.notify();
+    });
+  }
+
+  readViewed(url, snapshot, cx) {
+    cx.spawn(async (cx) => {
+      const text = await readTextFile(statePath(home(), url)).catch(() => null);
+      // Unless a tick saved meanwhile (it set VIEWED from a newer read).
+      const v = shared(VIEWED);
+      if (shared(SNAPSHOT)?.snapshot === snapshot && shared(SNAPSHOT)?.pr === url && !(v?.snapshot === snapshot && v.pr === url)) {
+        setShared(VIEWED, { pr: url, snapshot, paths: viewedIn(text, url, snapshot) });
       }
       cx.notify();
     });
@@ -483,8 +493,18 @@ export default class ReviewNav extends View {
   tick(path, cx) {
     const snap = shared(SNAPSHOT);
     if (snap?.status !== "ready" || !path) return;
-    const on = !(shared(VIEWED)?.paths ?? []).includes(path);
+    // A second press before the first is saved undoes it, so it counts from
+    // the first's intent, not from the screen.
+    this.pending ??= new Map();
+    const key = `${snap.snapshot}\n${path}`;
+    const on = this.pending.has(key) ? !this.pending.get(key) : !(shared(VIEWED)?.paths ?? []).includes(path);
+    this.pending.set(key, on);
+    // One save at a time, in order; each in its own task (its cx may wait).
+    const before = this.saving ?? Promise.resolve();
+    let done;
+    this.saving = new Promise((resolve) => { done = resolve; });
     cx.spawn(async (cx) => {
+      await before;
       try {
         const paths = await saveViewed({ read: readTextFile, write: writeTextFile }, home(), snap.pr, snap.snapshot, path, on);
         if (shared(SNAPSHOT)?.snapshot === snap.snapshot && shared(SNAPSHOT)?.pr === snap.pr) setShared(VIEWED, { pr: snap.pr, snapshot: snap.snapshot, paths });
@@ -492,6 +512,8 @@ export default class ReviewNav extends View {
       } catch (e) {
         this.error = String(e?.message ?? e).split("\n")[0];
       }
+      if (this.pending.get(key) === on) this.pending.delete(key);
+      done();
       cx.notify();
     });
   }
@@ -506,8 +528,10 @@ export default class ReviewNav extends View {
     } else if (step === "open") {
       // Enter on the open pull request goes on to its files.
       const pr = this.prs().find((p) => p.url === this.selected);
-      if (pr && pr.url === shared(OPEN)?.url) setShared(TAB, "files");
-      else this.open(pr, cx);
+      if (pr && pr.url === shared(OPEN)?.url) {
+        setShared(TAB, "files");
+        if (shared(SNAPSHOT)?.status === "error") this.snapshot(pr, cx); // try again
+      } else this.open(pr, cx);
     } else if (typeof step === "number") this.move(step);
     cx.notify();
   }

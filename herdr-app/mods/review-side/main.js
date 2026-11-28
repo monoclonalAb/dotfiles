@@ -15,6 +15,10 @@ import { setShared, shared, theme } from "herdr";
 
 const OPEN = "review-mode.open", SNAPSHOT = "review-mode.snapshot", FILE = "review-mode.file", VIEWED = "review-mode.viewed";
 const TAB = "review-mode.tab";
+// The snapshot whose description you left for another tab ({ pr, snapshot }),
+// so step 1 stays done when you come back to it.
+const READ = "review-mode.read";
+const REVIEWERS_SHOWN = 4;
 
 const base = (path) => path.slice(path.lastIndexOf("/") + 1);
 // A theme colour with alpha ("40" of "ff"), or null if it isn't #rrggbb[aa].
@@ -35,27 +39,28 @@ export function nextUnviewed(files, viewed, current) {
 
 // The four steps of a review ({ title, sub, state: "done" | "now" | "todo" }),
 // how many are done, and the button's action. The description counts as read
-// once you move on from it or tick a file; `files` is null until the
-// snapshot is in.
-export function reviewSteps({ tab, files, viewed }) {
+// once you have moved on from it (`read`) or ticked a file; `files` is null
+// until the snapshot is in, `failed` its error, `total` the changed files
+// past the listed ones.
+export function reviewSteps({ tab, files, viewed, read = false, total = null, failed = null }) {
   const seen = new Set(viewed ?? []);
-  const n = files?.length ?? 0;
+  const n = Math.max(total ?? 0, files?.length ?? 0);
   const k = (files ?? []).filter((f) => seen.has(f.path)).length;
-  const described = (tab ?? "description") !== "description" || k > 0;
+  const described = read || (tab ?? "description") !== "description" || k > 0;
   const allRead = !!files && k === n;
   const next = files ? nextUnviewed(files, [...seen], null) : null;
   const steps = [
     { title: "Read the description", sub: described ? "Done" : "What the pull request says it does", state: described ? "done" : "now" },
     {
       title: "Read the files",
-      sub: !files ? "Taking a snapshot…" : allRead || !next ? `${k} of ${n} viewed` : `${k} of ${n} viewed · next: ${base(next)}`,
+      sub: failed ? `Snapshot failed: ${failed} · ↵ on the pull request tries again` : !files ? "Taking a snapshot…" : allRead || !next ? `${k} of ${n} viewed` : `${k} of ${n} viewed · next: ${base(next)}`,
       state: allRead ? "done" : described ? "now" : "todo",
     },
     { title: "Walk the tour", sub: "Not available yet", state: "todo" },
     { title: "Submit your review", sub: "Not available yet", state: "todo" },
   ];
   const action = !files || allRead ? null
-    : tab === "files" ? { label: "Next file", key: "j", go: "next" }
+    : tab === "files" ? { label: "Next file", key: null, go: "next" }
       : { label: "Start with the files", key: "↵", go: "files" };
   return { steps, done: steps.filter((s) => s.state === "done").length, action };
 }
@@ -80,7 +85,11 @@ export default class ReviewSide extends View {
     const v = shared(VIEWED);
     const viewed = ready && v?.snapshot === snap.snapshot && v.pr === pr.url ? v.paths : [];
     const tab = shared(TAB) ?? "description";
-    const { steps, done, action } = reviewSteps({ tab, files: ready ? snap.files : null, viewed });
+    // Leaving the description marks it read for this snapshot.
+    const read = ready && shared(READ)?.pr === pr.url && shared(READ)?.snapshot === snap.snapshot;
+    if (ready && !read && tab !== "description") setShared(READ, { pr: pr.url, snapshot: snap.snapshot });
+    const failed = snap?.pr === pr.url && snap.status === "error" ? snap.error : null;
+    const { steps, done, action } = reviewSteps({ tab, files: ready ? snap.files : null, viewed, read, total: ready ? snap.changed_files : null, failed });
     const green = t.ansi2 ?? t.done;
     const onAccent = t.accent_foreground ?? t.background;
 
@@ -119,11 +128,12 @@ export default class ReviewSide extends View {
       .when(!!action, (el) => el.child(h_flex().id("review-action").gap(10).py(12).rounded(10).bg(t.accent).items_center().justify_center().cursor_pointer()
         .on_click((_e, cx) => go(cx))
         .child(div().text_size(15).font_extrabold().text_color(onAccent).child(action.label))
-        .child(div().px(6).py(1).rounded(5).bg(faint(onAccent, "40") ?? t.accent).text_size(12).text_color(onAccent).child(action.key))))
+        .when(!!action.key, (el) => el.child(div().px(6).py(1).rounded(5).bg(faint(onAccent, "40") ?? t.accent).text_size(12).text_color(onAccent).child(action.key)))))
       .child(div().flex_1())
       .child(v_flex().gap(8).pt(16).border_t(1).border_color(t.border)
         .child(fact(checkTone, "Checks", c.total ? `${c.passed} of ${c.total} passed` : "none"))
-        .children((pr.reviewers ?? []).map((r) => fact(reviewTone[r.state] ?? t.dim, r.name, REVIEW[r.state] ?? r.state.toLowerCase())))
+        .children((pr.reviewers ?? []).slice(0, REVIEWERS_SHOWN).map((r) => fact(reviewTone[r.state] ?? t.dim, r.name, REVIEW[r.state] ?? r.state.toLowerCase())))
+        .when((pr.reviewers ?? []).length > REVIEWERS_SHOWN, (el) => el.child(div().text_size(14).text_color(t.muted).child(`and ${pr.reviewers.length - REVIEWERS_SHOWN} more reviewers`)))
         .child(div().text_size(14).text_color(t.muted).child(pr.labels?.length ? pr.labels.join(" · ") : "No labels")));
   }
 }
