@@ -343,11 +343,6 @@ The global servers:
   Beacon productivity app. Its `Authorization` header is a `!` command that
   reads the bearer secret from `~/.config/launchpad/secrets/mcp.secret` at
   connect time; keep that value outside this repository.
-- **hark** starts through [`bin/hark-mcp`](../bin/hark-mcp), which resolves
-  Node and runs the personal assistant server at
-  `~/Desktop/projects/personal/hark-mcp/server.mjs` (override with
-  `HARK_MCP_HOME`). That project lives outside this repository; moving it is a
-  one-line change in the launcher.
 - **gmail** (read-only) and **gmail-send** both start
   [`bin/gmail-mcp`](../bin/gmail-mcp), which runs
   `~/Desktop/projects/personal/gmail-mcp/server.mjs` (override with
@@ -380,7 +375,7 @@ Ported from Pi on 2026-10-20; the two files are maintained separately.
 read-only `gcloud` and `gcp-observability`, local
 [`workspace-context`](../lib/workspace-context-mcp/README.md), and the servers
 ported from `pi/mcp.json` (`linear`, `notion`, `exa`, `firecrawl`, `paper`,
-`beacon`, `hark`). OMP keeps its own OAuth sign-ins: run `/mcp reauth <name>`
+`beacon`). OMP keeps its own OAuth sign-ins: run `/mcp reauth <name>`
 once for linear, notion and firecrawl. Everything else is disabled. This
 repository enables Context7, DeepWiki and grep.app in
 [`.omp/mcp.json`](../.omp/mcp.json).

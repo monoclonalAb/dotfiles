@@ -92,7 +92,7 @@ def stdio_servers(paths):
 
 def is_server(command_line, servers):
     """Whether `ps` shows one of these servers. The wrappers exec Node on a file in
-    a folder named like the wrapper (hark-mcp runs .../hark-mcp/server.mjs), and
+    a folder named like the wrapper (gmail-mcp runs .../gmail-mcp/server.mjs), and
     npm-mcp consumes its first argument, the package, into that path."""
     words = command_line.split()
     for command, args in servers:

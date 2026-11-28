@@ -52,11 +52,6 @@
       },
       "description": "Read and change Beacon (the owner's productivity app on this Mac): tasks, habits, events, Calendar.app, books, finances, Screen Time and notes. Call beacon_get_context first."
     },
-    "hark": {
-      "command": "~/.local/bin/hark-mcp",
-      "exposure": "codemode",
-      "description": "Hark personal assistant (unofficial API): read/send conversations, wait for replies, answer asks"
-    },
     "gmail": {
       "command": "~/.local/bin/gmail-mcp",
       "args": ["serve", "--access", "read"],
