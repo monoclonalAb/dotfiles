@@ -120,11 +120,13 @@ test("scrolling or clicking the transcript puts it off too", async () => {
 test("the terminal's own reports are not activity", async () => {
   // A light/dark switch: the scheme report, then the replies to Pi's colour queries.
   for (const reports of ["\x1b[?997;1n", "\x1b]11;rgb:ffff/ffff/ffff\x07\x1b[?1;2c", "\x1b]10;rgb:0/0/0\x1b\\", "\x1b[?2026;2$y"]) {
-    const h = harness();
+    // A 0.6 s period: on time it parks at about 0.61 s; a report at 0.3 s that reset
+    // the timer would push it past 0.9 s. (At 50 ms the checks alone took up to 64 ms.)
+    const h = harness({}, { PI_PARK_AFTER: "0.6" });
     h.emit("session_start", { reason: "startup" });
-    await sleep(AFTER * 600);
+    await sleep(300);
     h.report(reports);
-    await sleep(AFTER * 600);
+    await sleep(460);
     assert.equal(h.shutdowns, 1, `parked on time after ${JSON.stringify(reports)}`);
   }
 });
