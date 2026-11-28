@@ -161,7 +161,7 @@ export default class ReviewPage extends View {
         .child(h_flex().gap(10).items_center()
           .child(div().flex_none().text_size(13).font_extrabold().text_color(tone).child(label.toUpperCase()))
           .child(div().truncate().text_size(13).text_color(t.dim).child(`${pr.repo} #${pr.number}${when ? ` · opened ${when}` : ""}`)))
-        .child(div().text_size(40).line_height(46).font_extrabold().text_color(t.foreground).child(pr.title)))
+        .child(div().text_size(40).line_height("46px").font_extrabold().text_color(t.foreground).child(pr.title)))
       .child(h_flex().gap(14).items_center()
         .child(div().size(28).flex_none().rounded_full().bg(t.accent).flex().items_center().justify_center()
           .child(div().text_size(13).font_extrabold().text_color(t.accent_foreground ?? t.background).child(author[0].toUpperCase())))

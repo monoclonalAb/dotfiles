@@ -63,7 +63,7 @@
   "background": "canvas",
   "window_blur": true,
   "font": "Maple Mono NF",
-  "ui_font": "Nunito",
+  "ui_font": "SF Pro Rounded",
   "titlebar": "none",
   "traffic_lights": [
     12,
