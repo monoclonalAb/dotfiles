@@ -109,7 +109,7 @@ export default class ReviewSide extends View {
         .child(div().text_size(14).font_extrabold().text_color(s.state === "todo" ? t.dim : onAccent).child(s.state === "done" ? "✓" : String(i + 1))))
       .child(v_flex().flex_1().min_w(0).gap(2).pt(4)
         .child(div().text_size(16).font_extrabold().text_color(s.state === "todo" ? t.muted : t.foreground).when(s.state === "done", (el) => el.line_through()).child(s.title))
-        .child(div().text_size(14).line_height(20).text_color(t.muted).child(s.sub)));
+        .child(div().text_size(14).line_height("20px").text_color(t.muted).child(s.sub)));
 
     const go = (cx) => {
       if (action.go === "files") setShared(TAB, "files");
