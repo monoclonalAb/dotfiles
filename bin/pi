@@ -6,7 +6,8 @@
 # Parking: in a terminal, Pi runs as a child so it can quit while idle and come
 # back. The park-idle extension writes the session file to PI_PARK_FILE and quits
 # Pi; this script then waits in the terminal, still reported to Herdr as an idle
-# Pi, and reopens that session when its pane gets focus or a key. Runs whose options
+# Pi, and reopens that session when its pane gets focus or a key, or at once when
+# PI_PARK_FILE.now exists too (/restart, after a Pi update). Runs whose options
 # a reopen could not repeat are exec'd as before and never park.
 set -eu
 
@@ -153,12 +154,13 @@ mkdir -p "$park_dir" 2>/dev/null && chmod 700 "$park_dir" || exec "$real_pi" "$@
 PI_PARK_FILE=$park_dir/$$
 PI_PARK_PID=$$
 PI_PARK_ARGS=$replay_lines
-export PI_PARK_FILE PI_PARK_PID PI_PARK_ARGS
+PI_PARK_NOW=$$
+export PI_PARK_FILE PI_PARK_PID PI_PARK_ARGS PI_PARK_NOW
 [ -n "$start_session" ] || start_parked=false
 # Closing the pane can deliver several hangups. The first one cleans up and
 # ignores the rest: a hangup arriving while bash runs `exit` from the trap would
 # skip the EXIT trap and leave the file behind.
-cleanup() { rm -f "$PI_PARK_FILE"; }
+cleanup() { rm -f "$PI_PARK_FILE" "$PI_PARK_FILE.now"; }
 trap cleanup EXIT
 trap 'trap "" HUP TERM; cleanup; exit 129' HUP
 trap 'trap "" HUP TERM; cleanup; exit 143' TERM
@@ -190,7 +192,7 @@ wait_for_return() {
 }
 
 while :; do
-    rm -f "$PI_PARK_FILE"
+    rm -f "$PI_PARK_FILE" "$PI_PARK_FILE.now"
     status=0
     if [ "$start_parked" = true ]; then
         start_parked=false
@@ -203,7 +205,7 @@ while :; do
         exit "$status"
     fi
     session=$(cat "$PI_PARK_FILE")
-    wait_for_return
+    [ -e "$PI_PARK_FILE.now" ] || wait_for_return
     eval "set -- $replay"
     set -- "$@" --session "$session"
 done

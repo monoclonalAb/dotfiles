@@ -1,6 +1,6 @@
 // bun test ./pi/extensions/restart/*.test.ts
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock, test } from "bun:test";
@@ -157,6 +157,44 @@ test("/restart keeps Pi open when it could not reopen the conversation", async (
   }
   const outside = cases[2].h;
   assert.match(outside.notes[0][0], /pi --session '\/s\/fix it'\\''s\.jsonl'/, "says what to run instead");
+});
+
+test("/restart under the pi wrapper hands the session to it and quits: no helper, no hc, any terminal", async () => {
+  for (const env of [{ HC_TERMINAL_ID: "t7" }, {}]) {
+    const park = join(mkdtempSync(join(tmpdir(), "restart-")), "park");
+    const h = harness({ env: { ...env, PI_PARK_FILE: park, PI_PARK_PID: "900", PI_PARK_NOW: "900" }, parentPid: 900 });
+    await h.restart();
+    assert.equal(readFileSync(park, "utf8"), "/s/fix it's.jsonl");
+    assert.ok(existsSync(`${park}.now`), "reopen at once, not when focused");
+    assert.deepEqual([h.execs, h.launched, h.notes, h.shutdowns], [[], [], [], 1]);
+  }
+  const busy = harness({ env: { PI_PARK_FILE: "/nowhere/park", PI_PARK_PID: "900", PI_PARK_NOW: "900" }, parentPid: 900 }, { idle: false });
+  await busy.restart();
+  assert.deepEqual([busy.shutdowns, busy.notes[0]?.[1]], [0, "warning"]);
+  const other = harness({ env: { HC_TERMINAL_ID: "t7", PI_PARK_FILE: "/nowhere/park", PI_PARK_PID: "901", PI_PARK_NOW: "901" }, parentPid: 900 });
+  await other.restart();
+  assert.equal(other.launched.length, 1, "another Pi's wrapper: the helper, as before");
+  const older = harness({ env: { HC_TERMINAL_ID: "t7", PI_PARK_FILE: "/nowhere/park", PI_PARK_PID: "900" }, parentPid: 900 });
+  await older.restart();
+  assert.equal(older.launched.length, 1, "a wrapper started before it could reopen at once: the helper");
+  const inherited = harness({ env: { HC_TERMINAL_ID: "t7", PI_PARK_FILE: "/nowhere/park", PI_PARK_PID: "900", PI_PARK_NOW: "800" }, parentPid: 900 });
+  await inherited.restart();
+  assert.equal(inherited.launched.length, 1, "an older wrapper that inherited a newer one's PI_PARK_NOW: the helper");
+});
+
+test("/restart that cannot hand over the session keeps Pi open and leaves no reopen-at-once mark", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "restart-"));
+  const park = join(dir, "park");
+  mkdirSync(park); // the session file cannot be written over a folder
+  const h = harness({ env: { PI_PARK_FILE: park, PI_PARK_PID: "900", PI_PARK_NOW: "900" }, parentPid: 900 });
+  await h.restart();
+  assert.deepEqual([h.shutdowns, h.notes[0]?.[1], existsSync(`${park}.now`)], [0, "error", false]);
+  rmSync(park, { recursive: true });
+  // A session path cut short by a failed write must not turn a later quit into a park.
+  const partial = harness({ env: { PI_PARK_FILE: park, PI_PARK_PID: "900", PI_PARK_NOW: "900" }, parentPid: 900,
+    write: (path: string, text: string) => { if (path === park) { writeFileSync(path, text.slice(0, 5)); throw new Error("EFBIG"); } writeFileSync(path, text); } });
+  await partial.restart();
+  assert.deepEqual([partial.shutdowns, existsSync(park), existsSync(`${park}.now`)], [0, false, false]);
 });
 
 test("quoting survives single quotes", () => {

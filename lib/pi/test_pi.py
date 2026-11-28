@@ -18,7 +18,8 @@ from pathlib import Path
 WRAPPER = Path(__file__).resolve().parents[2] / "bin" / "pi"
 
 # Each run appends what it saw to FAKE_PI_LOG, then does the next FAKE_PI_PLAN
-# step: park (write FAKE_SESSION to PI_PARK_FILE), park7 (also exit 7), quit, quit3.
+# step: park (write FAKE_SESSION to PI_PARK_FILE), park7 (also exit 7), quit, quit3,
+# restart (park and ask for an immediate reopen, as /restart does).
 FAKE_PI = """#!/usr/bin/python3
 import json, os, select, sys, termios, time, tty
 log = os.environ["FAKE_PI_LOG"]
@@ -37,12 +38,14 @@ if runs and os.environ.get("FAKE_PI_READ"):
 with open(log, "a") as f:
     f.write(json.dumps({"args": sys.argv[1:], "pid": os.getpid(), "ppid": os.getppid(),
                         "park_file": os.environ.get("PI_PARK_FILE"), "park_pid": os.environ.get("PI_PARK_PID"),
-                        "park_args": os.environ.get("PI_PARK_ARGS"),
+                        "park_args": os.environ.get("PI_PARK_ARGS"), "park_now": os.environ.get("PI_PARK_NOW"),
                         "stdin": got.hex()}) + "\\n")
-if step.startswith("park") and "PI_PARK_FILE" in os.environ:
+if step.startswith(("park", "restart")) and "PI_PARK_FILE" in os.environ:
+    if step == "restart":
+        open(os.environ["PI_PARK_FILE"] + ".now", "w").close()
     with open(os.environ["PI_PARK_FILE"], "w") as f:
         f.write(os.environ["FAKE_SESSION"])
-sys.exit(int(step[4:] or 0))
+sys.exit(0 if step == "restart" else int(step[4:] or 0))
 """
 
 IDLE = b"\x1b]7501;state=idle:app=pi\x1b\\"
@@ -141,6 +144,7 @@ class PiParkingTest(unittest.TestCase):
         self.assertTrue(first["park_file"].startswith(self.env["XDG_STATE_HOME"]))
         self.assertEqual(first["park_args"], "-a\n--session-dir\n/s d/x\n-ne\n-e\nbuiltin:mcp\n--no-skills\n--tui-mode\nfullscreen\n",
                          "the replayed flags, one per line, for herdr-app-resume to label")
+        self.assertEqual(first["park_now"], str(t.proc.pid), "tells /restart this wrapper reopens at once on PI_PARK_FILE.now")
         self.assertIsNone(t.proc.poll())
 
         t.type(FOCUS_OUT)
@@ -208,6 +212,13 @@ class PiParkingTest(unittest.TestCase):
         t.type(b"x")
         self.assertTrue(t.wait_for(lambda: len(self.runs()) == 2))
         self.assertEqual(self.runs()[1]["args"][:3], ["--session-dir", "", "--no-approve"])
+
+    def test_a_restart_reopens_at_once_without_waiting(self):
+        t = self.start("-a", "--model", "m", "--", "hello", FAKE_PI_PLAN="restart,quit")
+        self.assertEqual(t.proc.wait(10), 0)
+        self.assertEqual([r["args"] for r in self.runs()][1], ["-a", "--no-skills", "--tui-mode", "fullscreen", "--session", self.session])
+        self.assertNotIn(NOTE, t.output)
+        self.assertEqual(list((Path(self.env["XDG_STATE_HOME"]) / "pi-park").iterdir()), [])
 
     def test_a_parked_start_waits_before_running_pi(self):
         # What pi-resume types into a terminal that a reboot brought back while it was parked.
